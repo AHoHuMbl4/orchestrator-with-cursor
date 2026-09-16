@@ -108,6 +108,9 @@ if [ "$HAVE_PY" = "1" ]; then
 }
 EOF
   echo "  .codex/hooks.json (после первого запуска codex: /hooks -> доверить)"
+  mkdir -p "$HOME/.codex/prompts"
+  cp "$KIT/commands/codex-orch-menu.md" "$HOME/.codex/prompts/orch-menu.md"
+  echo "  ~/.codex/prompts/orch-menu.md (команда /orch-menu в Codex)"
 else
   echo "  .codex/hooks.json пропущен (нет python)"
 fi

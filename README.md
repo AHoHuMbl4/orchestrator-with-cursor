@@ -37,7 +37,7 @@ touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
 |---|---|---|
 | Claude Code | nothing — works right away | ask the agent "which skills are available?" → `orchestration` |
 | Codex CLI | once: `/hooks` → trust the orchestration hooks (mandatory trust gate) | `$orchestration` resolves |
-| Kimi Code | `/reload` in a live session or restart kimi | `/orchestration` resolves |
+| Kimi Code | `/reload` in a live session or restart kimi | `/skill:orchestration` resolves |
 
 All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
 (auto-picks a free port). The panel has an on/off toggle, task (compass),
@@ -46,8 +46,8 @@ interval, models, and the Cursor API token field.
 
 ## Cursor API token (for the "Cursor cloud" executor mode)
 
-1. Log in at **cursor.com** → open **Dashboard / Settings → API → API Keys** →
-   **Create key** → copy it (shown once).
+1. Log in at **cursor.com**, open **cursor.com/dashboard → API Keys** →
+   **New API Key** → copy it (shown once).
 2. Requires a **paid Cursor plan**; billing is per model tokens actually used,
    not per wall-clock time.
 3. Paste the key into the **"Cursor API token"** field on the panel's main
@@ -89,8 +89,16 @@ subagents) needs no keys at all.
 
 ```
 install-local.sh   installer (main entry)
+install.sh         alternative: kit-inside-repo mode
+commands/          /orch-menu command files (Claude, Codex)
 panel/             settings panel (python3 stdlib, no dependencies)
-bin/reground.py    course-check engine (hooks for all three engines)
+params.json, compass.md   default templates (seeded into .orchestration/)
+bin/               orchlib (core), reground (course-check hooks),
+                   menu (validated settings), discover (model snapshot),
+                   run-exec (local cursor-agent), run-cloud (Cursor Cloud)
+skills/orchestration/  the skill (SKILL.md + references)
+hooks/             hook snippets for Claude / Codex / Kimi
+SHA256SUMS         checksums, verified by the installer
 bin/run-exec.py    local cursor-agent runner (prompt from file, EXIT in log)
 bin/run-cloud.py   Cursor Cloud Agents API runner
 bin/menu.py        deterministic settings menu (validated writes)

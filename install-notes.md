@@ -15,10 +15,12 @@
 5. Проверка: спросите агента «какие скиллы доступны?» — должен быть
    orchestration; «меню» — покажет параметры пачки.
 
-Состав kit: skills/orchestration (доктрина), bin/ (reground — сверка курса,
-menu — детерминированное меню, run-exec — локальный cursor-agent, run-cloud —
-облако Cursor, discover — снимок моделей), hooks/ (сниппеты), panel/ (опция),
-install.sh (режим «kit внутри репо»), install-local.sh (локальный режим).
+Состав kit: skills/orchestration (скилл: SKILL.md + references), commands/
+(файлы команды /orch-menu для Claude и Codex), bin/ (orchlib — общее ядро,
+reground — сверка курса, menu — детерминированное меню, run-exec — локальный
+cursor-agent, run-cloud — облако Cursor, discover — снимок моделей),
+hooks/ (сниппеты), panel/ (панель настроек), params.json и compass.md
+(шаблоны), install.sh (режим «kit внутри репо»), install-local.sh (главный).
 
 
 Портативный набор: параметры пачки (params.json + compass), динамическое

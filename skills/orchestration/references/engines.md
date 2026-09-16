@@ -2,7 +2,7 @@
 
 ## Claude Code
 
-- Субагенты: Task tool; headless-запуск оркестратора с субагентами —
+- Субагенты: инструмент Agent (в ранних версиях Task); headless-запуск оркестратора с субагентами —
   `claude --agents '{"имя":{"description":...,"prompt":...,"tools":[...],"model":"..."}}'`
   (или файлы `.claude/agents/*.md`).
 - Вызов скилла: `/orchestration`.

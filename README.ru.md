@@ -37,7 +37,7 @@ bash orchestration-kit/install-local.sh
 |---|---|---|
 | Claude Code | ничего — работает сразу | спросить агента «какие скиллы доступны?» → `orchestration` |
 | Codex CLI | один раз: `/hooks` → доверить хуки orchestration (обязательный trust) | `$orchestration` доступен |
-| Kimi Code | `/reload` в живой сессии или рестарт kimi | `/orchestration` доступен |
+| Kimi Code | `/reload` в живой сессии или рестарт kimi | `/skill:orchestration` доступен |
 
 Настройки: `./panel.sh` → http://127.0.0.1:8765 (сам займёт свободный порт).
 В панели: тумблер вкл/выкл, задача (compass), исполнители на задачу, критики,
@@ -89,8 +89,16 @@ bash orchestration-kit/install-local.sh
 
 ```
 install-local.sh   установщик (главный вход)
+install.sh         альтернатива: режим «kit внутри репо»
+commands/          файлы команды /orch-menu (Claude, Codex)
 panel/             панель настроек (python3 stdlib, без зависимостей)
-bin/reground.py    движок сверки курса (хуки трёх движков)
+params.json, compass.md   шаблоны по умолчанию (сеются в .orchestration/)
+bin/               orchlib (ядро), reground (сверка курса, хуки),
+                   menu (валидированное меню), discover (снимок моделей),
+                   run-exec (локальный cursor-agent), run-cloud (Cursor Cloud)
+skills/orchestration/  скилл (SKILL.md + references)
+hooks/             сниппеты хуков Claude / Codex / Kimi
+SHA256SUMS         контрольные суммы (проверяет установщик)
 bin/run-exec.py    запуск локального cursor-agent (промт из файла, EXIT в лог)
 bin/run-cloud.py   облачные исполнители Cursor Cloud Agents API
 bin/menu.py        детерминированное меню параметров (валидация)
