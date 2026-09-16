@@ -1,77 +1,86 @@
 # orchestrator-with-cursor
 
-Оркестрация агентов для Claude Code, Codex CLI и Kimi Code: задачи исполняют
-свежие субагенты с чистым контекстом (или cursor-agent / облачные Cursor-агенты),
-результаты проверяют волны критиков, а хуки движков периодически возвращают
-агента к задаче и параметрам — машиной, мимо «мнения» модели. Без GitHub-зависимостей
-для работы: всё локально, в одной папке.
+**English** | [Русский](README.ru.md)
 
-## Установка (точные шаги — для человека или LLM-агента)
+Agent orchestration for **Claude Code, Codex CLI and Kimi Code**: every task runs
+in a fresh executor subagent (or cursor-agent / Cursor Cloud), results are checked
+by waves of fresh critics, and engine hooks periodically pull the agent back to
+the task and parameters — by machine, not by prompt discipline.
 
-В рабочей папке (где будете запускать claude / codex / kimi) выполните:
+**3 engines · 2-line install · no dependencies beyond python3**
+
+## Quick Start
+
+In your working folder (where you run claude / codex / kimi):
 
 ```bash
 git clone https://github.com/AHoHuMbl4/orchestrator-with-cursor.git orchestration-kit
 bash orchestration-kit/install-local.sh
 ```
 
-Если git недоступен — скачайте zip репозитория, распакуйте как
-`orchestration-kit/` и выполните ту же вторую строку.
+No git? Download the repo zip, unpack as `orchestration-kit/`, run the same
+second line. The installer is idempotent, verifies file checksums and never
+touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
 
-Установщик идемпотентен (повторный запуск безопасен), проверяет контрольные
-суммы файлов, не трогает чужие настройки (kimi-конфиг — с бэкапом).
-
-### После установки — по движкам
-
-| Движок | Первый запуск | Проверка |
+| Engine | First run | Verify |
 |---|---|---|
-| Claude Code | работает сразу в этой папке | спросить агента «какие скиллы доступны?» — должен быть orchestration |
-| Codex CLI | один раз: `/hooks` → доверить хуки orchestration (обязательный trust) | `$orchestration` доступен |
-| Kimi Code | `/reload` в живой сессии или рестарт kimi | `/orchestration` доступен |
+| Claude Code | nothing — works right away | ask the agent "which skills are available?" → `orchestration` |
+| Codex CLI | once: `/hooks` → trust the orchestration hooks (mandatory trust gate) | `$orchestration` resolves |
+| Kimi Code | `/reload` in a live session or restart kimi | `/orchestration` resolves |
 
-## Настройки
+All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
+(auto-picks a free port). The panel has an on/off toggle, task (compass),
+executors per task, critics per diff, review rounds, timeout, course-check
+interval, models, and the Cursor API token field.
 
-- **Панель**: `./panel.sh` в рабочей папке → http://127.0.0.1:8765 (или соседний
-  свободный порт — напечатает адрес). В панели: тумблер «оркестрация вкл/выкл»,
-  задача (compass), исполнители на задачу, критики, круги ревью, таймаут,
-  интервал сверки, модели, поле токена Cursor.
-- **Токен Cursor** (для режима «облако Cursor») вводится в панели и хранится в
-  `.orchestration/cursor.key` (gitignored). Или переменная окружения CURSOR_API_KEY.
-- **Меню в чате**: слово «меню» или команда `/orch-menu` (Claude) — показать и
-  поменять параметры.
-- Все параметры живут в `.orchestration/params.json`; хуки доносят изменения
-  агенту при следующем сообщении — рассинхрон невозможен.
-- Тумблер `orchestration.enabled = false` выключает режим: агент работает
-  напрямую, хуки молчат.
+## How it works
 
-## Как это работает
+- You write a task in plain words. The `orchestration` skill turns the agent
+  into an orchestrator: decompose → fresh executor per subtask → N fresh
+  critics per result (critics see the result + acceptance criterion, never the
+  executor's reasoning) → rounds until convergence → acceptance by measurement.
+- Hooks (Claude/Codex: SessionStart, UserPromptSubmit, PostToolUse; Kimi:
+  UserPromptSubmit, SessionHeartbeat) inject current parameters with every
+  message and remind to re-read the task every `reground.every_min` minutes —
+  the agent cannot quietly forget the mode or drift off course.
+- Executor modes: engine subagents (default), local `cursor-agent --model auto`,
+  Cursor Cloud Agents API (token from the panel).
+- Settings live in `.orchestration/params.json`; hooks deliver changes with the
+  next message. The `orchestration.enabled=false` toggle switches the agent
+  back to direct work; hooks go silent.
+- In-chat menu: say "меню" / `menu` or `/orch-menu` (Claude).
 
-1. Пишете задачу словами («найди топ 10 бизнес-моделей», правка кода, замер).
-2. Скилл orchestration превращает агента в оркестратора: декомпозиция, на каждую
-   под-задачу — свежий исполнитель-субагент, каждый результат — N свежим
-   критикам (критик видит только результат и критерий, не ход мыслей
-   исполнителя), круги до схождения, приёмка — замером, не со слов.
-3. Хуки движка (SessionStart / UserPromptSubmit / PostToolUse у Claude и Codex,
-   UserPromptSubmit / SessionHeartbeat у Kimi) вклеивают актуальные параметры и
-   задачу при каждом сообщении и раз в `reground.every_min` минут — агент не
-   может «забыть» режим или уйти в сторону незамеченным.
-4. Режимы исполнителей: субагенты движка (дефолт), локальный
-   `cursor-agent --model auto`, облако Cursor (Cloud Agents API, нужен токен).
+## Manual per-engine paths (if you prefer no installer)
 
-Состав и внутренности: `install-notes.md`; доктрина и ловушки —
-`skills/orchestration/`.
+| Engine | Skill path | Hooks |
+|---|---|---|
+| Claude Code | `.claude/skills/orchestration/` (project) or `~/.claude/skills/` | `.claude/settings.json` (merged by installer) |
+| Codex CLI | `.agents/skills/` (repo) or `~/.agents/skills/` | `.codex/hooks.json` → trust via `/hooks` |
+| Kimi Code | `~/.kimi-code/skills/` or `~/.agents/skills/` | `[[hooks]]` block in `~/.kimi-code/config.toml` |
+| Cursor | `.cursor/skills/` or `~/.cursor/skills/` | — |
 
-## Состав
+## Repository layout
 
 ```
-install-local.sh   установка в рабочую папку (главный вход)
-panel/             HTTP-панель настроек (python3, без зависимостей)
-bin/reground.py    движок сверки курса (хуки трёх движков)
-bin/run-exec.py    запуск локального cursor-agent (промт из файла, EXIT в лог)
-bin/run-cloud.py   облачные исполнители Cursor Cloud Agents API
-bin/menu.py        детерминированное меню параметров (валидация)
-bin/discover.py    снимок доступных моделей/efforts с движков
-skills/orchestration/  скилл-доктрина (SKILL.md + references)
-hooks/             сниппеты хуков Claude/Codex/Kimi
-SHA256SUMS         контрольные суммы (проверяются при установке)
+install-local.sh   installer (main entry)
+panel/             settings panel (python3 stdlib, no dependencies)
+bin/reground.py    course-check engine (hooks for all three engines)
+bin/run-exec.py    local cursor-agent runner (prompt from file, EXIT in log)
+bin/run-cloud.py   Cursor Cloud Agents API runner
+bin/menu.py        deterministic settings menu (validated writes)
+bin/discover.py    snapshot of available models/effort levels
+skills/orchestration/  the skill (SKILL.md + references)
+hooks/             hook snippets for Claude / Codex / Kimi
+SHA256SUMS         checksums, verified by the installer
 ```
+
+Details: [install-notes.md](install-notes.md) · Doctrine & traps:
+[skills/orchestration/references/](skills/orchestration/references/)
+
+Plugin-marketplace packaging (one-command install via
+`/plugin marketplace add` / `codex plugin marketplace add`) is on the roadmap;
+`install-local.sh` is the canonical path today.
+
+## License
+
+[MIT](LICENSE)
