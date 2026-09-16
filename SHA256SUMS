@@ -10,10 +10,10 @@ d353b13ba792dde2fced7f9fa1cdbfb6a6d1703398a07aef392a336d2420c60c  ./commands/cod
 3537d00ed107c9a20640cae673ea9f064bc80bb37e0031825641b2ff2ca25851  ./hooks/claude-settings.snippet.json
 3d63c63229a605a361b04bbc007d540603701575b321c0425cbd6e484cbc7532  ./hooks/codex-hooks.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
-bff6a0a490f29e5cab24cba6b4abf5b28c1d7a5c866a197f8bb7873962cfd8a4  ./install-local.sh
+b45c289070734854e2cbe7bca5144ab99eaf3217e35296d38ca6fd44b1f1383c  ./install-local.sh
 dcf90a8b1a942971ca4a919109c02b7d6fdaba1a8922965f2811ad1630ac023a  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-1e1fe35e216c8a2070c526775fda7feed74b720ee379d9bf7586fbec3f49ac67  ./panel/index.html
+8e8082fbaf7727b2a37a911a712fd18a7f5c1e671ff6daf8f8c6efad373b4771  ./panel/index.html
 1ac51e7aa5b670bcfcd8425162c892fe7b67db383f72c46d4b6f3fc7fdf04d7b  ./panel/server.py
 70c9bbe871b0d5b81302edd36be53484745fe2fd2ade65a6a1b922b7826fb3e5  ./params.json
 fe0a71f18bbca8eb27ba7bc34c1f61e51acd6cfc37d1c4d3145655d0f2174a05  ./skills/orchestration/references/engines.md

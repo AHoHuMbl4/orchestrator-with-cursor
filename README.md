@@ -7,7 +7,18 @@ in a fresh executor subagent (or cursor-agent / Cursor Cloud), results are check
 by waves of fresh critics, and engine hooks periodically pull the agent back to
 the task and parameters — by machine, not by prompt discipline.
 
-**3 engines · 2-line install · no dependencies beyond python3**
+**3 engines · 2-line install · works even without python (skills-only mode)**
+
+## Requirements
+
+- One of the agents: Claude Code, Codex CLI or Kimi Code.
+- **Python 3.6+** — required for hooks, settings panel and scripts.
+  - Linux: `sudo apt install python3` (usually preinstalled)
+  - macOS: `brew install python` or python.org
+  - Windows: `winget install Python.Python.3.12` (check "Add to PATH" in the installer)
+- No python at all? The installer still deploys the skill (it's plain
+  instructions) and clearly reports what was skipped; re-run it after
+  installing python to add hooks and the panel.
 
 ## Quick Start
 
@@ -32,6 +43,21 @@ All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
 (auto-picks a free port). The panel has an on/off toggle, task (compass),
 executors per task, critics per diff, review rounds, timeout, course-check
 interval, models, and the Cursor API token field.
+
+## Cursor API token (for the "Cursor cloud" executor mode)
+
+1. Log in at **cursor.com** → open **Dashboard / Settings → API → API Keys** →
+   **Create key** → copy it (shown once).
+2. Requires a **paid Cursor plan**; billing is per model tokens actually used,
+   not per wall-clock time.
+3. Paste the key into the **"Cursor API token"** field on the panel's main
+   screen (the panel stores it in `.orchestration/cursor.key`, which is
+   gitignored) — or set the `CURSOR_API_KEY` environment variable instead.
+4. Switch executor mode to `cursor-cloud` and the orchestrator will run
+   executors as Cursor Cloud Agents (no local install needed).
+
+Don't need cloud executors? Skip this — the default executor mode (engine
+subagents) needs no keys at all.
 
 ## How it works
 

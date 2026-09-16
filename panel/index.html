@@ -56,6 +56,19 @@
     <input type="number" id="review.reviewers_per_diff" min="1" max="8"></div>
 </div>
 
+<h2>3. Токен Cursor (для режима «облако Cursor»)</h2>
+<div class="row">
+  <div><label>API-ключ Cursor</label>
+    <input type="password" id="cursorKey" placeholder="вставьте ключ Cursor API">
+    <div class="hint" id="cursorKeyInfo">—</div>
+    <div class="hint"><b>Как взять:</b> cursor.com → войти → Dashboard (Settings) → <b>API</b> → <b>API Keys</b> → создать ключ и скопировать.
+      Нужен платный план Cursor; оплата — по токенам использованных моделей, не за время.
+      Ключ сохранится в <code>.orchestration/cursor.key</code> (в git не попадает) и подхватится режимом
+      «облако Cursor». Не нужен, если работаете на субагентах движка.</div></div>
+  <div style="align-self:end"><button class="sec" type="button" onclick="saveKey()">Сохранить токен</button>
+    <button class="sec" type="button" onclick="delKey()">Удалить</button></div>
+</div>
+
 <details>
   <summary>Расширенные</summary>
   <div class="row">
@@ -95,13 +108,6 @@
   <datalist id="dl_claude"></datalist><datalist id="dl_ceff"></datalist>
   <datalist id="dl_codex"></datalist><datalist id="dl_xeff"></datalist>
   <div class="hint">Модель/effort применяются при запуске НОВОЙ сессии оркестратора, не на лету.</div>
-  <div class="row">
-    <div><label>Токен Cursor (для режима «облако Cursor»)</label>
-      <input type="password" id="cursorKey" placeholder="вставьте ключ Cursor API">
-      <div class="hint" id="cursorKeyInfo">—</div></div>
-    <div style="align-self:end"><button class="sec" type="button" onclick="saveKey()">Сохранить токен</button>
-      <button class="sec" type="button" onclick="delKey()">Удалить</button></div>
-  </div>
 </details>
 
 <button onclick="saveParams()">Сохранить параметры</button>

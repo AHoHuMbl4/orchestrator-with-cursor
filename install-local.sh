@@ -1,29 +1,52 @@
 #!/usr/bin/env bash
 # Локальная установка оркестрации для трёх движков: Claude Code, Codex, Kimi.
 # Без GitHub: всё живёт в одной рабочей папке + пара файлов в ~/.codex и
-# ~/.kimi-code (там, где движки ищут свои конфиги).
+# ~/.kimi-code. Без python ставятся только скиллы (хуки/панель/скрипты пропускаются
+# с явным предупреждением).
 #
-# Запуск из папке, где вы работаете:
-#   bash /путь/к/orchestration-kit/install-local.sh
+# Запуск из рабочей папки: bash /путь/к/orchestration-kit/install-local.sh
 # Повторный запуск безопасен (идемпотентен, чужие настройки не трогает).
 set -euo pipefail
 
-KIT="$(cd "$(dirname "$0")" && pwd)"      # абсолютный путь к orchestration-kit
-TARGET="$(pwd)"                           # рабочая папка
-PY=python3
-command -v python3 >/dev/null 2>&1 || PY=python
-PY_ABS="$(command -v $PY || echo $PY)"   # абсолютный путь: хуки живут и после рестарта из другого окружения
+KIT="$(cd "$(dirname "$0")" && pwd)"
+TARGET="$(pwd)"
 
-echo "== 0/6 проверка целостности kit =="
+# --- python: без него живут только скиллы ---
+HAVE_PY=1
+PY=python3
+if command -v "$PY" >/dev/null 2>&1; then :;
+elif command -v python >/dev/null 2>&1; then PY=python;
+else HAVE_PY=0; fi
+if [ "$HAVE_PY" = "1" ]; then
+  PY_ABS="$(command -v "$PY")"   # абсолютный путь: хуки переживают рестарт из другого окружения
+else
+  PY_ABS=""
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!! ПИТОН НЕ НАЙДЕН (ни python3, ни python).                       !!"
+  echo "!! Работать БУДЕТ: скилл orchestration (это просто инструкции).  !!"
+  echo "!! Работать НЕ будет: хуки сверки, панель, меню-скрипты.         !!"
+  echo "!! Установить:  Linux: sudo apt install python3                  !!"
+  echo "!!   macOS: brew install python (или python.org)                 !!"
+  echo "!!   Windows: winget install Python.Python.3.12 (или python.org, !!"
+  echo "!!   при установке отметить Add to PATH). Затем повторить ввод.  !!"
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+fi
+
+echo "== 1/6 проверка целостности kit =="
 (cd "$KIT" && sha256sum -c SHA256SUMS --quiet) || { echo "ОШИБКА: суммы не сошлись"; exit 1; }
 echo "ok (TARGET=$TARGET)"
 
-echo "== 1/6 Claude Code (папка) =="
-mkdir -p "$TARGET/.claude/skills" "$TARGET/.claude/commands"
-rm -rf "$TARGET/.claude/skills/orchestration"
+echo "== 2/6 скиллы (все три движка) =="
+mkdir -p "$TARGET/.claude/skills" "$TARGET/.claude/commands" "$TARGET/.agents/skills"
+rm -rf "$TARGET/.claude/skills/orchestration" "$TARGET/.agents/skills/orchestration"
 cp -r "$KIT/skills/orchestration" "$TARGET/.claude/skills/orchestration"
+cp -r "$KIT/skills/orchestration" "$TARGET/.agents/skills/orchestration"
 cp "$KIT/commands/claude-orch-menu.md" "$TARGET/.claude/commands/orch-menu.md"
-cat > /tmp/orch-claude-snippet.json <<EOF
+echo "  .claude/skills + .claude/commands/orch-menu.md + .agents/skills"
+
+echo "== 3/6 хуки Claude (.claude/settings.json) =="
+if [ "$HAVE_PY" = "1" ]; then
+  cat > /tmp/orch-claude-snippet.json <<EOF
 {
   "hooks": {
     "SessionStart": [
@@ -38,10 +61,10 @@ cat > /tmp/orch-claude-snippet.json <<EOF
   }
 }
 EOF
-$PY - <<'PYEOF'
+  "$PY" - <<'PYEOF'
 import json, os
 snip = json.load(open("/tmp/orch-claude-snippet.json"))
-path = os.path.join(os.environ.get("ORCH_TARGET", os.getcwd()), ".claude", "settings.json")
+path = os.path.join(os.getcwd(), ".claude", "settings.json")
 cur = {}
 if os.path.exists(path):
     try:
@@ -58,14 +81,16 @@ for event, entries in snip["hooks"].items():
     hooks[event] = merged
 json.dump(cur, open(path, "w"), indent=2, ensure_ascii=False)
 open(path, "a").write("\n")
-print("  .claude/settings.json: хуки сверки (SessionStart/UserPromptSubmit/PostToolUse)")
+print("  хуки SessionStart/UserPromptSubmit/PostToolUse (абсолютный python)")
 PYEOF
+else
+  echo "  пропущено (нет python)"
+fi
 
-echo "== 2/6 Codex (папка) =="
-mkdir -p "$TARGET/.codex" "$TARGET/.agents/skills"
-rm -rf "$TARGET/.agents/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$TARGET/.agents/skills/orchestration"
-cat > "$TARGET/.codex/hooks.json" <<EOF
+echo "== 4/6 Codex + Kimi =="
+if [ "$HAVE_PY" = "1" ]; then
+  mkdir -p "$TARGET/.codex"
+  cat > "$TARGET/.codex/hooks.json" <<EOF
 {
   "description": "orchestration-kit: сверка курса",
   "hooks": {
@@ -82,25 +107,27 @@ cat > "$TARGET/.codex/hooks.json" <<EOF
   }
 }
 EOF
-echo "  .codex/hooks.json + .agents/skills/orchestration"
-
-echo "== 3/6 Kimi (пользовательские конфиги) =="
+  echo "  .codex/hooks.json (после первого запуска codex: /hooks -> доверить)"
+else
+  echo "  .codex/hooks.json пропущен (нет python)"
+fi
 KIMI_DIR="${KIMI_HOME:-$HOME/.kimi-code}"
 mkdir -p "$KIMI_DIR/skills" "$HOME/.agents/skills"
 rm -rf "$KIMI_DIR/skills/orchestration" "$HOME/.agents/skills/orchestration"
 cp -r "$KIT/skills/orchestration" "$KIMI_DIR/skills/orchestration"
 cp -r "$KIT/skills/orchestration" "$HOME/.agents/skills/orchestration"
-KIMI_CFG="$KIMI_DIR/config.toml"
-touch "$KIMI_CFG"
-if grep -q "orchestration-kit hooks" "$KIMI_CFG" && grep -A20 "orchestration-kit hooks" "$KIMI_CFG" | grep -q 'command = "python3 '; then
-  # старый блок с не-абсолютным python — заменить на свежий
-  cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
-  sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
-  echo "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python)"
-fi
-if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
-  cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
-  cat >> "$KIMI_CFG" <<EOF
+echo "  скилл: ~/.kimi-code/skills + ~/.agents/skills"
+if [ "$HAVE_PY" = "1" ]; then
+  KIMI_CFG="$KIMI_DIR/config.toml"
+  touch "$KIMI_CFG"
+  if grep -q "orchestration-kit hooks" "$KIMI_CFG" && grep -A20 "orchestration-kit hooks" "$KIMI_CFG" | grep -q 'command = "python3 '; then
+    cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
+    sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
+    echo "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python)"
+  fi
+  if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
+    cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
+    cat >> "$KIMI_CFG" <<EOF
 
 # >>> orchestration-kit hooks >>>
 [[hooks]]
@@ -114,20 +141,25 @@ if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
   timeout = 10
 # <<< orchestration-kit hooks <<<
 EOF
-  echo "  ~/.kimi-code/config.toml: блок хуков добавлен (бэкап: $KIMI_CFG.bak-orch)"
+    echo "  ~/.kimi-code/config.toml: блок хуков добавлен (бэкап .bak-orch)"
+  else
+    echo "  ~/.kimi-code/config.toml: блок хуков уже актуален"
+  fi
 else
-  echo "  ~/.kimi-code/config.toml: блок хуков уже есть — не трогаю"
+  echo "  хуки Kimi пропущены (нет python)"
 fi
-echo "  скилл: ~/.kimi-code/skills/orchestration + ~/.agents/skills/orchestration"
 
-echo "== 4/6 параметры, права и панель =="
-chmod +x "$KIT"/bin/*.py 2>/dev/null || true
+echo "== 5/6 параметры, панель =="
 mkdir -p "$TARGET/.orchestration"
 [ -f "$TARGET/.orchestration/params.json" ] || cp "$KIT/params.json" "$TARGET/.orchestration/params.json"
 [ -f "$TARGET/.orchestration/compass.md" ] || cp "$KIT/compass.md" "$TARGET/.orchestration/compass.md"
-# нормализация старых дефолтов (every_min 7 -> 10), явные значения владельца не трогаем
-export ORCH_KIT="$KIT" ORCH_TARGET="$TARGET"
-$PY - <<'PYEOF' 2>/dev/null || true
+for line in ".orchestration/counters/" ".orchestration/*.log" ".orchestration/*.pid" ".orchestration/prompt-*.run.md" ".orchestration/discovered.json" ".orchestration/cursor.key" "__pycache__/"; do
+  grep -qxF "$line" "$TARGET/.gitignore" 2>/dev/null || echo "$line" >> "$TARGET/.gitignore"
+done
+chmod +x "$KIT"/bin/*.py 2>/dev/null || true
+if [ "$HAVE_PY" = "1" ]; then
+  # нормализация старых дефолтов (every_min 7 -> 10), явные значения владельца не трогаем
+  ORCH_KIT="$KIT" "$PY" - <<'PYEOF' 2>/dev/null || true
 import sys, os
 sys.path.insert(0, os.path.join(os.environ["ORCH_KIT"], "bin"))
 import orchlib
@@ -136,39 +168,51 @@ if p.get("reground", {}).get("every_min") == 7:
     p["reground"]["every_min"] = 10
 orchlib.save_params(p)
 PYEOF
-cat > "$TARGET/panel.sh" <<EOF
+  cat > "$TARGET/panel.sh" <<EOF
 #!/usr/bin/env bash
 # Настройки оркестрации (панель). ./panel.sh — на переднем плане; ./panel.sh --bg — в фоне
 if [ "\${1:-}" = "--bg" ]; then shift
-  nohup $PY_ABS -u "$KIT/panel/server.py" "\$@" > panel.log 2>&1 &
+  nohup "$PY_ABS" -u "$KIT/panel/server.py" "\$@" > panel.log 2>&1 &
   echo "панель в фоне: pid \$! (адрес в panel.log), остановка: kill \$!"
   exit 0
 fi
-exec $PY -u "$KIT/panel/server.py" "\$@"
+exec "$PY_ABS" -u "$KIT/panel/server.py" "\$@"
 EOF
-chmod +x "$TARGET/panel.sh"
-for line in ".orchestration/counters/" ".orchestration/*.log" ".orchestration/*.pid" ".orchestration/prompt-*.run.md" ".orchestration/discovered.json" ".orchestration/cursor.key" "__pycache__/"; do
-  grep -qxF "$line" "$TARGET/.gitignore" 2>/dev/null || echo "$line" >> "$TARGET/.gitignore"
-done
+  chmod +x "$TARGET/panel.sh"
+  echo "  .orchestration/ посеян, panel.sh готов"
+else
+  echo "  .orchestration/ посеян; panel.sh пропущен (нет python)"
+fi
 
-echo "== 5/6 снимок моделей =="
-$PY "$KIT/bin/discover.py" >/dev/null 2>&1 && echo "  discover: ok" || echo "  discover: предупреждение (см. .orchestration/discovered.json)"
-
-echo "== 6/6 самопроверка =="
-$PY "$KIT/bin/menu.py" --show | head -1
-echo '{"session_id":"install-check"}' | $PY "$KIT/bin/reground.py" post-tool --engine claude
-echo "  reground молчит (порог не достигнут) — так и должно быть"
+echo "== 6/6 снимок моделей и самопроверка =="
+if [ "$HAVE_PY" = "1" ]; then
+  "$PY" "$KIT/bin/discover.py" >/dev/null 2>&1 && echo "  discover: ok" || echo "  discover: предупреждение"
+  "$PY" "$KIT/bin/menu.py" --show | head -1
+  echo '{"session_id":"install-check"}' | "$PY" "$KIT/bin/reground.py" post-tool --engine claude
+  echo "  reground молчит (порог не достигнут) — так и должно быть"
+else
+  echo "  пропущено (нет python)"
+fi
 
 cat <<EOF
 
 УСТАНОВЛЕНО в $TARGET
-  Настройки:   ./panel.sh  →  http://127.0.0.1:8765 (или соседний порт)
-               (та же панель правит .orchestration/params.json; хук донесёт
-               изменения агенту при следующем сообщении)
+EOF
+if [ "$HAVE_PY" = "1" ]; then
+cat <<EOF
+  Настройки:   ./panel.sh  →  http://127.0.0.1:8765 (или соседний порт; --bg — в фоне)
+               В панели: тумблер вкл/выкл, задача, исполнители/критики/круги,
+               модели, токен Cursor (как его взять — подсказка прямо у поля).
   Claude Code: запускайте claude в этой папке — скилл + хуки + /orch-menu.
   Codex:       запускайте codex в этой папке; ПЕРВЫЙ РАЗ: /hooks -> доверить
                хуки orchestration (Codex требует явного trust).
-  Kimi:        /reload в живой сессии или рестарт kimi (конфиг читается при старте).
-Дальше: просто пишите задачу — скилл orchestration подхватится сам, исполнение
-пойдёт через субагентов-исполнителей. Меню: «меню» / /orch-menu / панель.
+  Kimi:        НОВАЯ сессия (скиллы регистрируются при старте); вызов
+               /skill:orchestration; хуки подхватятся сами.
 EOF
+else
+cat <<EOF
+  БЕЗ PYTHON: скилл orchestration работает как инструкции (Claude/Codex/Kimi),
+  но хуки сверки, панель и меню-скрипты не установлены. Поставьте python и
+  повторите установщик — он доведёт остальное.
+EOF
+fi
