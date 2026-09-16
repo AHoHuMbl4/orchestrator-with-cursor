@@ -1,0 +1,38 @@
+{
+  "_readme": "Сниппет хуков Claude Code (.claude/settings.json проекта). Замени __PYTHON__ на python3 (Linux/macOS) или python (Windows; надёжнее полный путь к python.exe или py -3, см. install-notes). <KIT> — абсолютный путь к каталогу orchestration-kit. Удали ключ _readme перед использованием. UserPromptSubmit вклеивает актуальные параметры при первом сообщении и при каждом изменении params/compass (гарантия: сообщение обработается с ними).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__ <KIT>/bin/reground.py session-start --engine claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__ <KIT>/bin/reground.py prompt-submit --engine claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__PYTHON__ <KIT>/bin/reground.py post-tool --engine claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

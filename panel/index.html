@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Оркестрация — параметры пачки</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; background: #14161a; color: #d7dce3;
+         margin: 0; padding: 24px; max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin: 28px 0 8px; color: #9fc3ff; }
+  label { display: block; margin: 10px 0 2px; font-size: 13px; color: #93a0af; }
+  input, textarea, select { width: 100%; box-sizing: border-box; background: #1d2026;
+         color: #e8ecf1; border: 1px solid #333944; border-radius: 6px; padding: 7px 9px;
+         font: inherit; }
+  textarea { min-height: 130px; resize: vertical; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 150px; }
+  button { background: #2c6bed; border: 0; color: #fff; border-radius: 6px;
+           padding: 9px 18px; font: inherit; cursor: pointer; margin-top: 14px; }
+  button.sec { background: #333944; }
+  .ok { color: #58c98b; } .err { color: #ff7b72; }
+  details { border: 1px solid #333944; border-radius: 8px; padding: 10px 14px; margin-top: 10px; }
+  summary { cursor: pointer; color: #9fc3ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #262b33; }
+  .run { color: #d6a848; } .done { color: #58c98b; } .fail { color: #ff7b72; }
+  pre { background: #0e1013; border: 1px solid #262b33; border-radius: 6px;
+        padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
+  .hint { font-size: 12px; color: #6f7b88; margin-top: 3px; }
+</style>
+</head>
+<body>
+<h1>Оркестрация — параметры пачки</h1>
+<div class="row" style="align-items:center; gap:10px;">
+  <label style="margin:0">Оркестрация:</label>
+  <select id="orchestration.enabled" style="width:auto">
+    <option value="true">вкл — задачи через исполнителей</option>
+    <option value="false">выкл — агент работает напрямую</option>
+  </select>
+  <span class="hint">выкл = хуки молчат, скилл не требует субагентов</span>
+</div>
+<div class="hint">Единственный источник правды — <code>.orchestration/params.json</code> и compass.
+Эта панель и меню в чате — только редакторы этих файлов; решает и запускает — оркестратор.</div>
+
+<h2>1. Задача (compass)</h2>
+<textarea id="compass"></textarea>
+<div class="hint" id="compassPath"></div>
+<button class="sec" onclick="saveCompass()">Сохранить задачу</button>
+
+<h2>2. Главные параметры</h2>
+<div class="row">
+  <div><label>Параллельных агентов на 1 задачу</label>
+    <input type="number" id="execution.parallel_per_task" min="1" max="8"></div>
+  <div><label>Критиков на каждый дифф (перепроверка)</label>
+    <input type="number" id="review.reviewers_per_diff" min="1" max="8"></div>
+</div>
+
+<details>
+  <summary>Расширенные</summary>
+  <div class="row">
+    <div><label>Исполнители (режим)</label>
+      <select id="execution.executor">
+        <option value="subagents">субагенты движка (ноль настроек)</option>
+        <option value="cursor-cloud">облако Cursor (нужен ключ)</option>
+        <option value="local-cursor">локальный cursor-agent</option>
+      </select></div>
+    <div><label>Круги ревью до схождения</label>
+      <input type="number" id="review.max_rounds" min="1" max="6"></div>
+    <div><label>Таймаут прогона, сек</label>
+      <input type="number" id="execution.timeout_s" min="60" max="21600"></div>
+    <div><label>Перезапусков при фейле</label>
+      <input type="number" id="execution.retry_on_fail" min="0" max="3"></div>
+  </div>
+  <div class="row">
+    <div><label>Сверка курса: каждые N минут</label>
+      <input type="number" id="reground.every_min" min="1" max="120"></div>
+    <div><label>…или N вызовов инструментов</label>
+      <input type="number" id="reground.every_n_calls" min="5" max="500"></div>
+    <div><label>Re-ground после компакшна</label>
+      <select id="reground.compact_reground"><option>true</option><option>false</option></select></div>
+  </div>
+  <div class="row">
+    <div><label>Claude: модель (роль/алиас)</label>
+      <input id="orchestrator.claude" list="dl_claude"></div>
+    <div><label>Claude: effort</label>
+      <input id="orchestrator.claude_effort" list="dl_ceff"></div>
+    <div><label>Codex: модель (роль)</label>
+      <input id="orchestrator.codex" list="dl_codex"></div>
+    <div><label>Codex: effort</label>
+      <input id="orchestrator.codex_effort" list="dl_xeff"></div>
+    <div><label>Бюджет пачки, $</label>
+      <input type="number" id="orchestrator.budget_usd" min="0" max="1000"></div>
+  </div>
+  <datalist id="dl_claude"></datalist><datalist id="dl_ceff"></datalist>
+  <datalist id="dl_codex"></datalist><datalist id="dl_xeff"></datalist>
+  <div class="hint">Модель/effort применяются при запуске НОВОЙ сессии оркестратора, не на лету.</div>
+  <div class="row">
+    <div><label>Токен Cursor (для режима «облако Cursor»)</label>
+      <input type="password" id="cursorKey" placeholder="вставьте ключ Cursor API">
+      <div class="hint" id="cursorKeyInfo">—</div></div>
+    <div style="align-self:end"><button class="sec" type="button" onclick="saveKey()">Сохранить токен</button>
+      <button class="sec" type="button" onclick="delKey()">Удалить</button></div>
+  </div>
+</details>
+
+<button onclick="saveParams()">Сохранить параметры</button>
+<span id="msg" style="margin-left:10px"></span>
+
+<h2>Доступные модели (discovered)</h2>
+<div class="hint" id="discoveredInfo">—</div>
+
+<h2>Прогоны</h2>
+<div><button class="sec" onclick="loadStatus()">Обновить</button></div>
+<table id="runs"><thead><tr><th>лог</th><th>статус</th><th>exit</th><th>изм.</th><th></th></tr></thead><tbody></tbody></table>
+<pre id="tail" style="display:none"></pre>
+
+<script>
+let P = {};
+const IDS = ["orchestration.enabled","execution.executor","execution.parallel_per_task","review.reviewers_per_diff","review.max_rounds",
+  "execution.timeout_s","execution.retry_on_fail","reground.every_min","reground.every_n_calls",
+  "reground.compact_reground","orchestrator.claude","orchestrator.claude_effort",
+  "orchestrator.codex","orchestrator.codex_effort","orchestrator.budget_usd"];
+function get(id){ const [s,f]=id.split("."); return (P[s]||{})[f]; }
+function set(id,v){ const [s,f]=id.split("."); P[s]=P[s]||{}; P[s][f]=v; }
+function fill(){ IDS.forEach(id=>{ const el=document.getElementById(id); if(!el) return;
+  let v=get(id); if(el.tagName==="SELECT") v=String(v); if(el.type==="number") v=v??""; el.value=v; }); }
+function msg(t,cls){ const m=document.getElementById("msg"); m.textContent=t; m.className=cls||""; }
+async function loadAll(){
+  P=(await (await fetch("/api/params")).json()).params;
+  fill();
+  const c=await (await fetch("/api/compass")).json();
+  document.getElementById("compass").value=c.text;
+  document.getElementById("compassPath").textContent="файл: "+c.path;
+  try{
+    const d=await (await fetch("/api/discovered")).json();
+    const info=[];
+    const fillDL=(id,arr)=>{const dl=document.getElementById(id);
+      (arr||[]).forEach(x=>{const o=document.createElement("option");o.value=x;dl.appendChild(o);});};
+    if(d.claude){ info.push("claude: "+(d.claude.models||[]).join(", "));
+      fillDL("dl_claude",d.claude.models); fillDL("dl_ceff",d.claude.efforts); }
+    if(d.codex&&d.codex.status!=="absent"){ info.push("codex: "+(d.codex.models||[]).slice(0,8).join(", "));
+      fillDL("dl_codex",d.codex.models); fillDL("dl_xeff",d.codex.efforts); }
+    if(d.cursor){ info.push("cursor (справка, исполнитель всегда auto): "+(d.cursor.models||[]).length+" моделей"); }
+    document.getElementById("discoveredInfo").textContent=info.join(" · ")||"—";
+  }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
+  loadStatus();
+  loadKeyInfo();
+}
+async function saveParams(){
+  IDS.forEach(id=>{ const el=document.getElementById(id);
+    let v=el.value; if(el.type==="number") v=Number(v);
+    if(el.tagName==="SELECT" && (v==="true"||v==="false")) v=(v==="true");
+    set(id,v); });
+  const r=await fetch("/api/params",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({params:P})});
+  const j=await r.json();
+  if(r.ok){ P=j.params; msg("сохранено ✓","ok"); } else { msg(j.error||"ошибка","err"); }
+}
+async function saveCompass(){
+  const r=await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:document.getElementById("compass").value})});
+  const j=await r.json();
+  msg(r.ok?"задача сохранена ✓":(j.error||"ошибка"), r.ok?"ok":"err");
+}
+async function loadKeyInfo(){
+  try{ const j=await (await fetch("/api/cursor-key")).json();
+    document.getElementById("cursorKeyInfo").textContent =
+      j.set ? "токен сохранён (.orchestration/cursor.key)" : "токен не задан"; }catch(e){}
+}
+async function saveKey(){
+  const k=document.getElementById("cursorKey").value.trim();
+  if(!k){ msg("вставьте токен","err"); return; }
+  const r=await fetch("/api/cursor-key",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({key:k})});
+  const j=await r.json();
+  msg(r.ok?"токен сохранён ✓":(j.error||"ошибка"), r.ok?"ok":"err");
+  document.getElementById("cursorKey").value=""; loadKeyInfo();
+}
+async function delKey(){
+  const r=await fetch("/api/cursor-key",{method:"DELETE"});
+  msg(r.ok?"токен удалён":"ошибка", r.ok?"ok":"err"); loadKeyInfo();
+}
+async function loadStatus(){
+  const j=await (await fetch("/api/status")).json();
+  const tb=document.querySelector("#runs tbody"); tb.innerHTML="";
+  (j.runs||[]).forEach(r=>{
+    const tr=document.createElement("tr");
+    const st=r.running?'<span class="run">бежит</span>':
+      (r.exit===0?'<span class="done">готов</span>':r.exit===null?"—":'<span class="fail">fail</span>');
+    tr.innerHTML=`<td>${r.name}</td><td>${st}</td><td>${r.exit??"—"}</td><td>${r.mtime}</td>
+      <td><a href="#" onclick="showTail('${r.name}');return false">хвост</a></td>`;
+    tb.appendChild(tr);
+  });
+}
+async function showTail(name){
+  const j=await (await fetch("/api/logs?name="+encodeURIComponent(name)+"&tail=120")).json();
+  const pre=document.getElementById("tail"); pre.style.display="block";
+  pre.textContent="# "+name+"\n"+(j.tail||"");
+}
+loadAll();
+</script>
+</body>
+</html>

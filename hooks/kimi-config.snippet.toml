@@ -1,0 +1,19 @@
+# Сниппет для ~/.kimi-code/config.toml (Kimi Code, формат как у ваших гейтов
+# в work/hooks/install-gates.sh). __PYTHON__/__KIT__ — как в остальных
+# сниппетах; на Windows — python или py -3. После правки: /reload в TUI или
+# рестарт процесса kimi web (env/config читаются при старте сервера).
+#
+# UserPromptSubmit — вклейка актуальных параметров при первом сообщении и при
+# каждом изменении params/compass (stdout при exit 0 дописывается в контекст).
+# SessionHeartbeat — тик 60 c: периодическая сверка курса по таймеру.
+# PostToolUse у Kimi observation-only — для инжекта не годится, не ставим.
+
+[[hooks]]
+  event = "UserPromptSubmit"
+  command = "__PYTHON__ <KIT>/bin/reground.py prompt-submit --engine kimi"
+  timeout = 10
+
+[[hooks]]
+  event = "SessionHeartbeat"
+  command = "__PYTHON__ <KIT>/bin/reground.py heartbeat --engine kimi"
+  timeout = 10

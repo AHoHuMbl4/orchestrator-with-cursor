@@ -1,0 +1,31 @@
+{
+  "task": {
+    "description_file": ".orchestration/compass.md"
+  },
+  "execution": {
+    "executor": "subagents",
+    "parallel_per_task": 1,
+    "timeout_s": 1800,
+    "retry_on_fail": 1
+  },
+  "review": {
+    "reviewers_per_diff": 3,
+    "max_rounds": 3
+  },
+  "orchestrator": {
+    "claude": "default",
+    "claude_effort": "high",
+    "codex": "default",
+    "codex_effort": "high",
+    "budget_usd": 20
+  },
+  "reground": {
+    "every_min": 10,
+    "every_n_calls": 40,
+    "compact_reground": true
+  },
+  "panel": {
+    "host": "127.0.0.1",
+    "port": 8765
+  }
+}
