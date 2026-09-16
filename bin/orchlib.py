@@ -20,7 +20,7 @@ DEFAULTS = {
         "description_file": ".orchestration/compass.md",
     },
     "execution": {
-        "executor": "subagents",   # subagents | cursor-cloud | local-cursor
+        "executor": "auto",        # auto | local-cursor | cursor-cloud | subagents
         "parallel_per_task": 1,     # параллельных агентов на 1 задачу одновременно
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
         "retry_on_fail": 1,         # перезапусков при фейле (по доктрине: 1 раз)

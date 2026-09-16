@@ -169,6 +169,8 @@ import orchlib
 p = orchlib.load_params()
 if p.get("reground", {}).get("every_min") == 7:
     p["reground"]["every_min"] = 10
+if p.get("execution", {}).get("executor") == "subagents":
+    p["execution"]["executor"] = "auto"  # старый дефолт -> курсор-первым
 orchlib.save_params(p)
 PYEOF
   cat > "$TARGET/panel.sh" <<EOF
