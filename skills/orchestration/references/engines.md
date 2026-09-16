@@ -33,10 +33,15 @@
   `cursor-agent -p "$(cat промт-файл)" --force --model auto --output-format
   stream-json` под системным `timeout` = `timeout_min` из params. Промт —
   только из файла; модель всегда auto; приёмка по логу/файлу, не по exit code.
-- **Облако Cursor** (без установки, отдельная квота): Cloud Agents API,
-  ключ в Cursor Dashboard → API Keys; создание, follow-up и чтение
-  статуса/результата — по актуальной доке Cursor на момент запуска; результат
-  — текст + git-ветка/PR.
+- **Облако Cursor** (без установки, отдельная квота): Cloud Agents API
+  (`https://api.cursor.com`), ключ в **cursor.com/dashboard → API Keys**.
+  **Локальный бинарник НЕ нужен** — чистый REST (curl/python-stdlib);
+  нужны платный план, ключ и привязка GitHub. Создание `POST /v1/agents`,
+  follow-up `POST /v1/agents/{id}/runs`, статус/результат `GET
+  /v1/agents/{id}/runs/{runId}`. Результат — текст + git-ветка/PR.
+  Детект исчерпания квоты (для `on_cursor_fail`): `429` + «Rate limit…» —
+  временный лимит, подождать; «Usage limit exceeded»/spend limit — квота
+  исчерпана, действовать по правилу скилла.
 - **Claude Managed Agents API** — облачные сессии без CLI; детали — по доке
   Anthropic на момент запуска.
 

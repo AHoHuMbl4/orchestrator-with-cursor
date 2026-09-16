@@ -18,7 +18,9 @@ description: Оркестрация — режим работы по умолч�
    auto), запуск через `orchestration-kit/bin/run-exec.py --id <id>` с промтом
    из файла `.orchestration/prompt-<id>.md`;
 2. иначе есть `.orchestration/cursor.key` или env `CURSOR_API_KEY` →
-   **cursor-cloud** (`orchestration-kit/bin/run-cloud.py`);
+   **cursor-cloud** (`run-cloud.py`; чистый REST — бинарник НЕ нужен);
+   признак исчерпания квоты: «Usage limit exceeded» в ответе API («Rate
+   limit» = временный, просто подождать и повторить);
 3. иначе — **СТОП, никаких исполнителей молча**. Явно спроси владельца:
    «Cursor недоступен: нет бинарника cursor-agent и нет ключа. Варианты:
    (а) продолжить БЕЗ Cursor — исполнители на субагентах движка, это расход
