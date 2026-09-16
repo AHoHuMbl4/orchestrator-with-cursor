@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -182,6 +183,72 @@ def _bootstrap_compass(p):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+# --- per-session состояние (несколько параллельных сессий в одной папке) ---
+
+def sessions_dir():
+    d = os.path.join(find_state_dir(), "sessions")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def session_dir(session_id):
+    import re
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default"))[:80] or "default"
+    d = os.path.join(sessions_dir(), safe)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def session_override(session_id):
+    """Явный вкл/выкл конкретной сессии (файл enabled.json), None = нет override."""
+    p = os.path.join(session_dir(session_id), "enabled.json")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f).get("enabled")
+    except Exception:
+        return None
+
+
+def session_effective_enabled(p, session_id):
+    ov = session_override(session_id)
+    if ov is not None:
+        return bool(ov)
+    return bool(p.get("orchestration", {}).get("enabled", True))
+
+
+def session_compass_path(p, session_id):
+    """Compass конкретной сессии, если создан; иначе общий папочный."""
+    per = os.path.join(session_dir(session_id), "compass.md")
+    if os.path.exists(per):
+        return per
+    return compass_path(p)
+
+
+def touch_session(session_id):
+    try:
+        with open(os.path.join(session_dir(session_id), "last-seen"), "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    except Exception:
+        pass
+
+
+def list_sessions():
+    out = []
+    for name in os.listdir(sessions_dir()):
+        p = os.path.join(sessions_dir(), name)
+        if not os.path.isdir(p):
+            continue
+        ls = os.path.join(p, "last-seen")
+        try:
+            mtime = os.path.getmtime(ls if os.path.exists(ls) else p)
+        except OSError:
+            mtime = 0
+        out.append({"id": name, "last_seen": mtime,
+                    "override": session_override(name),
+                    "has_compass": os.path.exists(os.path.join(p, "compass.md"))})
+    return sorted(out, key=lambda s: -s.get("last_seen", 0))
 
 
 def compass_path(p):

@@ -75,30 +75,47 @@ def read_stdin_json():
         return {}
 
 
-def enabled(p):
-    """Тумблер из params: False — режим оркестрации выключен, хуки молчат."""
-    return bool(p.get("orchestration", {}).get("enabled", True))
+def enabled(p, sid=None):
+    """Тумблер: per-session override > params.orchestration.enabled."""
+    return orchlib.session_effective_enabled(p, sid)
+
+
+def session_id_of(ev):
+    return ev.get("session_id") or ev.get("sessionId") or "default"
+
+
+def compass_of(p, sid):
+    return orchlib.session_compass_path(p, sid)
 
 
 def cmd_session_start(engine, fmt):
-    p0 = orchlib.load_params()
-    if not enabled(p0):
+    ev = read_stdin_json()
+    sid = session_id_of(ev)
+    orchlib.touch_session(sid)
+    p = orchlib.load_params()
+    if not enabled(p, sid):
         return
-    p = p0
+    cpath = compass_of(p, sid)
+    try:
+        with open(cpath, "r", encoding="utf-8") as f:
+            ctext = f.read()[:8500]
+    except Exception:
+        ctext = "(compass не найден: %s)" % cpath
     text = SESSION_TEXT.format(
         summary=orchlib.params_summary(p),
-        compass_text=orchlib.read_compass(p),
+        compass_text=ctext,
     )[:9500]
+    text = "Сессия: %s. Compass этой сессии: %s\n\n" % (sid, cpath) + text
     emit(fmt, "SessionStart", text)
 
 
 def cmd_post_tool(engine, fmt):
-    p0 = orchlib.load_params()
-    if not enabled(p0):
-        return
     ev = read_stdin_json()
-    session_id = ev.get("session_id") or ev.get("sessionId") or "default"
+    session_id = session_id_of(ev)
+    orchlib.touch_session(session_id)
     p = orchlib.load_params()
+    if not enabled(p, session_id):
+        return
     rg = p.get("reground", {})
     every_min = int(rg.get("every_min", 7))
     every_calls = int(rg.get("every_n_calls", 40))
@@ -128,7 +145,7 @@ def cmd_post_tool(engine, fmt):
         text = NUDGE_TEXT.format(
             minutes=int(elapsed // 60), calls=since_nudge_calls,
             summary=orchlib.params_summary(p),
-            compass=orchlib.compass_path(p),
+            compass=compass_of(p, session_id),
         )[:9000]
         emit(fmt, "PostToolUse", text)
         data["last_nudge_ts"] = now
@@ -142,17 +159,18 @@ def cmd_post_tool(engine, fmt):
 
 
 def cmd_heartbeat(engine, fmt):
-    p0 = orchlib.load_params()
-    if not enabled(p0):
-        return
     """Kimi SessionHeartbeat: на входе uptime_ms; таймер — по аптайму (монотонно)."""
     ev = read_stdin_json()
+    sid = session_id_of(ev)
+    orchlib.touch_session(sid)
     p = orchlib.load_params()
+    if not enabled(p, sid):
+        return
     every_min = int(p.get("reground", {}).get("every_min", 7))
     uptime_ms = ev.get("uptime_ms")
     if not isinstance(uptime_ms, (int, float)):
         return
-    cf = os.path.join(orchlib.find_state_dir(), "counters", "heartbeat.json")
+    cf = os.path.join(orchlib.find_state_dir(), "counters", "heartbeat-%s.json" % sid)
     os.makedirs(os.path.dirname(cf), exist_ok=True)
     last = None
     try:
@@ -167,7 +185,7 @@ def cmd_heartbeat(engine, fmt):
             minutes=int((uptime_ms - last) // 60000),
             calls=0,
             summary=orchlib.params_summary(p),
-            compass=orchlib.compass_path(p),
+            compass=compass_of(p, sid),
         )[:9000]
         emit(fmt, "SessionHeartbeat", text)
         last = uptime_ms
@@ -179,22 +197,24 @@ def cmd_heartbeat(engine, fmt):
 
 
 def cmd_prompt_submit(engine, fmt):
-    p0 = orchlib.load_params()
-    if not enabled(p0):
-        return
     """UserPromptSubmit: вклеить параметры при первом сообщении и при ИЗМЕНЕНИИ
     params/compass (mtime+размер). Гарантия: сообщение владельца обрабатывается
     вместе с актуальными значениями, даже если агент «не согласен»."""
+    ev = read_stdin_json()
+    sid = session_id_of(ev)
+    orchlib.touch_session(sid)
     p = orchlib.load_params()
+    if not enabled(p, sid):
+        return
     marks = {}
     for name, path in (("params", orchlib.params_file()),
-                       ("compass", orchlib.compass_path(p))):
+                       ("compass", compass_of(p, sid))):
         try:
             st = os.stat(path)
             marks[name] = "%d:%d" % (st.st_mtime_ns if hasattr(os.stat_result, "st_mtime_ns") else int(st.st_mtime), st.st_size)
         except OSError:
             marks[name] = "none"
-    mf = os.path.join(orchlib.find_state_dir(), "counters", "prompt-submit.json")
+    mf = os.path.join(orchlib.find_state_dir(), "counters", "prompt-submit-%s.json" % sid)
     os.makedirs(os.path.dirname(mf), exist_ok=True)
     prev = {}
     try:
@@ -207,12 +227,13 @@ def cmd_prompt_submit(engine, fmt):
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
     text = (
+        "Сессия: {sid}. Compass этой сессии: {compass}\n"
         "Актуальные параметры пачки{what}:\n{summary}\n"
         "Задание: {compass}\n"
         "Эти значения — из файла; следующее сообщение владельца обрабатывается "
         "с ними. Расхождение с ними — ошибка курса."
-    ).format(what=what, summary=orchlib.params_summary(p),
-             compass=orchlib.compass_path(p))
+    ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
+             compass=compass_of(p, sid))
     emit(fmt, "UserPromptSubmit", text[:9000])
     try:
         with open(mf, "w", encoding="utf-8") as f:

@@ -117,8 +117,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"params": orchlib.load_params()})
         elif u.path == "/api/compass":
             p = orchlib.load_params()
-            self.send_json({"path": orchlib.compass_path(p),
-                            "text": orchlib.read_compass(p, limit=200000)})
+            sid = (q.get("id") or [""])[0]
+            import re as _re
+            if sid and not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
+                self.send_json({"error": "bad session id"}, 400)
+                return
+            target = orchlib.session_compass_path(p, sid) if sid else orchlib.compass_path(p)
+            try:
+                with open(target, "r", encoding="utf-8") as f:
+                    text = f.read()[:200000]
+            except Exception:
+                text = ""
+            self.send_json({"path": target, "text": text, "session": sid})
         elif u.path == "/api/discovered":
             dj = orchlib.state_path("discovered.json")
             if os.path.exists(dj):
@@ -137,6 +147,27 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     pass
                 self.send_json({"ok": True, "set": False})
+        elif u.path == "/api/sessions":
+            if self.command == "POST":
+                body, err = self.read_body_json()
+                if err:
+                    self.send_json({"error": err}, 400)
+                    return
+                sid = body.get("id", "")
+                import re as _re
+                if not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
+                    self.send_json({"error": "bad session id"}, 400)
+                    return
+                sd = orchlib.session_dir(sid)
+                with open(os.path.join(sd, "enabled.json"), "w", encoding="utf-8") as f:
+                    json.dump({"enabled": bool(body.get("enabled"))}, f, ensure_ascii=False)
+                self.send_json({"ok": True, "id": sid, "enabled": bool(body.get("enabled"))})
+            else:
+                import datetime as _dt
+                sessions = orchlib.list_sessions()
+                for s in sessions:
+                    s["last_seen_h"] = _dt.datetime.fromtimestamp(s["last_seen"]).strftime("%H:%M:%S") if s["last_seen"] else "—"
+                self.send_json({"sessions": sessions})
         elif u.path == "/api/status":
             self.send_json({"runs": self.runs_status()})
         elif u.path == "/api/logs":
@@ -178,18 +209,38 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": err}, 400)
                 return
             text = body.get("text", "")
+            sid = body.get("id", "") or ""
             if not isinstance(text, str) or not text.strip():
                 self.send_json({"error": "задача пустая"}, 400)
                 return
             if len(text) > 65536:
                 self.send_json({"error": "задача больше 64KB"}, 400)
                 return
+            import re as _re
+            if sid and not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
+                self.send_json({"error": "bad session id"}, 400)
+                return
             p = orchlib.load_params()
-            path = orchlib.compass_path(p)
+            path = orchlib.session_compass_path(p, sid) if sid else orchlib.compass_path(p)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
             self.send_json({"ok": True, "path": path})
+        elif u.path == "/api/sessions":
+            body, err = self.read_body_json()
+            if err:
+                self.send_json({"error": err}, 400)
+                return
+            sid = body.get("id", "")
+            import re as _re
+            if not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
+                self.send_json({"error": "bad session id"}, 400)
+                return
+            sd = orchlib.session_dir(sid)
+            with open(os.path.join(sd, "enabled.json"), "w", encoding="utf-8") as f:
+                json.dump({"enabled": bool(body.get("enabled"))}, f, ensure_ascii=False)
+            self.send_json({"ok": True, "id": sid, "enabled": bool(body.get("enabled"))})
         elif u.path == "/api/cursor-key":
             kf = os.path.join(orchlib.find_state_dir(), "cursor.key")
             body, err = self.read_body_json()

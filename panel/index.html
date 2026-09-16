@@ -50,6 +50,10 @@
 Эта панель и меню в чате — только редакторы этих файлов; решает и запускает — оркестратор.</div>
 
 <h2>1. Задача (compass)</h2>
+<div class="row" style="align-items:center;gap:10px">
+  <label style="margin:0">Чей compass:</label>
+  <select id="compassTarget" style="width:auto" onchange="loadCompass()"><option value="">общий (папка)</option></select>
+</div>
 <textarea id="compass"></textarea>
 <div class="hint" id="compassPath"></div>
 <div class="hint">Можно вставить заранее. Если задача даётся в чате — агент сам запишет её в compass перед запуском исполнителей и будет обновлять фазу после каждой волны.</div>
@@ -132,6 +136,11 @@
 <h2>Доступные модели (discovered)</h2>
 <div class="hint" id="discoveredInfo">—</div>
 
+<h2>Сессии (параллельные)</h2>
+<div><button class="sec" type="button" onclick="loadSessions()">Обновить</button></div>
+<table id="sessions"><thead><tr><th>сессия</th><th>активность</th><th>свой compass</th><th>оркестрация</th></tr></thead><tbody></tbody></table>
+<div class="hint">Галочка — только для этой сессии (перекрывает общий тумблер). «свой compass» — у сессии отдельное задание; редактируется селектором «Чей compass» сверху. Сессии появляются, когда их хуки хоть раз сработали.</div>
+
 <h2>Прогоны</h2>
 <div><button class="sec" onclick="loadStatus()">Обновить</button></div>
 <table id="runs"><thead><tr><th>лог</th><th>статус</th><th>exit</th><th>изм.</th><th></th></tr></thead><tbody></tbody></table>
@@ -151,9 +160,7 @@ function msg(t,cls){ const m=document.getElementById("msg"); m.textContent=t; m.
 async function loadAll(){
   P=(await (await fetch("/api/params")).json()).params;
   fill();
-  const c=await (await fetch("/api/compass")).json();
-  document.getElementById("compass").value=c.text;
-  document.getElementById("compassPath").textContent="файл: "+c.path;
+  await loadCompass();
   try{
     const d=await (await fetch("/api/discovered")).json();
     const info=[];
@@ -168,6 +175,7 @@ async function loadAll(){
   }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
   loadStatus();
   loadKeyInfo();
+  loadSessions();
 }
 async function saveParams(){
   IDS.forEach(id=>{ const el=document.getElementById(id);
@@ -179,11 +187,47 @@ async function saveParams(){
   const j=await r.json();
   if(r.ok){ P=j.params; msg("сохранено ✓","ok"); } else { msg(j.error||"ошибка","err"); }
 }
+async function loadSessions(){
+  try{
+    const j = await (await fetch("/api/sessions")).json();
+    const tb = document.querySelector("#sessions tbody"); tb.innerHTML = "";
+    const sel = document.getElementById("compassTarget");
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">общий (папка)</option>';
+    (j.sessions||[]).forEach(s=>{
+      if (s.has_compass) {
+        const o = document.createElement("option"); o.value = s.id; o.textContent = s.id.slice(0,18); sel.appendChild(o);
+      }
+      const tr = document.createElement("tr");
+      const st = s.override === null || s.override === undefined ? "как общий тумблер" : (s.override ? "вкл (явно)" : "выкл (явно)");
+      tr.innerHTML = `<td title="${s.id}">${s.id.slice(0,18)}</td><td>${s.last_seen_h||"—"}</td><td>${s.has_compass?"есть":"—"}</td>
+        <td><input type="checkbox" ${s.override===true?"checked":""} data-sid="${s.id}" onchange="toggleSession(this)"> <span class="hint">${st}</span></td>`;
+      tb.appendChild(tr);
+    });
+    if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
+  }catch(e){}
+}
+async function toggleSession(el){
+  const sid = el.dataset.sid;
+  const r = await fetch("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id:sid, enabled:el.checked})});
+  const j = await r.json();
+  msg(r.ok?`сессия ${sid.slice(0,10)}: ${el.checked?"оркестрация вкл":"выкл (только эта сессия)"} ✓`:(j.error||"ошибка"), r.ok?"ok":"err");
+  loadSessions();
+}
+async function loadCompass(){
+  const sid = document.getElementById("compassTarget").value;
+  const c = await (await fetch("/api/compass"+(sid?("?id="+encodeURIComponent(sid)):""))).json();
+  document.getElementById("compass").value = c.text;
+  document.getElementById("compassPath").textContent = "файл: " + c.path + (sid ? " (сессионный)" : "");
+}
 async function saveCompass(){
-  const r=await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({text:document.getElementById("compass").value})});
-  const j=await r.json();
+  const sid = document.getElementById("compassTarget").value;
+  const r = await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:document.getElementById("compass").value, id:sid})});
+  const j = await r.json();
   msg(r.ok?"задача сохранена ✓":(j.error||"ошибка"), r.ok?"ok":"err");
+  loadSessions();
 }
 async function loadKeyInfo(){
   try{ const j=await (await fetch("/api/cursor-key")).json();
