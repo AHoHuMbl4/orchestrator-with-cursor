@@ -1,6 +1,6 @@
 1e234ec948b804ff62c4ce02d3333b701460e4605d9990ee45bdf6b962b8ea83  ./bin/discover.py
 56ff35f3605399bbe3f6e453f84a6e2056037b3f7bf51ee263c54697828ea653  ./bin/menu.py
-8ad28ad8d06d552adca3c28eef1dcee85fbe943faf27fd43e6b77132a81f3a0b  ./bin/orchlib.py
+34e73c1765803eca4a29c939d3f8c8ddc7e353dcf64cd86c21102e8580b99856  ./bin/orchlib.py
 b518b8c89d7b4769a099a7f0d15ab20147d1bc2c6236462db70f1be90d671892  ./bin/reground.py
 a98887dc1ae5c9d442b3cfd28f63e2f88cbae29c8ef0847dc827ead1b0343e94  ./bin/run-cloud.py
 2d3b7ed6b633f2ec343e121c757079788b8f5931886b38c1c5c55fbe68ea70e6  ./bin/run-exec.py
@@ -13,9 +13,9 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 bbb2273f6531079e7ab77ea11d59cb1505198ffa220e9138e8b87030a8fa3ce5  ./install-local.sh
 20b8896645bdef67e7193c996ee10989653a243e3c05e57ddb983c8b9ba6f6f2  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-21897e838e7b8e063754c3e68cd770310c5f3c461587dcaef38999094cb49773  ./panel/index.html
+04c553703101cc880e15f89cbee1872a6cadc6fccec5e68d22323880fc64a372  ./panel/index.html
 1ac51e7aa5b670bcfcd8425162c892fe7b67db383f72c46d4b6f3fc7fdf04d7b  ./panel/server.py
-c4d65db6e814d32bae688a5c0fea08c1fc9326cd77908e23a86adb8a6ec82673  ./params.json
+ae6f46ade02ebdfd9ef3eb16a0af736eed4eaebcd9594abaabbdef4e9497dd1d  ./params.json
 ea322f70517e88c081fbca0463fbdc3b38e981cbbb1677749ffab3862d8ffaee  ./skills/orchestration/references/engines.md
 5c4dd781a7e7739d323d729c4488cd2341531c51f34abb94f13cc69e3047d46e  ./skills/orchestration/references/traps.md
-31a17159f35fd08ff0fd31d72da84fdf746b00dd7402f438c111dc06b597b689  ./skills/orchestration/SKILL.md
+d9b872cdbe8599185cb73d417554ab894e9d535a68a73d36692d9ab9d44648af  ./skills/orchestration/SKILL.md

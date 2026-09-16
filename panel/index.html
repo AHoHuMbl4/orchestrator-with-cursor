@@ -88,6 +88,14 @@
       <input type="number" id="execution.retry_on_fail" min="0" max="3"></div>
   </div>
   <div class="row">
+    <div><label>Если Cursor отказал/квота кончилась</label>
+      <select id="execution.on_cursor_fail">
+        <option value="ask">спросить один раз, дальше ждать молча</option>
+        <option value="wait">молча ждать квоты и продолжить</option>
+        <option value="subagents">сразу продолжить на субагентах</option>
+      </select></div>
+  </div>
+  <div class="row">
     <div><label>Сверка курса: каждые N минут</label>
       <input type="number" id="reground.every_min" min="1" max="120"></div>
     <div><label>…или N вызовов инструментов</label>
@@ -125,7 +133,7 @@
 
 <script>
 let P = {};
-const IDS = ["orchestration.enabled","execution.executor","execution.parallel_per_task","review.reviewers_per_diff","review.max_rounds",
+const IDS = ["orchestration.enabled","execution.executor","execution.on_cursor_fail","execution.parallel_per_task","review.reviewers_per_diff","review.max_rounds",
   "execution.timeout_s","execution.retry_on_fail","reground.every_min","reground.every_n_calls",
   "reground.compact_reground","orchestrator.claude","orchestrator.claude_effort",
   "orchestrator.codex","orchestrator.codex_effort","orchestrator.budget_usd"];

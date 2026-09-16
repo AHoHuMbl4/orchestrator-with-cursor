@@ -21,6 +21,7 @@ DEFAULTS = {
     },
     "execution": {
         "executor": "auto",        # auto | local-cursor | cursor-cloud | subagents
+        "on_cursor_fail": "ask",    # ask | wait | subagents — поведение при отказе курсора
         "parallel_per_task": 1,     # параллельных агентов на 1 задачу одновременно
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
         "retry_on_fail": 1,         # перезапусков при фейле (по доктрине: 1 раз)
@@ -132,6 +133,9 @@ def validate_params(p):
         v = p.get(sec, {}).get(field)
         if not isinstance(v, str) or not v.strip():
             errs.append("%s.%s: ожидается непустая строка" % (sec, field))
+    ocf = p.get("execution", {}).get("on_cursor_fail")
+    if ocf not in ("ask", "wait", "subagents"):
+        errs.append("execution.on_cursor_fail: ожидается ask|wait|subagents")
     en = p.get("orchestration", {}).get("enabled")
     if not isinstance(en, bool):
         errs.append("orchestration.enabled: ожидается true/false")
