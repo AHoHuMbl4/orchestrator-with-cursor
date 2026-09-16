@@ -81,6 +81,20 @@ Plugin-marketplace packaging (one-command install via
 `/plugin marketplace add` / `codex plugin marketplace add`) is on the roadmap;
 `install-local.sh` is the canonical path today.
 
+## Troubleshooting
+
+- **Kimi: skill not listed** — skills register at session start; open a **new
+  session** (or `/reload`) and invoke `/skill:orchestration`. The description in
+  SKILL.md must stay YAML-safe (no `: ` inside the value) — fixed in this repo.
+- **Hooks stopped after app restart** — hook commands now use the **absolute
+  python path**, so they survive restarts from a different environment. Re-run
+  `install-local.sh` to upgrade an existing install (it replaces its own old
+  hook block in `~/.kimi-code/config.toml`). Kimi hooks are fail-open: a
+  failing hook is silent, test manually with
+  `echo '{}' | <python> <kit>/bin/reground.py prompt-submit --engine kimi`.
+- **Panel closes with the terminal** — run `./panel.sh --bg` (background mode,
+  log in `panel.log`); for LAN access set `panel.host` to `0.0.0.0` in params.
+
 ## License
 
 [MIT](LICENSE)
