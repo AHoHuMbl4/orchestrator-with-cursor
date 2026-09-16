@@ -10,7 +10,7 @@ a09bebfae86961901646eac98e6491eadc700553694b1fb2fae36785cb23aa52  ./commands/cod
 3537d00ed107c9a20640cae673ea9f064bc80bb37e0031825641b2ff2ca25851  ./hooks/claude-settings.snippet.json
 3d63c63229a605a361b04bbc007d540603701575b321c0425cbd6e484cbc7532  ./hooks/codex-hooks.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
-bbb2273f6531079e7ab77ea11d59cb1505198ffa220e9138e8b87030a8fa3ce5  ./install-local.sh
+72da6b7d14bb7b377b60c270bd71c625e436acfdaf5508620f92e54cd0a2cb7c  ./install-local.sh
 20b8896645bdef67e7193c996ee10989653a243e3c05e57ddb983c8b9ba6f6f2  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 255b5be2bca1c734edb89aa6ab88ca6b325b90d7990df496e2e06bf9c5f73ea9  ./panel/index.html

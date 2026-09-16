@@ -11,6 +11,18 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 TARGET="$(pwd)"
 
+# --global: скилл/хуки Claude и Codex на уровень пользователя (работает во всех папках);
+# .orchestration (params/compass) всегда остаётся per-folder — у каждой папки свои параметры.
+GLOBAL=0
+[ "${1:-}" = "--global" ] && GLOBAL=1
+CLAUDE_DIR="$TARGET/.claude"
+CODEX_HOOKS="$TARGET/.codex/hooks.json"
+if [ "$GLOBAL" = "1" ]; then
+  CLAUDE_DIR="$HOME/.claude"
+  CODEX_HOOKS="$HOME/.codex/hooks.json"
+  echo "--global: Claude/Codex ставятся на уровень пользователя (все папки)"
+fi
+
 # --- python: без него живут только скиллы ---
 HAVE_PY=1
 PY=python3
@@ -37,12 +49,12 @@ echo "== 1/6 проверка целостности kit =="
 echo "ok (TARGET=$TARGET)"
 
 echo "== 2/6 скиллы (все три движка) =="
-mkdir -p "$TARGET/.claude/skills" "$TARGET/.claude/commands" "$TARGET/.agents/skills"
-rm -rf "$TARGET/.claude/skills/orchestration" "$TARGET/.agents/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$TARGET/.claude/skills/orchestration"
+mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/commands" "$TARGET/.agents/skills"
+rm -rf "$CLAUDE_DIR/skills/orchestration" "$TARGET/.agents/skills/orchestration"
+cp -r "$KIT/skills/orchestration" "$CLAUDE_DIR/skills/orchestration"
 cp -r "$KIT/skills/orchestration" "$TARGET/.agents/skills/orchestration"
-cp "$KIT/commands/claude-orch-menu.md" "$TARGET/.claude/commands/orch-menu.md"
-echo "  .claude/skills + .claude/commands/orch-menu.md + .agents/skills"
+cp "$KIT/commands/claude-orch-menu.md" "$CLAUDE_DIR/commands/orch-menu.md"
+echo "  скилл+команда: $CLAUDE_DIR (+ .agents/skills в папке)"
 
 echo "== 3/6 хуки Claude (.claude/settings.json) =="
 if [ "$HAVE_PY" = "1" ]; then
@@ -61,10 +73,10 @@ if [ "$HAVE_PY" = "1" ]; then
   }
 }
 EOF
-  "$PY" - <<'PYEOF'
+  ORCH_CLAUDE_DIR="$CLAUDE_DIR" "$PY" - <<'PYEOF'
 import json, os
 snip = json.load(open("/tmp/orch-claude-snippet.json"))
-path = os.path.join(os.getcwd(), ".claude", "settings.json")
+path = os.path.join(os.environ["ORCH_CLAUDE_DIR"], "settings.json")
 cur = {}
 if os.path.exists(path):
     try:
@@ -89,8 +101,8 @@ fi
 
 echo "== 4/6 Codex + Kimi =="
 if [ "$HAVE_PY" = "1" ]; then
-  mkdir -p "$TARGET/.codex"
-  cat > "$TARGET/.codex/hooks.json" <<EOF
+  mkdir -p "$(dirname "$CODEX_HOOKS")"
+  cat > /tmp/orch-codex-snippet.json <<EOF
 {
   "description": "orchestration-kit: сверка курса",
   "hooks": {
@@ -107,7 +119,28 @@ if [ "$HAVE_PY" = "1" ]; then
   }
 }
 EOF
-  echo "  .codex/hooks.json (после первого запуска codex: /hooks -> доверить)"
+  ORCH_CODEX_HOOKS="$CODEX_HOOKS" "$PY" - <<'PYEOF'
+import json, os
+snip = json.load(open("/tmp/orch-codex-snippet.json"))
+path = os.environ["ORCH_CODEX_HOOKS"]
+cur = {}
+if os.path.exists(path):
+    try:
+        cur = json.load(open(path))
+    except Exception:
+        cur = {}
+hooks = cur.setdefault("hooks", {})
+for event, entries in snip["hooks"].items():
+    merged = hooks.get(event, [])
+    have = {json.dumps(e, sort_keys=True) for e in merged}
+    for e in entries:
+        if json.dumps(e, sort_keys=True) not in have:
+            merged.append(e)
+    hooks[event] = merged
+json.dump(cur, open(path, "w"), indent=2, ensure_ascii=False)
+open(path, "a").write("\n")
+PYEOF
+  echo "  $CODEX_HOOKS (после первого запуска codex: /hooks -> доверить)"
   mkdir -p "$HOME/.codex/prompts"
   cp "$KIT/commands/codex-orch-menu.md" "$HOME/.codex/prompts/orch-menu.md"
   echo "  ~/.codex/prompts/orch-menu.md (команда /orch-menu в Codex)"
