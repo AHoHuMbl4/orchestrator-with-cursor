@@ -12,6 +12,7 @@ KIT="$(cd "$(dirname "$0")" && pwd)"      # абсолютный путь к orc
 TARGET="$(pwd)"                           # рабочая папка
 PY=python3
 command -v python3 >/dev/null 2>&1 || PY=python
+PY_ABS="$(command -v $PY || echo $PY)"   # абсолютный путь: хуки живут и после рестарта из другого окружения
 
 echo "== 0/6 проверка целостности kit =="
 (cd "$KIT" && sha256sum -c SHA256SUMS --quiet) || { echo "ОШИБКА: суммы не сошлись"; exit 1; }
@@ -26,13 +27,13 @@ cat > /tmp/orch-claude-snippet.json <<EOF
 {
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py session-start --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py session-start --engine claude", "timeout": 10}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py prompt-submit --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py prompt-submit --engine claude", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py post-tool --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py post-tool --engine claude", "timeout": 10}]}
     ]
   }
 }
@@ -70,13 +71,13 @@ cat > "$TARGET/.codex/hooks.json" <<EOF
   "hooks": {
     "SessionStart": [
       {"matcher": "startup|resume|clear|compact",
-       "hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py session-start --engine codex", "timeout": 10}]}
+       "hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py session-start --engine codex", "timeout": 10}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py prompt-submit --engine codex", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py prompt-submit --engine codex", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "$PY $KIT/bin/reground.py post-tool --engine codex", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py post-tool --engine codex", "timeout": 10}]}
     ]
   }
 }
@@ -91,6 +92,12 @@ cp -r "$KIT/skills/orchestration" "$KIMI_DIR/skills/orchestration"
 cp -r "$KIT/skills/orchestration" "$HOME/.agents/skills/orchestration"
 KIMI_CFG="$KIMI_DIR/config.toml"
 touch "$KIMI_CFG"
+if grep -q "orchestration-kit hooks" "$KIMI_CFG" && grep -A20 "orchestration-kit hooks" "$KIMI_CFG" | grep -q 'command = "python3 '; then
+  # старый блок с не-абсолютным python — заменить на свежий
+  cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
+  sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
+  echo "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python)"
+fi
 if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
   cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
   cat >> "$KIMI_CFG" <<EOF
@@ -98,12 +105,12 @@ if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
 # >>> orchestration-kit hooks >>>
 [[hooks]]
   event = "UserPromptSubmit"
-  command = "$PY $KIT/bin/reground.py prompt-submit --engine kimi"
+  command = "$PY_ABS $KIT/bin/reground.py prompt-submit --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "SessionHeartbeat"
-  command = "$PY $KIT/bin/reground.py heartbeat --engine kimi"
+  command = "$PY_ABS $KIT/bin/reground.py heartbeat --engine kimi"
   timeout = 10
 # <<< orchestration-kit hooks <<<
 EOF
@@ -131,7 +138,12 @@ orchlib.save_params(p)
 PYEOF
 cat > "$TARGET/panel.sh" <<EOF
 #!/usr/bin/env bash
-# Настройки оркестрации (панель). Запуск из этой папки: ./panel.sh
+# Настройки оркестрации (панель). ./panel.sh — на переднем плане; ./panel.sh --bg — в фоне
+if [ "\${1:-}" = "--bg" ]; then shift
+  nohup $PY_ABS -u "$KIT/panel/server.py" "\$@" > panel.log 2>&1 &
+  echo "панель в фоне: pid \$! (адрес в panel.log), остановка: kill \$!"
+  exit 0
+fi
 exec $PY -u "$KIT/panel/server.py" "\$@"
 EOF
 chmod +x "$TARGET/panel.sh"

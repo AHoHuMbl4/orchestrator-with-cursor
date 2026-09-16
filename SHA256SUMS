@@ -10,7 +10,7 @@ d353b13ba792dde2fced7f9fa1cdbfb6a6d1703398a07aef392a336d2420c60c  ./commands/cod
 3537d00ed107c9a20640cae673ea9f064bc80bb37e0031825641b2ff2ca25851  ./hooks/claude-settings.snippet.json
 3d63c63229a605a361b04bbc007d540603701575b321c0425cbd6e484cbc7532  ./hooks/codex-hooks.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
-835c9240d6b4f7f50fdd264f9abc948fcbb8de6faf01cd5ed9560d686f77dbfb  ./install-local.sh
+bff6a0a490f29e5cab24cba6b4abf5b28c1d7a5c866a197f8bb7873962cfd8a4  ./install-local.sh
 dcf90a8b1a942971ca4a919109c02b7d6fdaba1a8922965f2811ad1630ac023a  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 1e1fe35e216c8a2070c526775fda7feed74b720ee379d9bf7586fbec3f49ac67  ./panel/index.html
@@ -18,4 +18,4 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 70c9bbe871b0d5b81302edd36be53484745fe2fd2ade65a6a1b922b7826fb3e5  ./params.json
 fe0a71f18bbca8eb27ba7bc34c1f61e51acd6cfc37d1c4d3145655d0f2174a05  ./skills/orchestration/references/engines.md
 6c1444812c20e861b7a6fee9e49c310c1f3582eb2e5762fd2fc6b86feb586b06  ./skills/orchestration/references/traps.md
-2a00ed491565394dd3c7620180f317713df68b0a7be4d5b288b9b0f9710de5b6  ./skills/orchestration/SKILL.md
+5412ef8ec545ce4995c086d023c4becf35d40c24cde28d88ca58bff02d87c4ab  ./skills/orchestration/SKILL.md
