@@ -105,7 +105,7 @@ def cmd_session_start(engine, fmt):
         summary=orchlib.params_summary(p),
         compass_text=ctext,
     )[:9500]
-    text = "Сессия: %s. Compass этой сессии: %s\n\n" % (sid, cpath) + text
+    text = ("Сессия: %s. Compass этой сессии: %s\n\n" % (sid, cpath) + text)[:9800]
     emit(fmt, "SessionStart", text)
 
 
@@ -178,16 +178,18 @@ def cmd_heartbeat(engine, fmt):
             last = json.load(f).get("uptime_ms")
     except Exception:
         pass
+    # SessionHeartbeat — observation-only (stdout НЕ попадает в контекст модели):
+    # heartbeat только решает «пора» и ставит флажок; доставит следующий
+    # UserPromptSubmit (у него append в контекст документирован).
     if last is None:
         last = uptime_ms  # первый тик: инициализация без напоминания
     elif (uptime_ms - last) >= every_min * 60 * 1000:
-        text = NUDGE_TEXT.format(
-            minutes=int((uptime_ms - last) // 60000),
-            calls=0,
-            summary=orchlib.params_summary(p),
-            compass=compass_of(p, sid),
-        )[:9000]
-        emit(fmt, "SessionHeartbeat", text)
+        flag = os.path.join(orchlib.session_dir(sid), "pending_nudge.json")
+        try:
+            with open(flag, "w", encoding="utf-8") as f:
+                json.dump({"minutes": int((uptime_ms - last) // 60000)}, f, ensure_ascii=False)
+        except Exception:
+            pass
         last = uptime_ms
     try:
         with open(cf, "w", encoding="utf-8") as f:
@@ -222,8 +224,23 @@ def cmd_prompt_submit(engine, fmt):
             prev = json.load(f)
     except Exception:
         pass
-    if prev == marks:
-        return  # не менялось — молчим, не засоряем контекст
+    # доставка нуджа, накопленного heartbeat (Kimi): флажок -> текст, сброс
+    flag = os.path.join(orchlib.session_dir(sid), "pending_nudge.json")
+    nudge = ""
+    try:
+        with open(flag, "r", encoding="utf-8") as f:
+            pending = json.load(f)
+        nudge = NUDGE_TEXT.format(
+            minutes=pending.get("minutes", 0), calls=0,
+            summary=orchlib.params_summary(p),
+            compass=compass_of(p, sid),
+        )[:4000] + "\n---\n"
+        os.unlink(flag)
+    except Exception:
+        pass
+
+    if not nudge and prev == marks:
+        return  # не менялось и нуджа нет — молчим
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
     text = (
@@ -234,7 +251,7 @@ def cmd_prompt_submit(engine, fmt):
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
              compass=compass_of(p, sid))
-    emit(fmt, "UserPromptSubmit", text[:9000])
+    emit(fmt, "UserPromptSubmit", (nudge + text)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:
             json.dump(marks, f)

@@ -143,7 +143,7 @@ PYEOF
   echo "  $CODEX_HOOKS (после первого запуска codex: /hooks -> доверить)"
   mkdir -p "$HOME/.codex/prompts"
   cp "$KIT/commands/codex-orch-menu.md" "$HOME/.codex/prompts/orch-menu.md"
-  echo "  ~/.codex/prompts/orch-menu.md (команда /orch-menu в Codex)"
+  echo "  ~/.codex/prompts/orch-menu.md (команда /prompts:orch-menu в Codex)"
 else
   echo "  .codex/hooks.json пропущен (нет python)"
 fi

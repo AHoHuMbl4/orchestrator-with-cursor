@@ -24,8 +24,12 @@
 
 ## Kimi Code
 
-- Субагенты: AgentSwarm. Вызов скилла: `/orchestration`; команды при занятом
-  агенте встают в очередь, Ctrl-S — вклинить немедленно.
+- Субагенты: одиночные — инструмент Agent; залпы параллельных — AgentSwarm.
+  Вызов скилла: `/skill:orchestration`; команды при занятом агенте встают в
+  очередь, Ctrl-S — вклинить немедленно.
+- Хуки: UserPromptSubmit может дописывать текст в контекст; SessionHeartbeat
+  — observation-only (таймер решает «пора сверкиться», доставляет следующий
+  UserPromptSubmit); PostToolUse — только наблюдение.
 
 ## Внешние исполнители (приоритет режима auto: дёшевы, отдельная квота Cursor)
 
@@ -33,6 +37,8 @@
   `cursor-agent -p "$(cat промт-файл)" --force --model auto --output-format
   stream-json` под системным `timeout` = `timeout_min` из params. Промт —
   только из файла; модель всегда auto; приёмка по логу/файлу, не по exit code.
+  Запуск идёт через Bash-инструмент сессии: применяются её разрешения,
+  sandbox и таймауты инструмента — укладывайся в них (или проси повышения).
 - **Облако Cursor** (без установки, отдельная квота): Cloud Agents API
   (`https://api.cursor.com`), ключ в **cursor.com/dashboard → API Keys**.
   **Локальный бинарник НЕ нужен** — чистый REST (curl/python-stdlib);

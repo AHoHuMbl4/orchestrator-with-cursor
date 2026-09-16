@@ -9,4 +9,4 @@ argument-hint: "--set key=value ... | --show | --task текст"
 оценивай, нужны ли изменения: слово владельца → скрипт → вывод.
 Правила и ключи: skills/orchestration/SKILL.md.
 Примечание: этот файл кладётся в ~/.codex/prompts/orch-menu.md (custom prompt),
-после чего доступен как /orch-menu в интерактиве Codex.
+после чего доступен как /prompts:orch-menu в интерактиве Codex.
