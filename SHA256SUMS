@@ -13,7 +13,7 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 241a86cff81baedc411cc6f2e72308cf16e2f5e9cd65ab621e6c8f5300fd47cb  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 9942185b2660fdb261e06103ae7355a07fa956fc9acdb2c2ad74559c5568dd92  ./panel/index.html
-e7a7288a3e75e304e5af90189adac469f11d055d8f2cdb0ebfcb4167b3d193e7  ./panel/server.py
+72d007a0542870dc723df7ebef9c37d432d1ebe789bca4b250a8a54efcabd4d3  ./panel/server.py
 ae6f46ade02ebdfd9ef3eb16a0af736eed4eaebcd9594abaabbdef4e9497dd1d  ./params.json
 403b6d009197fb73fef102310e559496befaea84266477282c25da2fe8932439  ./skills/orchestration/references/engines.md
 bf12dabe7c77d103ea28c657ab802f4f920ffe1466ce3ea1e5941f2c22109c81  ./skills/orchestration/references/planning.md

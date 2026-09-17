@@ -182,8 +182,10 @@ class Handler(BaseHTTPRequestHandler):
                 for s in sessions:
                     sd = orchlib.session_dir(s["id"])
                     has_runs = os.path.isdir(os.path.join(sd, "runs")) and os.listdir(os.path.join(sd, "runs"))
-                    if not s.get("has_compass") and s.get("override") is None and not has_runs:
-                        continue  # служебная сессия без контента — скрыть
+                    import time as _time
+                    recent = s.get("last_seen", 0) and (_time.time() - s["last_seen"]) < 3600
+                    if not s.get("has_compass") and s.get("override") is None and not has_runs and not recent:
+                        continue  # старая сессия без контента — скрыть
                     s["last_seen_h"] = _dt.datetime.fromtimestamp(s["last_seen"]).strftime("%H:%M:%S") if s["last_seen"] else "—"
                     visible.append(s)
                 self.send_json({"sessions": visible})
