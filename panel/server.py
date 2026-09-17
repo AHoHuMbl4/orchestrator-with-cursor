@@ -148,6 +148,19 @@ class Handler(BaseHTTPRequestHandler):
                     pass
                 self.send_json({"ok": True, "set": False})
         elif u.path == "/api/sessions":
+            if self.command == "DELETE":
+                # сброс override → наследовать общий тумблер
+                sid = (q.get("id") or [""])[0]
+                import re as _re2
+                if not _re2.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
+                    self.send_json({"error": "bad id"}, 400)
+                    return
+                try:
+                    os.unlink(os.path.join(orchlib.session_dir(sid), "enabled.json"))
+                except OSError:
+                    pass
+                self.send_json({"ok": True, "id": sid, "override": None})
+                return
             if self.command == "POST":
                 body, err = self.read_body_json()
                 if err:
@@ -165,9 +178,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 import datetime as _dt
                 sessions = orchlib.list_sessions()
+                visible = []
                 for s in sessions:
+                    sd = orchlib.session_dir(s["id"])
+                    has_runs = os.path.isdir(os.path.join(sd, "runs")) and os.listdir(os.path.join(sd, "runs"))
+                    if not s.get("has_compass") and s.get("override") is None and not has_runs:
+                        continue  # служебная сессия без контента — скрыть
                     s["last_seen_h"] = _dt.datetime.fromtimestamp(s["last_seen"]).strftime("%H:%M:%S") if s["last_seen"] else "—"
-                self.send_json({"sessions": sessions})
+                    visible.append(s)
+                self.send_json({"sessions": visible})
         elif u.path == "/api/status":
             self.send_json({"runs": self.runs_status()})
         elif u.path == "/api/logs":
@@ -221,7 +240,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "bad session id"}, 400)
                 return
             p = orchlib.load_params()
-            path = orchlib.session_compass_path(p, sid) if sid else orchlib.compass_path(p)
+            if sid:
+                path = os.path.join(orchlib.session_dir(sid), "compass.md")
+            else:
+                path = orchlib.compass_path(p)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:

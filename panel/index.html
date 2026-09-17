@@ -139,7 +139,7 @@
 <h2>Сессии (параллельные)</h2>
 <div><button class="sec" type="button" onclick="loadSessions()">Обновить</button></div>
 <table id="sessions"><thead><tr><th>сессия</th><th>активность</th><th>свой compass</th><th>оркестрация</th></tr></thead><tbody></tbody></table>
-<div class="hint">Галочка — только для этой сессии (перекрывает общий тумблер). «свой compass» — у сессии отдельное задание; редактируется селектором «Чей compass» сверху. Сессии появляются, когда их хуки хоть раз сработали.</div>
+<div class="hint">Режим: «как общий» = наследует глобальный тумблер; «вкл/выкл» = перекрывает для этой сессии. «свой compass» — у сессии отдельное задание; редактируется селектором «Чей compass» сверху. Сессии появляются, когда их хуки хоть раз сработали.</div>
 
 <h2>Прогоны</h2>
 <div><button class="sec" onclick="loadStatus()">Обновить</button></div>
@@ -199,21 +199,40 @@ async function loadSessions(){
         const o = document.createElement("option"); o.value = s.id; o.textContent = s.id.slice(0,18); sel.appendChild(o);
       }
       const tr = document.createElement("tr");
-      const st = s.override === null || s.override === undefined ? "как общий тумблер" : (s.override ? "вкл (явно)" : "выкл (явно)");
-      tr.innerHTML = `<td title="${s.id}">${s.id.slice(0,18)}</td><td>${s.last_seen_h||"—"}</td><td>${s.has_compass?"есть":"—"}</td>
-        <td><input type="checkbox" ${s.override===true?"checked":""} data-sid="${s.id}" onchange="toggleSession(this)"> <span class="hint">${st}</span></td>`;
+      const ov = s.override === null || s.override === undefined ? "inherit" : (s.override ? "on" : "off");
+      tr.innerHTML = `<td title="${s.id}">${s.id.slice(0,18)}</td><td>${s.last_seen_h||"—"}</td>
+        <td>${s.has_compass ? `<a href="#" onclick="editSessionCompass('${s.id}');return false" style="color:#2c6bed">есть</a>` : `<a href="#" onclick="createSessionCompass('${s.id}');return false" style="color:#6f7b88">создать</a>`}</td>
+        <td><select data-sid="${s.id}" onchange="setSessionMode(this)" style="width:auto;font-size:13px">
+          <option value="inherit" ${ov==="inherit"?"selected":""}>как общий</option>
+          <option value="on" ${ov==="on"?"selected":""}>вкл</option>
+          <option value="off" ${ov==="off"?"selected":""}>выкл</option>
+        </select></td>`;
       tb.appendChild(tr);
     });
     if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
   }catch(e){}
 }
-async function toggleSession(el){
-  const sid = el.dataset.sid;
-  const r = await fetch("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id:sid, enabled:el.checked})});
-  const j = await r.json();
-  msg(r.ok?`сессия ${sid.slice(0,10)}: ${el.checked?"оркестрация вкл":"выкл (только эта сессия)"} ✓`:(j.error||"ошибка"), r.ok?"ok":"err");
+async function setSessionMode(el){
+  const sid = el.dataset.sid, mode = el.value;
+  if (mode === "inherit") {
+    const r = await fetch("/api/sessions?id="+encodeURIComponent(sid), {method:"DELETE"});
+    msg(r.ok?`сессия ${sid.slice(0,10)}: наследует общий тумблер ✓`:"ошибка", r.ok?"ok":"err");
+  } else {
+    const r = await fetch("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:sid, enabled: mode==="on"})});
+    msg(r.ok?`сессия ${sid.slice(0,10)}: ${mode==="on"?"вкл":"выкл"} ✓`:"ошибка", r.ok?"ok":"err");
+  }
   loadSessions();
+}
+async function editSessionCompass(sid){
+  document.getElementById("compassTarget").value = sid;
+  await loadCompass();
+  document.querySelector("textarea").scrollIntoView({behavior:"smooth"});
+}
+async function createSessionCompass(sid){
+  const r = await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id:sid, text:"# Compass сессии\n\n(заполните задачу)"})});
+  if(r.ok){ await loadSessions(); await editSessionCompass(sid); }
 }
 async function loadCompass(){
   const sid = document.getElementById("compassTarget").value;
