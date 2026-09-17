@@ -53,8 +53,11 @@ Windows (PowerShell 5.1+ or pwsh), from the working folder where the repo is
 cloned/copied:
 
 ```powershell
+git clone -c core.autocrlf=false https://github.com/AHoHuMbl4/orchestrator-with-cursor.git orchestration-kit
 powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 ```
+
+If checksums fail during install, you cloned with line-ending conversion; re-clone with `-c core.autocrlf=false`.
 
 Add `-Global` for user-level install. Re-runs are safe (idempotent).
 

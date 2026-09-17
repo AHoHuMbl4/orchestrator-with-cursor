@@ -45,7 +45,10 @@ else
 fi
 
 echo "== 1/6 проверка целостности kit =="
-(cd "$KIT" && sha256sum -c SHA256SUMS --quiet) || { echo "ОШИБКА: суммы не сошлись"; exit 1; }
+(cd "$KIT" && sha256sum -c SHA256SUMS --quiet) || {
+  echo "ОШИБКА: суммы не сошлись. Если склонировали на Windows — Git конвертирует LF→CRLF; переклонируйте: git clone -c core.autocrlf=false <repo> (или обновите репо: git rm --cached -r . && git reset --hard после добавления .gitattributes)"
+  exit 1
+}
 echo "ok (TARGET=$TARGET)"
 
 echo "== 2/6 скиллы (все три движка) =="

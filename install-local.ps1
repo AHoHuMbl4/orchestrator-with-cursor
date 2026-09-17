@@ -8,6 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+} catch {}
+
 # --- helpers (все функции до точки входа) ---
 
 function Get-OrchTempDir {
@@ -211,7 +216,7 @@ function Test-OrchIntegrity {
         }
     }
     if ($bad.Count -gt 0) {
-        Write-Host "ОШИБКА: суммы не сошлись"
+        Write-Host "ОШИБКА: суммы не сошлись. Если склонировали на Windows — Git LF→CRLF; переклонируйте с git -c core.autocrlf=false <repo>"
         foreach ($b in $bad) { Write-Host "  $b" }
         exit 1
     }

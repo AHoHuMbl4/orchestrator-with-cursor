@@ -53,8 +53,11 @@ Windows (PowerShell 5.1+ или pwsh), из рабочей папки, куда 
 репозиторий:
 
 ```powershell
+git clone -c core.autocrlf=false https://github.com/AHoHuMbl4/orchestrator-with-cursor.git orchestration-kit
 powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 ```
+
+Если суммы не сходятся при установке — вы склонировали с конвертацией концов строк; переклонируйте с `-c core.autocrlf=false`.
 
 `-Global` — уровень пользователя. Повторный запуск безопасен (идемпотентен).
 

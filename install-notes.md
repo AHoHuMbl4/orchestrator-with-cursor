@@ -211,6 +211,23 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 Платформы: Linux, macOS (bash-инсталлер), Windows 10/11 (PowerShell-инсталлер);
 python 3.6+.
 
+### Клонирование на Windows
+
+На Windows по умолчанию `core.autocrlf=true` конвертирует LF→CRLF и ломает
+проверку контрольных сумм. Клонируйте с флагом:
+
+```
+git clone -c core.autocrlf=false https://github.com/AHoHuMbl4/orchestrator-with-cursor.git
+```
+
+В репозитории есть `.gitattributes` (`* -text`) — защита по умолчанию при
+checkout; флаг безвреден и страхует старые клоны. Уже склонировали с CRLF:
+`git -c core.autocrlf=false fetch` и повторный checkout, либо переклонируйте.
+
+Примечание: вывод установщика в перехваченных консолях (Git Bash) теперь UTF-8;
+если видите кракозябры в старом терминале — это только отображение, установка
+не страдает.
+
 Установка (из рабочей папки, куда скопирован/склонирован репозиторий):
 
 ```powershell
