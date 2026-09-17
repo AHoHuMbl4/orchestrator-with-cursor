@@ -296,6 +296,28 @@ class Handler(BaseHTTPRequestHandler):
             with open(kf, "w", encoding="utf-8") as f:
                 f.write(keyv.strip())
             self.send_json({"ok": True, "set": True})
+        elif u.path == "/api/template/restore":
+            try:
+                p = orchlib.load_params()
+                dst = orchlib.compass_path(p)
+                src = os.path.join(orchlib.KIT_DIR, "compass.md")
+                if not os.path.isfile(src):
+                    self.send_json({"error": "нет kit-шаблона: %s" % src}, 500)
+                    return
+                with open(src, "r", encoding="utf-8") as f:
+                    text = f.read()
+                bak = dst + ".bak-restore"
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if os.path.isfile(dst):
+                    with open(dst, "rb") as f:
+                        old = f.read()
+                    with open(bak, "wb") as f:
+                        f.write(old)
+                with open(dst, "w", encoding="utf-8") as f:
+                    f.write(text)
+                self.send_json({"ok": True, "path": dst, "text": text})
+            except Exception as e:
+                self.send_json({"error": "не удалось восстановить шаблон: %s" % e}, 500)
         else:
             self.send_json({"error": "not found"}, 404)
 

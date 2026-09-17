@@ -100,6 +100,7 @@ def cmd_session_start(engine, fmt):
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
     p = orchlib.load_params()
+    seeded = orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
     cpath = compass_of(p, sid)
@@ -107,8 +108,13 @@ def cmd_session_start(engine, fmt):
         with open(cpath, "r", encoding="utf-8") as f:
             ctext = f.read()[:8500]
     except Exception:
-        ctext = ("(compass этой сессии ещё не создан — СОЗДАЙ его по пути %s "
-                 "при первой задаче: цель, критерий, TODO-чеклист, границы)") % cpath
+        if seeded is False and not os.path.exists(cpath):
+            ctext = ("(compass этой сессии ещё не создан — СОЗДАЙ его по пути %s "
+                     "при первой задаче: цель, критерий, TODO-чеклист, границы)") % cpath
+        else:
+            ctext = ("(compass этой сессии создан из общего шаблона: %s — заполни Цель, "
+                     "критерий приёмки и TODO-чеклист под текущую задачу; это твоя "
+                     "личная копия, общий шаблон не трогай)") % cpath
     text = SESSION_TEXT.format(
         summary=orchlib.params_summary(p),
         compass_text=ctext,
@@ -214,6 +220,7 @@ def cmd_prompt_submit(engine, fmt):
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
     p = orchlib.load_params()
+    orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
     marks = {}
@@ -252,10 +259,11 @@ def cmd_prompt_submit(engine, fmt):
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
     cpath_ps = compass_of(p, sid)
-    if not os.path.exists(cpath_ps):
-        compass_hint = "%s (СОЗДАЙ при первой задаче)" % cpath_ps
+    if os.path.exists(cpath_ps):
+        compass_hint = ("%s (создан из общего шаблона — заполни Цель/TODO "
+                        "при первой задаче)") % cpath_ps
     else:
-        compass_hint = cpath_ps
+        compass_hint = "%s (СОЗДАЙ при первой задаче)" % cpath_ps
     text = (
         "Сессия: {sid}. Compass этой сессии: {compass}\n"
         "Актуальные параметры пачки{what}:\n{summary}\n"

@@ -254,6 +254,33 @@ def session_compass_path(p, session_id):
     return os.path.join(session_dir(session_id), "compass.md")
 
 
+def seed_session_compass(p, sid):
+    """Скопировать общий шаблон compass в сессионный, если его ещё нет.
+    Fail-open: любая ошибка → False (хук не должен ронять сессию)."""
+    try:
+        path = session_compass_path(p, sid)
+        if os.path.exists(path):
+            return False
+        src = compass_path(p)
+        if not os.path.exists(src):
+            _bootstrap_compass(p)
+        if os.path.exists(src):
+            with open(src, "r", encoding="utf-8") as f:
+                text = f.read()
+        else:
+            tpl = os.path.join(KIT_DIR, "compass.md")
+            text = ""
+            if os.path.exists(tpl):
+                with open(tpl, "r", encoding="utf-8") as f:
+                    text = f.read()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return True
+    except Exception:
+        return False
+
+
 def touch_session(session_id):
     try:
         with open(os.path.join(session_dir(session_id), "last-seen"), "w", encoding="utf-8") as f:

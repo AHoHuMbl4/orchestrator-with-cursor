@@ -10,13 +10,13 @@
   python3 menu.py --set review.reviewers_per_diff=5 execution.parallel_per_task=2
   python3 menu.py --task "текст задачи" --session <id>
   python3 menu.py --task-file файл --session <id>
-  python3 menu.py --task "текст" --global-template   # редко: править шаблон
-  python3 menu.py --reset-template                   # восстановить шаблон из kit
+  python3 menu.py --reset-template                   # аварийно: восстановить шаблон из kit
   python3 menu.py --interactive                      # терминальный опрос (локально)
 
 Сессия: --session <id> либо env ORCH_SESSION_ID (id из хук-вклейки «Сессия: <id>»).
-Глобальный .orchestration/compass.md — ЧИСТЫЙ ШАБЛОН; рабочая задача сессии
-пишется только в .orchestration/sessions/<id>/compass.md.
+Глобальный .orchestration/compass.md — ЧИСТЫЙ ШАБЛОН; править только в панели
+(«Расширенные»). Рабочая задача сессии — только в
+.orchestration/sessions/<id>/compass.md.
 
 Ключи --set: любые из схемы (см. orchlib.DEFAULTS/RANGES). Кроссплатформенно,
 python3.6+, stdlib. Выход: 0 — применено, 2 — ошибка валидации.
@@ -29,8 +29,13 @@ import orchlib  # noqa: E402
 
 TASK_NEEDS_SESSION_MSG = (
     "задача сессии требует --session <id> (или env ORCH_SESSION_ID). "
-    "Глобальный compass — шаблон; запись в него: --global-template. "
+    "Глобальный compass — шаблон; редактирование — только панель, раздел «Расширенные». "
     "Не знаю сессию? Смотри .orchestration/sessions/ или хук-вклейку (Сессия: <id>)"
+)
+
+GLOBAL_TEMPLATE_REFUSED_MSG = (
+    "Редактирование общего шаблона — только панель, раздел „Расширенные“. "
+    "Задача пишется в compass сессии (--session <id> или env ORCH_SESSION_ID)"
 )
 
 
@@ -59,7 +64,10 @@ def parse_set(pairs):
 
 
 def extract_opts(args):
-    """Вытащить --session <id> и --global-template; вернуть (rest, session, global_template)."""
+    """Вытащить --session <id> и устаревший --global-template; вернуть (rest, session, global_template).
+
+    --global-template распознаётся (без unknown-флага), но запись по нему всегда отказ.
+    """
     rest = []
     session = None
     global_template = False
@@ -98,7 +106,7 @@ def show(session_cli=None):
         print("Показан compass сессии %s" % sid)
     else:
         path = orchlib.compass_path(p)
-        print("Показан глобальный шаблон-compass")
+        print("Общий стартовый шаблон (редактирование — панель, Расширенные)")
     print(orchlib.params_summary(p))
     print("compass: %s" % path)
     try:
@@ -133,20 +141,15 @@ def set_task(text, task_file, session_cli=None, global_template=False):
     if not text or not text.strip():
         print("ошибка: задача пустая", file=sys.stderr)
         return 2
+    if global_template:
+        print(GLOBAL_TEMPLATE_REFUSED_MSG, file=sys.stderr)
+        return 2
     sid = resolve_session_id(session_cli)
     if sid:
         path = orchlib.session_compass_path(p, sid)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
-        print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
-        return 0
-    if global_template:
-        path = orchlib.compass_path(p)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-        print("ВНИМАНИЕ: записан ГЛОБАЛЬНЫЙ шаблон-compass (обычно этого не нужно)")
         print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
         return 0
     print(TASK_NEEDS_SESSION_MSG, file=sys.stderr)
