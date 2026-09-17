@@ -37,18 +37,34 @@ def run(cmd, timeout=30):
         return 127, str(e)
 
 
+def probe_cursor_key():
+    """Свежая проверка ключа при каждом запуске (не кэш): env или state/cursor.key."""
+    env = (os.environ.get("CURSOR_API_KEY") or "").strip()
+    if env:
+        return True
+    kf = os.path.join(orchlib.find_state_dir(), "cursor.key")
+    return os.path.isfile(kf)
+
+
 def probe_cursor():
     exe = shutil.which("cursor-agent") or shutil.which("cursor-agent.exe")
+    key = probe_cursor_key()
+    base = {"binary": exe, "key": key}
     if not exe:
-        return {"status": "absent"}
+        base["status"] = "absent"
+        return base
     code, out = run([exe, "--list-models"], timeout=60)
     models = []
     for line in out.splitlines():
         m = re.match(r"^\s*([A-Za-z0-9._\-\[\]=,]+)\s+-\s+", line)
         if m:
             models.append(m.group(1))
-    return {"status": "ok" if models else "no-models", "models": models,
-            "note": "исполнителю всегда auto; список — справка/для ролей оркестратора"}
+    base.update({
+        "status": "ok" if models else "no-models",
+        "models": models,
+        "note": "исполнителю всегда auto; список — справка/для ролей оркестратора",
+    })
+    return base
 
 
 def probe_claude():

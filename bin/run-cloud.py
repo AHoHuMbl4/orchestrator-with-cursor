@@ -10,6 +10,8 @@
 https://cursor.com/docs/cloud-agent/api/endpoints):
   POST /v1/agents                          — создать агента + первый run
   POST /v1/agents/{agentId}/runs           — follow-up в существующего агента
+  GET  /v1/agents?limit=N                  — список агентов (id, name, createdAt,
+                                             latestRunId) — для recovery после timeout
   GET  /v1/agents/{agentId}/runs/{runId}   — статус/результат
   GET  /v1/agents/{agentId}/runs/{runId}/stream — SSE-прогресс
   GET  /v1/agents/{agentId}/artifacts      — артефакты (presigned download)
@@ -17,18 +19,29 @@ https://cursor.com/docs/cloud-agent/api/endpoints):
 Тело create/follow-up: "prompt" — объект {"text": "<строка>"}, не голая строка
 (см. Request Body → prompt.text в доках выше).
 
+HTTP: --http-timeout (дефолт 300 с) на все вызовы call(). Create на сервере
+часто ~61 с — таймаут 60 с у клиента убивал запрос за секунду до ответа, при
+этом агент уже создавался. При URLError/timeout на POST /v1/agents клиент
+делает GET /v1/agents?limit=20 и ищет свежего (createdAt ≤ ~5 мин) агента с
+совпадающим name (если передавали) или текстом промта в name; при находке
+восстанавливает agent.id / run.id (latestRunId), пишет в лог
+«recovered after timeout: <id>» и продолжает как успех.
+
+--wait: поллинг GET run до терминального status —
+FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыром JSON).
+
 Подкоманды:
   run       — создать агента (или follow-up) с промтом из файла
   status    — статус/результат run (опция --wait: поллить до готовности)
   artifacts — список артефактов агента
 
-Общие флаги (--id, --api-key) работают ДО и ПОСЛЕ субкоманды:
+Общие флаги (--id, --api-key, --http-timeout) работают ДО и ПОСЛЕ субкоманды:
   run-cloud.py --id w1 run --prompt-file P.md
   run-cloud.py run --id w1 --prompt-file P.md
 
 Ключ (по приоритету): 1) --api-key; 2) env CURSOR_API_KEY; 3) файл
 <state>/cursor.key (state — .orchestration, ищется от cwd вверх / ORCHESTRATION_DIR).
-Всё пишется в <state>/cloud-<id>.log.
+Всё пишется в <state>/cloud-<id>.log (UTC-штампы с суффиксом Z, line-buffered flush).
 Схема beta: первый живой прогон калибрует парсинг id (ответ логируется целиком).
 """
 import argparse
@@ -38,17 +51,22 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
 
 BASE = "https://api.cursor.com"
+TERMINAL_RUN_STATUSES = frozenset(("FINISHED", "ERROR", "CANCELLED", "EXPIRED"))
+RECOVERY_WINDOW_SEC = 300
 
 
 def _add_common_args(parser):
     """Общие флаги на main и на субпарсерах (default=SUPPRESS → оба порядка)."""
     parser.add_argument("--api-key", default=argparse.SUPPRESS)
     parser.add_argument("--id", default=argparse.SUPPRESS)
+    parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
+                        help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
 
 
 def build_parser():
@@ -87,6 +105,8 @@ def normalize_args(a):
         a.api_key = None
     if not hasattr(a, "id"):
         a.id = "C1"
+    if not hasattr(a, "http_timeout"):
+        a.http_timeout = 300.0
     return a
 
 
@@ -132,7 +152,7 @@ def report_http_error(out):
     return True
 
 
-def call(method, path, key, body=None, stream=False):
+def call(method, path, key, body=None, stream=False, timeout=300.0):
     url = BASE + path
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -140,7 +160,7 @@ def call(method, path, key, body=None, stream=False):
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        resp = urllib.request.urlopen(req, timeout=60)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         if stream:
             return resp  # итерируем SSE-строки
         raw = resp.read().decode("utf-8", "replace")
@@ -150,10 +170,23 @@ def call(method, path, key, body=None, stream=False):
             return {"_raw": raw}
     except urllib.error.HTTPError as e:
         return {"_http_error": e.code, "_body": e.read().decode("utf-8", "replace")}
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return {"_network_error": str(e)}
+
+
+def utc_stamp():
+    """UTC-штамп с суффиксом Z."""
+    return time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
 
 
 def logf(state, a):
-    return open(os.path.join(state, "cloud-%s.log" % a.id), "a", encoding="utf-8")
+    return open(os.path.join(state, "cloud-%s.log" % a.id), "a",
+                encoding="utf-8", buffering=1)
+
+
+def log_write(lf, text):
+    lf.write(text)
+    lf.flush()
 
 
 def find_ids(obj):
@@ -182,6 +215,111 @@ def prompt_body(text):
     return {"text": text}
 
 
+def _parse_created_at(value):
+    """ISO8601 createdAt → aware datetime UTC; None если не разобрали.
+
+    Без datetime.fromisoformat (нужна совместимость с Python 3.6).
+    """
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    if s.endswith("Z"):
+        s = s[:-1]
+    # оставить только дату/время, отбросить смещение +HH:MM / -HH:MM
+    if "T" in s:
+        date_part, rest = s.split("T", 1)
+        cut = len(rest)
+        for i, ch in enumerate(rest):
+            if i >= 8 and ch in "+-":
+                cut = i
+                break
+        rest = rest[:cut]
+        s = date_part + "T" + rest
+    try:
+        if "." in s:
+            main, frac = s.split(".", 1)
+            frac = "".join(c for c in frac if c.isdigit())[:6].ljust(6, "0")
+            dt = datetime.strptime(main + "." + frac, "%Y-%m-%dT%H:%M:%S.%f")
+        else:
+            dt = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+        return dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _agent_matches(item, sent_name, prompt_text):
+    """Совпадение свежего агента: name если передавали, иначе текст промта в name."""
+    name = item.get("name") or ""
+    if sent_name:
+        return name == sent_name
+    pt = (prompt_text or "").strip()
+    if not pt:
+        return False
+    if pt == name or pt in name or name in pt:
+        return True
+    # первая непустая строка промта часто становится авто-именем
+    first = pt.splitlines()[0].strip() if pt else ""
+    if first and (first == name or first in name or name in first):
+        return True
+    return False
+
+
+def recover_create_after_timeout(key, body, prompt_text, http_timeout, lf):
+    """GET /v1/agents?limit=20 → свежий агент с совпадающим name/prompt.
+
+    Возвращает (out_dict, ids) или (None, None) если не нашли.
+    """
+    listing = call("GET", "/v1/agents?limit=20", key, timeout=http_timeout)
+    log_write(lf, "recovery list:\n%s\n" % json.dumps(listing, ensure_ascii=False, indent=2))
+    if report_http_error(listing) or not isinstance(listing, dict):
+        return None, None
+    if "_network_error" in listing:
+        return None, None
+
+    items = listing.get("items")
+    if not isinstance(items, list):
+        # на всякий случай — голый список
+        items = listing if isinstance(listing, list) else []
+
+    sent_name = body.get("name") if isinstance(body, dict) else None
+    now = datetime.now(timezone.utc)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        created = _parse_created_at(item.get("createdAt"))
+        if created is None:
+            continue
+        age = (now - created).total_seconds()
+        if age < 0 or age > RECOVERY_WINDOW_SEC:
+            continue
+        if not _agent_matches(item, sent_name, prompt_text):
+            continue
+        agent_id = item.get("id")
+        run_id = item.get("latestRunId") or item.get("runId") or item.get("run_id")
+        if not agent_id:
+            continue
+        out = {
+            "id": agent_id,
+            "agentId": agent_id,
+            "name": item.get("name"),
+            "createdAt": item.get("createdAt"),
+            "latestRunId": run_id,
+        }
+        if run_id:
+            out["runId"] = run_id
+        ids = find_ids(out)
+        if run_id:
+            ids["agent_id"] = agent_id
+            ids["run_id"] = run_id
+        else:
+            ids.setdefault("agent_id", agent_id)
+        msg = "recovered after timeout: %s" % agent_id
+        log_write(lf, msg + "\n")
+        print(msg)
+        return out, ids
+    return None, None
+
+
 def cmd_run(a):
     key = api_key(a)
     state = orchlib.find_state_dir()
@@ -198,18 +336,41 @@ def cmd_run(a):
         with open(a.body_file, "r", encoding="utf-8") as f:
             extra = json.load(f)
 
+    http_timeout = a.http_timeout
     lf = logf(state, a)
-    lf.write("=== %s run\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+    log_write(lf, "=== %s run\n" % utc_stamp())
     body = dict(extra)
     body["prompt"] = prompt_body(prompt)
+    ids = {}
     if a.agent_id:
-        out = call("POST", "/v1/agents/%s/runs" % a.agent_id, key, body)
-        lf.write("follow-up %s:\n%s\n" % (a.agent_id, json.dumps(out, ensure_ascii=False, indent=2)))
+        out = call("POST", "/v1/agents/%s/runs" % a.agent_id, key, body,
+                   timeout=http_timeout)
+        log_write(lf, "follow-up %s:\n%s\n" % (
+            a.agent_id, json.dumps(out, ensure_ascii=False, indent=2)))
+        ids = find_ids(out)
     else:
-        out = call("POST", "/v1/agents", key, body)
-        lf.write("create:\n%s\n" % json.dumps(out, ensure_ascii=False, indent=2))
-    ids = find_ids(out)
-    lf.write("ids: %s\n" % ids)
+        out = call("POST", "/v1/agents", key, body, timeout=http_timeout)
+        if isinstance(out, dict) and "_network_error" in out:
+            log_write(lf, "create network/timeout: %s\n" % out["_network_error"])
+            recovered, recovered_ids = recover_create_after_timeout(
+                key, body, prompt, http_timeout, lf)
+            if recovered is None:
+                log_write(lf, "create recovery failed\n")
+                lf.close()
+                sys.stderr.write("create timeout/network error, recovery failed: %s\n"
+                                 % out["_network_error"])
+                print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
+                return 1
+            out = recovered
+            ids = recovered_ids
+            log_write(lf, "create (recovered):\n%s\n" % json.dumps(
+                out, ensure_ascii=False, indent=2))
+        else:
+            log_write(lf, "create:\n%s\n" % json.dumps(out, ensure_ascii=False, indent=2))
+            ids = find_ids(out)
+
+    # ids в лог до любого поллинга (flush через log_write)
+    log_write(lf, "ids: %s\n" % ids)
     lf.close()
 
     if report_http_error(out):
@@ -228,22 +389,31 @@ def cmd_run(a):
     return 0
 
 
+def run_status_terminal(status_obj):
+    """True если GET run вернул терминальный status."""
+    if not isinstance(status_obj, dict):
+        return False
+    st = status_obj.get("status")
+    return isinstance(st, str) and st in TERMINAL_RUN_STATUSES
+
+
 def wait_and_report(agent, run, key, state, a):
     deadline = time.time() + (a.timeout or 1800)
     status = {}
     lf = logf(state, a)
+    http_timeout = getattr(a, "http_timeout", 300.0)
     while time.time() < deadline:
-        status = call("GET", "/v1/agents/%s/runs/%s" % (agent, run), key)
-        lf.write("poll: %s\n" % json.dumps(status, ensure_ascii=False))
+        status = call("GET", "/v1/agents/%s/runs/%s" % (agent, run), key,
+                      timeout=http_timeout)
+        log_write(lf, "poll: %s\n" % json.dumps(status, ensure_ascii=False))
         if report_http_error(status):
             lf.close()
             print(json.dumps(status, ensure_ascii=False, indent=2))
             return 1
-        raw = json.dumps(status)
-        if '"done"' in raw or '"completed"' in raw or '"failed"' in raw or '"error"' in raw:
+        if run_status_terminal(status):
             break
         time.sleep(a.poll or 15)
-    lf.write("final: %s\n" % json.dumps(status, ensure_ascii=False, indent=2))
+    log_write(lf, "final: %s\n" % json.dumps(status, ensure_ascii=False, indent=2))
     lf.close()
     print(json.dumps(status, ensure_ascii=False, indent=2))
     return 0
@@ -254,26 +424,28 @@ def cmd_status(a):
     state = orchlib.find_state_dir()
     if a.wait:
         return wait_and_report(a.agent_id, a.run_id, key, state, a)
-    out = call("GET", "/v1/agents/%s/runs/%s" % (a.agent_id, a.run_id), key)
+    out = call("GET", "/v1/agents/%s/runs/%s" % (a.agent_id, a.run_id), key,
+               timeout=a.http_timeout)
     if report_http_error(out):
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))
     with logf(state, a) as lf:
-        lf.write("status %s/%s: %s\n" % (a.agent_id, a.run_id,
-                                          json.dumps(out, ensure_ascii=False)))
+        log_write(lf, "status %s/%s: %s\n" % (a.agent_id, a.run_id,
+                                              json.dumps(out, ensure_ascii=False)))
     return 0
 
 
 def cmd_artifacts(a):
     key = api_key(a)
-    out = call("GET", "/v1/agents/%s/artifacts" % a.agent_id, key)
+    out = call("GET", "/v1/agents/%s/artifacts" % a.agent_id, key,
+               timeout=a.http_timeout)
     if report_http_error(out):
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))
     with logf(orchlib.find_state_dir(), a) as lf:
-        lf.write("artifacts %s: %s\n" % (a.agent_id, json.dumps(out, ensure_ascii=False)))
+        log_write(lf, "artifacts %s: %s\n" % (a.agent_id, json.dumps(out, ensure_ascii=False)))
     return 0
 
 

@@ -1,11 +1,11 @@
 13080c40e45b9d8f35ff08ded09f348692bacb58543b76b9cee45edf955930c9  ./.gitattributes
-24e9c58424fc10b6abc9fae74e91362dd763b6ae8d9fa96a75a6ae8665024da4  ./README.md
-c82ff28dc24d203cafb1e5f28f343f729ac2b70b8b21a56712615b7dc70ebd71  ./README.ru.md
-6fb845ba0005a16ed41bef964985b30b4eba14cf6cd44dc0cd6ad679e660aee7  ./bin/discover.py
+0bb253bcad18d062c470be10f701bea17eee95ea30ece715b45b2dd5752013e5  ./README.md
+4c30986c12fe12ffde3f1543e5ff9135eae42ecd16f6a07c1c124781e46ce9cb  ./README.ru.md
+cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 5367dd3116f352e2eae29d44cdf8e3e99e9ec59c930d7195d89903e189ed5497  ./bin/menu.py
-5574075f8cac2712addd27ff29b8a89e3cf18198c20fd5280626f3f5ac7b0f6a  ./bin/orchlib.py
+9233cbe80bfe66a860eeb05dccbb58bd63ec426720db9c2cc9fce7917c51beea  ./bin/orchlib.py
 3d52fa5bf4e02146a1788637363386554cd1c45ab4a9ee8f6c1568684ab35503  ./bin/reground.py
-5fa7ba31ebf314d9571cf4cfc69837f5782f47c51366c29cdc5edf765997c393  ./bin/run-cloud.py
+2176a3a1829ee94396ee87656aeeb3d31a3660d47c4886e3fc1805d27e8d22eb  ./bin/run-cloud.py
 b4cef74a313eca5931f536db41cc687b93623a3c53de86be3878e02d0dcacde0  ./bin/verdict.py
 7d7d597bba514b32c6ff96b830cba4b52b27ebc852b48ae87ac1cc5e9472dcf8  ./commands/claude-orch-menu.md
 98583655c179629c1926c4d02155915ec860ccfc088805ff57d02fbbae7db929  ./commands/codex-orch-menu.md
@@ -18,9 +18,9 @@ ed516c3da1140c968347365a71908ba2f7977ba3093157e23300875b1ced4f87  ./install-loca
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 33ab972d56e33c3361acee8714f858f8b51fc77b62c52225e427ee43dba2a2f1  ./panel/index.html
 710d903ce88c291d8ecfb38fc4b055bcb13eaec4f8151544ef5df52cafaeed3a  ./panel/server.py
-37ffff217373fb748858d88f27523f56ee17a74b7626c1522f2fcc3da48c280c  ./params.json
-aca1fbe554de7891162e9113e4103edfc65829bef1f27aad5493db99986abd02  ./skills/orchestration/SKILL.md
-b3bfc4ef3129c672f3442f6cffbbca10e823b10786e57680517840fd164238a6  ./skills/orchestration/references/engines.md
+9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
+029e19622326824429394c24b7b1f8b82a8e151bd6d183d4ff79a09ac2ded24c  ./skills/orchestration/SKILL.md
+503f38df337e54fcf86efe167b6217512b029b9fe45d3911c593e1f3ee2551ce  ./skills/orchestration/references/engines.md
 1e32eafa8e8732e049927fdd7978e5ce2ce2d9db1fec497f4e7b2c74f857bada  ./skills/orchestration/references/planning.md
 00a4e5579a973c9f7c396d0884fc3576918a9c83a689f94386f3c6721aa300bf  ./skills/orchestration/references/roles/_index.md
 acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orchestration/references/roles/_template.md
@@ -168,6 +168,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-5ff1fafe35ee5d48db199d3fb996459b48f03c4cfe62ea2c36b1b6e8ab196f38  ./skills/orchestration/references/traps.md
+9b3d041947d10ab160bb99ff24dc37df24bf73254dc237a13eef0d7de9ff0c6c  ./skills/orchestration/references/traps.md
 b9e3fdf52a26b2f39dd4e3ad045d58d3a9e6da8223d5e2ddf2ad75e87423205a  ./uninstall.ps1
 d52d438b298b94a62ec70e08865924c61c951284db0ac3ef0354a3ecc738e35f  ./uninstall.sh

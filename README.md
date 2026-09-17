@@ -76,7 +76,7 @@ touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
 
 All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
 (auto-picks a free port). The panel has a session selector (session compasses
-only in the main zone), on/off toggle, executors per task, critics per diff,
+only in the main zone), on/off toggle, executors per task (default 3), critics per diff,
 review rounds, timeout, `retry_on_fail`, course-check interval, models, Cursor
 API token, and **Advanced** for the shared starter template
 (`.orchestration/compass.md` — confirm to save; restore-default button).
