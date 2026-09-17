@@ -80,13 +80,27 @@ def watch(pid, log_path, pid_path, timeout_s):
         pass
 
 
+def detach_popen_kwargs():
+    """Флаги отсоединения от консоли: start_new_session (POSIX) / DETACHED (Windows)."""
+    if os.name != "nt":
+        return {"start_new_session": True}
+    # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS — не умирать при закрытии консоли
+    return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008}
+
+
 def pid_alive(pid):
     try:
         if os.name == "nt":
             out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
                                  stdout=subprocess.PIPE,
                                  encoding="utf-8", errors="replace").stdout
-            return str(pid) in out
+            pid_s = str(pid)
+            for line in out.splitlines():
+                if not line.strip():
+                    continue
+                if pid_s in line.split():  # точное совпадение токена, не подстрока
+                    return True
+            return False
         os.kill(pid, 0)
         return True
     except Exception:
@@ -155,9 +169,7 @@ def main():
     if not a.session:
         log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
     log_fh = open(log_path, "w", encoding="utf-8")
-    kwargs = {}
-    if os.name != "nt":
-        kwargs["start_new_session"] = True
+    kwargs = detach_popen_kwargs()
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
 
     if not a.session:
@@ -169,13 +181,8 @@ def main():
         # отпочковать watcher: допишет EXIT= по завершении и уберёт pid-файл
         watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
                      str(proc.pid), log_path, pid_path, str(timeout_s)]
-        wflags = {}
-        if os.name != "nt":
-            wflags["start_new_session"] = True
-        else:
-            wflags["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
         subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, **wflags)
+                         stderr=subprocess.DEVNULL, **detach_popen_kwargs())
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
         return 0
 

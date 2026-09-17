@@ -252,6 +252,9 @@ class Handler(BaseHTTPRequestHandler):
             if sid and not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
                 self.send_json({"error": "bad session id"}, 400)
                 return
+            if not sid and body.get("confirm_template") is not True:
+                self.send_json({"error": "глобальный compass — шаблон; подтвердите запись"}, 400)
+                return
             p = orchlib.load_params()
             if sid:
                 path = os.path.join(orchlib.session_dir(sid), "compass.md")

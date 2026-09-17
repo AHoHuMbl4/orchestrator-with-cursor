@@ -6,10 +6,17 @@
 не применить. Здесь применение — это запись файла с валидацией; агент только
 запускает скрипт и показывает вывод. Дальше хук сам доносит новые значения.
 
-  python3 menu.py --show
+  python3 menu.py --show [--session <id>]
   python3 menu.py --set review.reviewers_per_diff=5 execution.parallel_per_task=2
-  python3 menu.py --task "текст задачи"          # или --task-file файл
-  python3 menu.py --interactive                   # терминальный опрос (локально)
+  python3 menu.py --task "текст задачи" --session <id>
+  python3 menu.py --task-file файл --session <id>
+  python3 menu.py --task "текст" --global-template   # редко: править шаблон
+  python3 menu.py --reset-template                   # восстановить шаблон из kit
+  python3 menu.py --interactive                      # терминальный опрос (локально)
+
+Сессия: --session <id> либо env ORCH_SESSION_ID (id из хук-вклейки «Сессия: <id>»).
+Глобальный .orchestration/compass.md — ЧИСТЫЙ ШАБЛОН; рабочая задача сессии
+пишется только в .orchestration/sessions/<id>/compass.md.
 
 Ключи --set: любые из схемы (см. orchlib.DEFAULTS/RANGES). Кроссплатформенно,
 python3.6+, stdlib. Выход: 0 — применено, 2 — ошибка валидации.
@@ -19,6 +26,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
+
+TASK_NEEDS_SESSION_MSG = (
+    "задача сессии требует --session <id> (или env ORCH_SESSION_ID). "
+    "Глобальный compass — шаблон; запись в него: --global-template. "
+    "Не знаю сессию? Смотри .orchestration/sessions/ или хук-вклейку (Сессия: <id>)"
+)
 
 
 def parse_set(pairs):
@@ -45,12 +58,51 @@ def parse_set(pairs):
     return out
 
 
-def show():
+def extract_opts(args):
+    """Вытащить --session <id> и --global-template; вернуть (rest, session, global_template)."""
+    rest = []
+    session = None
+    global_template = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--session":
+            if i + 1 >= len(args):
+                raise ValueError("--session требует <id>")
+            session = args[i + 1]
+            i += 2
+        elif a == "--global-template":
+            global_template = True
+            i += 1
+        else:
+            rest.append(a)
+            i += 1
+    return rest, session, global_template
+
+
+def resolve_session_id(session_cli):
+    """--session <sid> > env ORCH_SESSION_ID."""
+    if session_cli:
+        return session_cli
+    env = os.environ.get("ORCH_SESSION_ID")
+    if env and env.strip():
+        return env.strip()
+    return None
+
+
+def show(session_cli=None):
     p = orchlib.load_params()
+    sid = resolve_session_id(session_cli)
+    if sid:
+        path = orchlib.session_compass_path(p, sid)
+        print("Показан compass сессии %s" % sid)
+    else:
+        path = orchlib.compass_path(p)
+        print("Показан глобальный шаблон-compass")
     print(orchlib.params_summary(p))
-    print("compass: %s" % orchlib.compass_path(p))
+    print("compass: %s" % path)
     try:
-        with open(orchlib.compass_path(p), "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             head = "".join(f.readlines()[:12])
         print("--- compass (первые строки) ---")
         print(head.rstrip())
@@ -73,7 +125,7 @@ def apply_sets(pairs):
     return 0
 
 
-def set_task(text, task_file):
+def set_task(text, task_file, session_cli=None, global_template=False):
     p = orchlib.load_params()
     if task_file:
         with open(task_file, "r", encoding="utf-8") as f:
@@ -81,11 +133,40 @@ def set_task(text, task_file):
     if not text or not text.strip():
         print("ошибка: задача пустая", file=sys.stderr)
         return 2
-    path = orchlib.compass_path(p)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-    print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
+    sid = resolve_session_id(session_cli)
+    if sid:
+        path = orchlib.session_compass_path(p, sid)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
+        return 0
+    if global_template:
+        path = orchlib.compass_path(p)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("ВНИМАНИЕ: записан ГЛОБАЛЬНЫЙ шаблон-compass (обычно этого не нужно)")
+        print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
+        return 0
+    print(TASK_NEEDS_SESSION_MSG, file=sys.stderr)
+    return 2
+
+
+def reset_template():
+    p = orchlib.load_params()
+    src = os.path.join(orchlib.KIT_DIR, "compass.md")
+    dst = orchlib.compass_path(p)
+    if not os.path.isfile(src):
+        print("ошибка: нет kit-шаблона: %s" % src, file=sys.stderr)
+        return 2
+    with open(src, "r", encoding="utf-8") as f:
+        content = f.read()
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8") as f:
+        f.write(content)
+    print("Глобальный шаблон-compass восстановлен из %s" % src)
+    print("Старое содержимое %s перезаписано." % dst)
     return 0
 
 
@@ -127,14 +208,22 @@ def interactive():
 
 def main():
     orchlib.utf8_stdio()
-    args = sys.argv[1:]
-    if not args or args[0] in ("-h", "--help"):
+    raw = sys.argv[1:]
+    if not raw or raw[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__ + "\n")
+        return 0
+    try:
+        args, session_cli, global_template = extract_opts(raw)
+    except ValueError as e:
+        print("ошибка: %s" % e, file=sys.stderr)
+        return 2
+    if not args:
         sys.stdout.write(__doc__ + "\n")
         return 0
     cmd = args[0]
     try:
         if cmd == "--show":
-            return show()
+            return show(session_cli=session_cli)
         if cmd == "--set":
             if len(args) < 2:
                 raise ValueError("--set требует key=value ...")
@@ -142,11 +231,17 @@ def main():
         if cmd == "--task":
             if len(args) < 2:
                 raise ValueError("--task требует текст в кавычках")
-            return set_task(" ".join(args[1:]), None)
+            return set_task(" ".join(args[1:]), None,
+                            session_cli=session_cli,
+                            global_template=global_template)
         if cmd == "--task-file":
             if len(args) < 2:
                 raise ValueError("--task-file требует путь")
-            return set_task(None, args[1])
+            return set_task(None, args[1],
+                            session_cli=session_cli,
+                            global_template=global_template)
+        if cmd == "--reset-template":
+            return reset_template()
         if cmd == "--interactive":
             return interactive()
         raise ValueError("неизвестная подкоманда: %s" % cmd)

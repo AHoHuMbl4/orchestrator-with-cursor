@@ -34,6 +34,12 @@
         padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
   .hint { font-size: 12px; color: #6f7b88; margin-top: 3px; }
   .hint b { color: #445060; }
+  .warn-template { background: #fff8e1; border: 1px solid #f0d78c; color: #7a5b00;
+    padding: 8px 10px; border-radius: 6px; margin-top: 8px; font-size: 12px; }
+  .warn-template label { display: flex; align-items: center; gap: 6px; margin: 8px 0 0;
+    color: inherit; font-size: 12px; cursor: pointer; }
+  .warn-template input { width: auto; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -52,12 +58,16 @@
 <h2>1. Задача (compass)</h2>
 <div class="row" style="align-items:center;gap:10px">
   <label style="margin:0">Чей compass:</label>
-  <select id="compassTarget" style="width:auto" onchange="loadCompass()"><option value="">шаблон (общий)</option></select>
+  <select id="compassTarget" style="width:auto" onchange="onCompassTargetChange()"><option value="">шаблон (общий)</option></select>
 </div>
 <textarea id="compass"></textarea>
 <div class="hint" id="compassPath"></div>
+<div id="templateWarn" class="warn-template" style="display:none">
+  Это общий шаблон, не задача сессии. Запись сюда видят все новые сессии
+  <label><input type="checkbox" id="confirmTemplate" onchange="updateCompassSaveUi()"> подтверждаю запись в шаблон</label>
+</div>
 <div class="hint">Можно вставить заранее. Если задача даётся в чате — агент сам запишет её в compass перед запуском исполнителей и будет обновлять фазу после каждой волны.</div>
-<button class="sec" onclick="saveCompass()">Сохранить задачу</button>
+<button class="sec" id="saveCompassBtn" onclick="saveCompass()">Сохранить задачу</button>
 
 <h2>2. Главные параметры</h2>
 <div class="row">
@@ -160,7 +170,6 @@ function msg(t,cls){ const m=document.getElementById("msg"); m.textContent=t; m.
 async function loadAll(){
   P=(await (await fetch("/api/params")).json()).params;
   fill();
-  await loadCompass();
   try{
     const d=await (await fetch("/api/discovered")).json();
     const info=[];
@@ -175,7 +184,7 @@ async function loadAll(){
   }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
   loadStatus();
   loadKeyInfo();
-  loadSessions();
+  await loadSessions();
 }
 async function saveParams(){
   IDS.forEach(id=>{ const el=document.getElementById(id);
@@ -193,6 +202,7 @@ async function loadSessions(){
     const tb = document.querySelector("#sessions tbody"); tb.innerHTML = "";
     const sel = document.getElementById("compassTarget");
     const cur = sel.value;
+    const userPicked = sel.dataset.userPicked === "1";
     sel.innerHTML = '<option value="">шаблон (общий)</option>';
     (j.sessions||[]).forEach(s=>{
       if (s.has_compass) {
@@ -209,8 +219,16 @@ async function loadSessions(){
         </select></td>`;
       tb.appendChild(tr);
     });
-    if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
-  }catch(e){}
+    const sessionOpts = [...sel.options].filter(o => o.value);
+    if (userPicked && [...sel.options].some(o=>o.value===cur)) {
+      sel.value = cur;
+    } else if (sessionOpts.length) {
+      sel.value = sessionOpts[0].value;
+    } else {
+      sel.value = "";
+    }
+    await loadCompass();
+  }catch(e){ await loadCompass(); }
 }
 async function setSessionMode(el){
   const sid = el.dataset.sid, mode = el.value;
@@ -225,7 +243,9 @@ async function setSessionMode(el){
   loadSessions();
 }
 async function editSessionCompass(sid){
-  document.getElementById("compassTarget").value = sid;
+  const sel = document.getElementById("compassTarget");
+  sel.dataset.userPicked = "1";
+  sel.value = sid;
   await loadCompass();
   document.querySelector("textarea").scrollIntoView({behavior:"smooth"});
 }
@@ -234,16 +254,44 @@ async function createSessionCompass(sid){
     body:JSON.stringify({id:sid, text:"# Compass сессии\n\n(заполните задачу)"})});
   if(r.ok){ await loadSessions(); await editSessionCompass(sid); }
 }
+function onCompassTargetChange(){
+  document.getElementById("compassTarget").dataset.userPicked = "1";
+  const cb = document.getElementById("confirmTemplate");
+  if (cb) cb.checked = false;
+  loadCompass();
+}
+function updateCompassSaveUi(){
+  const sid = document.getElementById("compassTarget").value;
+  const warn = document.getElementById("templateWarn");
+  const btn = document.getElementById("saveCompassBtn");
+  const cb = document.getElementById("confirmTemplate");
+  if (!sid) {
+    warn.style.display = "";
+    btn.disabled = !cb.checked;
+  } else {
+    warn.style.display = "none";
+    btn.disabled = false;
+  }
+}
 async function loadCompass(){
   const sid = document.getElementById("compassTarget").value;
   const c = await (await fetch("/api/compass"+(sid?("?id="+encodeURIComponent(sid)):""))).json();
   document.getElementById("compass").value = c.text;
   document.getElementById("compassPath").textContent = "файл: " + c.path + (sid ? " (сессионный)" : "");
+  updateCompassSaveUi();
 }
 async function saveCompass(){
   const sid = document.getElementById("compassTarget").value;
+  const body = {text:document.getElementById("compass").value, id:sid};
+  if (!sid) {
+    if (!document.getElementById("confirmTemplate").checked) {
+      msg("глобальный compass — шаблон; подтвердите запись","err");
+      return;
+    }
+    body.confirm_template = true;
+  }
   const r = await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({text:document.getElementById("compass").value, id:sid})});
+    body:JSON.stringify(body)});
   const j = await r.json();
   msg(r.ok?"задача сохранена ✓":(j.error||"ошибка"), r.ok?"ok":"err");
   loadSessions();

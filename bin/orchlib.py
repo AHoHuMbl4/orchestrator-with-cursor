@@ -124,7 +124,7 @@ def load_params():
         seed = {}
         if os.path.exists(tpl):
             try:
-                with open(tpl, "r", encoding="utf-8") as f:
+                with open(tpl, "r", encoding="utf-8-sig") as f:
                     seed = json.load(f)
             except Exception:
                 seed = {}
@@ -133,7 +133,7 @@ def load_params():
         _bootstrap_compass(merged)
         return merged
     try:
-        with open(pf, "r", encoding="utf-8") as f:
+        with open(pf, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
     except Exception as e:
         sys.stderr.write("params.json битый (%s); используется канон\n" % e)
@@ -211,10 +211,22 @@ def sessions_dir():
     return d
 
 
+SESSION_ID_MAX = 64  # Windows MAX_PATH: короче id — меньше риск упереться в лимит
+
+
+def safe_name(session_id):
+    import re
+    return re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default"))[:SESSION_ID_MAX] or "default"
+
+
 def session_dir(session_id):
     import re
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default"))[:80] or "default"
-    d = os.path.join(sessions_dir(), safe)
+    raw = re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default")) or "default"
+    # legacy ≤80 и имена с list_sessions — не режем, если каталог уже есть
+    existing = os.path.join(sessions_dir(), raw)
+    if os.path.isdir(existing):
+        return existing
+    d = os.path.join(sessions_dir(), raw[:SESSION_ID_MAX])
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -272,13 +284,19 @@ def compass_path(p):
     rel = p.get("task", {}).get("description_file", DEFAULTS["task"]["description_file"])
     st = find_state_dir()
     root = os.path.dirname(st)
-    if os.path.isabs(rel):
+    # D:/... — абсолютный на Windows; на POSIX isabs=False, join спрятал бы другой диск
+    drive_abs = len(rel) >= 3 and rel[0].isalpha() and rel[1] == ":" and rel[2] in "/\\"
+    if os.path.isabs(rel) or drive_abs:
         path = os.path.normpath(rel)
     else:
         path = os.path.normpath(os.path.join(root, rel))
     # запрет выхода за корень проекта
-    if not os.path.commonpath([root, path]) == root:
-        return os.path.join(st, "compass.md")  # fallback: безопасный путь
+    try:
+        if not os.path.commonpath([root, path]) == root:
+            return os.path.join(st, "compass.md")  # fallback: безопасный путь
+    except ValueError:
+        # другой диск (Windows): commonpath([C:\..., D:\...]) бросает ValueError
+        return os.path.join(st, "compass.md")
     return path
 
 

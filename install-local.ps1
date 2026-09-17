@@ -30,6 +30,21 @@ function ConvertTo-OrchJsonString {
     return $t
 }
 
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text, [switch]$Append)
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    $dir = [System.IO.Path]::GetDirectoryName($full)
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    if ($Append) {
+        [System.IO.File]::AppendAllText($full, $Text, $enc)
+    } else {
+        [System.IO.File]::WriteAllText($full, $Text, $enc)
+    }
+}
+
 function Invoke-OrchPython {
     param(
         [Parameter(Mandatory = $true)]
@@ -90,7 +105,7 @@ if "description" in snip and "description" not in cur:
 json.dump(cur, open(out_path, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
 open(out_path, "a", encoding="utf-8").write("\n")
 '@
-    [System.IO.File]::WriteAllText($OutPath, $code)
+    Write-Utf8NoBom -Path $OutPath -Text $code
 }
 
 function Find-OrchPython {
@@ -267,7 +282,7 @@ function Install-OrchClaudeHooks {
   }
 }
 "@
-    [System.IO.File]::WriteAllText($snipPath, $snip)
+    Write-Utf8NoBom -Path $snipPath -Text $snip
     Write-OrchMergePy -OutPath $mergePy
     $settings = Join-Path $script:ClaudeDir "settings.json"
     try {
@@ -319,7 +334,7 @@ function Install-OrchCodexHooks {
   }
 }
 "@
-    [System.IO.File]::WriteAllText($snipPath, $snip)
+    Write-Utf8NoBom -Path $snipPath -Text $snip
     Write-OrchMergePy -OutPath $mergePy
     try {
         Invoke-OrchPython -PyArgs @($mergePy, $snipPath, $script:CodexHooks)
@@ -357,7 +372,13 @@ function Remove-OrchKimiHookBlock {
         }
         $out.Add($line) | Out-Null
     }
-    [System.IO.File]::WriteAllLines($CfgPath, $out.ToArray())
+    $nl = [Environment]::NewLine
+    if ($out.Count -eq 0) {
+        $cfgOut = ""
+    } else {
+        $cfgOut = [string]::Join($nl, $out.ToArray()) + $nl
+    }
+    Write-Utf8NoBom -Path $CfgPath -Text $cfgOut
 }
 
 function Install-OrchKimi {
@@ -424,7 +445,7 @@ function Install-OrchKimi {
   timeout = 10
 # <<< orchestration-kit hooks <<<
 "@
-        Add-Content -LiteralPath $kimiCfg -Value $block -Encoding UTF8
+        Write-Utf8NoBom -Path $kimiCfg -Text $block -Append
         Write-Host "  ~/.kimi-code/config.toml: блок хуков добавлен (бэкап .bak-orch)"
     } else {
         Write-Host "  ~/.kimi-code/config.toml: блок хуков уже актуален"
@@ -452,7 +473,7 @@ function Ensure-OrchGitignore {
             if ($ex -eq $line) { $found = $true; break }
         }
         if (-not $found) {
-            Add-Content -LiteralPath $gi -Value $line -Encoding UTF8
+            Write-Utf8NoBom -Path $gi -Text ($line + [Environment]::NewLine) -Append
             $existing += $line
         }
     }
@@ -500,7 +521,7 @@ if p.get("execution", {}).get("executor") == "subagents":
     p["execution"]["executor"] = "auto"
 orchlib.save_params(p)
 '@
-    [System.IO.File]::WriteAllText($normPy, $normCode)
+    Write-Utf8NoBom -Path $normPy -Text $normCode
     $prevKit = $env:ORCH_KIT
     try {
         $env:ORCH_KIT = $script:Kit
@@ -547,7 +568,7 @@ if ($Bg) {
 '@
         $panelBody = $panelBody.Replace("__PY__", $pyFwd).Replace("__SERVER__", $serverFwd)
     }
-    [System.IO.File]::WriteAllText($panelPs1, $panelBody)
+    Write-Utf8NoBom -Path $panelPs1 -Text $panelBody
 
     $panelCmd = Join-Path $script:Target "panel.cmd"
     $serverNative = Join-Path (Join-Path $script:Kit "panel") "server.py"
@@ -556,7 +577,7 @@ if ($Bg) {
     } else {
         $cmdBody = "@echo off`r`n`"$($script:PyExe)`" -u `"$serverNative`" %*"
     }
-    [System.IO.File]::WriteAllText($panelCmd, $cmdBody)
+    Write-Utf8NoBom -Path $panelCmd -Text $cmdBody
     Write-Host "  .orchestration/ посеян, panel.ps1 / panel.cmd готовы"
 }
 
