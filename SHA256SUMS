@@ -10,7 +10,7 @@ d761d8dfeb9bfdffec103372195b85fd6b090b8a0be384894180dd893c6ae93c  ./compass.md
 3537d00ed107c9a20640cae673ea9f064bc80bb37e0031825641b2ff2ca25851  ./hooks/claude-settings.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
 0ce726ad15e51ae7828843d7807a04e364043790da7f061d056ed798faca50be  ./install-local.sh
-20b8896645bdef67e7193c996ee10989653a243e3c05e57ddb983c8b9ba6f6f2  ./install-notes.md
+241a86cff81baedc411cc6f2e72308cf16e2f5e9cd65ab621e6c8f5300fd47cb  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 9942185b2660fdb261e06103ae7355a07fa956fc9acdb2c2ad74559c5568dd92  ./panel/index.html
 e7a7288a3e75e304e5af90189adac469f11d055d8f2cdb0ebfcb4167b3d193e7  ./panel/server.py

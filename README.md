@@ -9,6 +9,25 @@ the task and parameters — by machine, not by prompt discipline.
 
 **3 engines · 2-line install · works even without python (skills-only mode)**
 
+## What happens when you give a task
+
+After installation, just tell your agent any task. The system handles the rest:
+
+```
+You: "find top-10 business models in edTech subscriptions"
+
+Agent (automatically):
+  1. Hook injects session parameters (machine, not prompt)
+  2. Skill loads: agent becomes orchestrator
+  3. Planning: decompose → TODO checklist in compass → validate
+  4. Role selection: cascade domain→subdomain→role (137 narrow specialists)
+  5. Executor: cursor-agent on Cursor quota (never main engine quota)
+  6. Critics: 3 fresh skeptics check every result (never see executor's reasoning)
+  7. Mismatch? → mismatch wave → fresh arbiters → synthesis
+  8. Acceptance: by measurement only (file exists, test green, URL verified)
+  9. Report to you with sources
+```
+
 ## Requirements
 
 - One of the agents: Claude Code, Codex CLI or Kimi Code.
@@ -117,7 +136,31 @@ Plugin-marketplace packaging (one-command install via
 
 ## Troubleshooting
 
-- **Kimi: skill not listed** — skills register at session start; open a **new
+### Codex: hooks don't fire after install
+Codex requires explicit trust: run `/hooks` in Codex CLI → review and trust the
+orchestration hooks. This is Codex's security model, not a bug. Without trust,
+skills work but course-check hooks stay silent.
+
+### Python not installed
+Skill works as instructions (plain text), but hooks/panel/scripts are skipped
+with a clear warning. Install Python 3.6+ and re-run the installer:
+`bash orchestration-kit/install-local.sh`
+
+### Cursor not available
+Agent stops and asks explicitly: "Cursor unavailable. (a) continue on engine
+subagents — uses main quota; (b) install cursor-agent; (c) add Cursor API key
+in panel." Never silently falls back.
+
+### Old Claude Code version
+`--permission-prompts none` requires v2.1.259+. On older versions use
+`--permission-mode dontAsk` (already in the skill as fallback).
+
+### GLM Code
+Not a 4th engine. GLM Coding Plan is a **backend** for Claude Code / Codex
+(set `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` to GLM endpoint). Skills
+and hooks work unchanged.
+
+### Kimi: skill not listed** — skills register at session start; open a **new
   session** (or `/reload`) and invoke `/skill:orchestration`. The description in
   SKILL.md must stay YAML-safe (no `: ` inside the value) — fixed in this repo.
 - **Hooks stopped after app restart** — hook commands now use the **absolute
@@ -128,6 +171,16 @@ Plugin-marketplace packaging (one-command install via
   `echo '{}' | <python> <kit>/bin/reground.py prompt-submit --engine kimi`.
 - **Panel closes with the terminal** — run `./panel.sh --bg` (background mode,
   log in `panel.log`); for LAN access set `panel.host` to `0.0.0.0` in params.
+
+## Uninstall
+
+```bash
+bash orchestration-kit/uninstall.sh          # remove from this folder
+bash orchestration-kit/uninstall.sh --global  # remove user-level
+bash orchestration-kit/uninstall.sh --all     # also delete .orchestration/
+```
+
+Safe: preserves foreign hooks/settings, creates backups, idempotent.
 
 ## License
 

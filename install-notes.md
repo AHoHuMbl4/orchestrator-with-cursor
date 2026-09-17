@@ -135,3 +135,27 @@ paid-план, биллинг по токенам. `run` создаёт аген
 - e2e: 2 параллельных research-прогона + меню (ответы владельца записаны в
   params через панель);
 - research-основа: .claude/state/research-R1..R7.md (все URL выборочно проверены).
+
+
+## Удаление
+
+```bash
+bash orchestration-kit/uninstall.sh          # из текущей папки
+bash orchestration-kit/uninstall.sh --global  # пользовательский уровень (--global install)
+bash orchestration-kit/uninstall.sh --all     # и .orchestration/ со всем содержимым
+```
+
+Безопасно: чужие хуки/настройки сохраняются, бэкапы создаются, идемпотентен.
+
+## GLM Code (не движок, а бэкенд)
+
+GLM Coding Plan — способ запускать Claude Code / Codex на моделях Zhipu:
+`ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic` + `ANTHROPIC_AUTH_TOKEN=<ключ>`
+в `~/.claude/settings.json`. Скиллы и хуки работают без изменений.
+
+## Известные нюансы
+
+- Codex требует `/hooks` trust после установки — без него хуки молчат (скиллы работают)
+- Python 3.6+ обязателен для хуков/панели/скриптов (скилл работает и без него)
+- cursor-agent или ключ Cursor — для исполнителей; без них система спрашивает явно
+- `--permission-prompts none` требует Claude Code ≥ v2.1.259; fallback: `dontAsk`
