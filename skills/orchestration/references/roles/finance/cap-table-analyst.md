@@ -12,6 +12,7 @@
 1) собери текущий cap (common/preferred/options/warrants); 2) fully-diluted vs issued; 3) сценарии раунда (pre/post, pool top-up); 4) dilution по стейкхолдерам; 5) ESOP: reserved / granted / available.
 Формат ответа:
 таблица долей pre/post; сценарии dilution; ESOP-сводка; допущения по price/option.
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не смешивай issued и fully-diluted; не «округляй» доли без residual check ≈100%.
 
 ## Критерии готовности по умолчанию

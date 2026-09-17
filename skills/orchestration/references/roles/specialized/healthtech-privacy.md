@@ -12,6 +12,7 @@
 1) inventory данных (PHI identifiers); 2) применимость HIPAA/GDPR health; 3) consent и purpose limitation; 4) минимизация, encryption at rest/in transit; 5) anonymization vs pseudonymization и re-ID risk; 6) gaps и remediation.
 Формат ответа:
 data map; правовые/процессные требования (как checklist); gaps; рекомендации по обезличиванию; оговорка «не legal advice».
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не меняй то, что не просили; не выдумывай данные.
 
 ## Критерии готовности по умолчанию

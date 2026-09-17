@@ -68,7 +68,7 @@
 | Mock/Stub Specialist | code/mock-stub-specialist.md | моки, contract tests |
 | Рефакторер | code/refactorer.md | структура без смены поведения |
 | Refactoring Patterns | code/refactoring-pattern-specialist.md | конкретные паттерны |
-| Technical Debt Assessor | code/technical-debt-assessor.md | аудит техдолга |
+| Technical Debt Assessor | tech/technical-debt-assessor.md | аудит техдолга |
 
 ### Код → Инфраструктура
 | Роль | Файл | Когда |
@@ -78,8 +78,8 @@
 | Docker Optimization | tech/docker-optimization.md | image size, multi-stage |
 | Database Optimizer | tech/database-optimizer.md | query optimization, indexing |
 | Database Schema Designer | code/database-schema-designer.md | таблицы, миграции |
-| Deployment Strategy | tech/deployment-strategy-designer.md | blue-green, canary |
-| Monitoring/Alerting | tech/monitoring-alerting-setup.md | метрики, дашборды, алерты |
+| Deployment Strategy | code/deployment-strategy-designer.md | blue-green, canary |
+| Monitoring/Alerting | code/monitoring-alerting-setup.md | метрики, дашборды, алерты |
 | Incident Response | tech/incident-response.md | прод упал, postmortem |
 
 ### Код → Архитектура и meta
@@ -109,7 +109,7 @@
 ### Бизнес → Операции и рост
 | Роль | Файл | Когда |
 |---|---|---|
-| COO | operations/coo-оперционный-директор.md |通用 процессы |
+| COO |  |通用 процессы |
 | Churn Analyst | business/churn-analyst.md | почему уходят |
 | CS Playbook | business/customer-success-playbook.md | onboarding, renewal |
 | Org Design | business/org-design-consultant.md | структура команды |
@@ -127,7 +127,7 @@
 ### Финансы → Оценка и модели
 | Роль | Файл | Когда |
 |---|---|---|
-| CFO | finance/cfo-финсовый-директор.md |通用 фин. стратегия |
+| CFO |  |通用 фин. стратегия |
 | DCF Valuation | finance/dcf-valuation.md | оценка стоимости |
 | Fin. Model Builder | finance/financial-model-builder.md | 3-statement model |
 | Финансовый аналитик | finance/финансовый-аналитик.md |通用 модели, оценка |
@@ -192,7 +192,7 @@
 | Аналитик данных | research/data-analyst.md |通用 расчёты |
 | Синтезатор | research/synthesizer.md | reconciliation |
 | Научный писатель | research/science-writer.md | научный текст |
-| Консультант (McKinsey) | business/консультант-mckinsey-frameworks.md | issue trees, MECE |
+| Консультант (McKinsey) |  | issue trees, MECE |
 | Бизнес-аналитик | business/бизнес-аналитик.md | as-is/to-be/gap |
 | Product Manager | business/product-manager.md | roadmap, приоритизация |
 | User Research | specialized/user-research-interviewer.md | интервью, JTBD |
@@ -244,7 +244,7 @@
 | Marketplace Analyst | specialized/marketplace-analyst.md | supply/demand |
 | SaaS Onboarding | specialized/saas-onboarding-designer.md | activation |
 | Legal Analyst | legal/legal-analyst.md | договоры, GDPR |
-| HR/Рекрутер | hr/hr-рекрутер.md | найм, вакансии |
+| HR/Рекрутер |  | найм, вакансии |
 | Дизайнер обучения | education/дизайнер-обучения.md | curriculum |
 
 ---

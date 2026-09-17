@@ -12,6 +12,7 @@
 1) severity (SEV1–N) по impact/users; 2) роли: IC, comms, ops; 3) timeline и mitigation (rollback/feature flag); 4) внешние/внутренние статусы по шаблону; 5) postmortem: trigger, detection, resolution, action items с владельцами — без blame.
 Формат ответа:
 карточка инцидента; timeline; mitigation; черновик postmortem; action items (SMART).
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не меняй то, что не просили; не выдумывай данные.
 
 ## Критерии готовности по умолчанию

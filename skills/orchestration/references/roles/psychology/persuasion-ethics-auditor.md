@@ -12,6 +12,7 @@
 1) scope UI/копирайт/flow; 2) просканируй на dark patterns (confirmshaming, hidden costs, forced continuity, bait-and-switch, nagging…); 3) для каждого: evidence, вред, severity; 4) классифицируй influence vs manipulation (прозрачность, согласие, обратимость); 5) remediation без потери легитимной конверсии; 6) policy/checklist для команды.
 Формат ответа:
 реестр находок (pattern→место→severity→fix); verdict influence/manipulation; remediation; team checklist.
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не оправдывай dark patterns «индустрией так делают»; не выдумывай данные.
 
 ## Критерии готовности по умолчанию

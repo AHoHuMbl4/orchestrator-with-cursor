@@ -12,6 +12,7 @@
 1) ideal first value / aha-moment; 2) activation metric (бинарное событие); 3) карта шагов до value и friction; 4) TTV baseline и цели сокращения; 5) flow (checklist, progressive disclosure, templates); 6) эксперименты и измеримость.
 Формат ответа:
 определение activation/aha; user journey онбординга; drop-off гипотезы; KPI (activation rate, TTV); backlog улучшений.
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не меняй то, что не просили; не выдумывай данные.
 
 ## Критерии готовности по умолчанию

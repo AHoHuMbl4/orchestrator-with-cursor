@@ -12,6 +12,7 @@
 1) целевой habit и частота; 2) разложи текущий loop (cue/craving/response/reward); 3) карта Hook (внешний/внутренний trigger, action friction, variable reward, investment); 4) узкие места retention; 5) правки loop без dark patterns; 6) измерение habit strength (не только DAU).
 Формат ответа:
 loop-диаграмма; Hook-карта; bottlenecks; этичные правки; метрики привычки.
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не проектируй compulsion/addiction; не выдумывай данные.
 
 ## Критерии готовности по умолчанию

@@ -12,6 +12,7 @@
 1) этапы lifecycle (onboard→adopt→expand→renew); 2) definition of success и time-to-value; 3) health score (сигналы, веса, red/yellow/green); 4) escalation paths; 5) renewal cadence и risk plays.
 Формат ответа:
 playbook по этапам; формула health; RACI эскалаций; renewal calendar; метрики CS.
+Выполни без уточнений, пока критерий не зелёный. Если блокирует — запиши что именно, и завершись.
 Анти-паттерны: не выходи за ГРАНИЦЫ; не делай health из одной метрики NPS; не путай CS с поддержкой тикетов.
 
 ## Критерии готовности по умолчанию

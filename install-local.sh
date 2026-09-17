@@ -50,9 +50,14 @@ echo "ok (TARGET=$TARGET)"
 
 echo "== 2/6 скиллы (все три движка) =="
 mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/commands" "$TARGET/.agents/skills"
-rm -rf "$CLAUDE_DIR/skills/orchestration" "$TARGET/.agents/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$CLAUDE_DIR/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$TARGET/.agents/skills/orchestration"
+# Перезаписываем базовые файлы скилла, СОХРАНЯЯ роли созданные фабрикой
+mkdir -p "$CLAUDE_DIR/skills/orchestration/references/roles" "$TARGET/.agents/skills/orchestration/references/roles"
+cp -r "$KIT/skills/orchestration/." "$CLAUDE_DIR/skills/orchestration/"
+cp -r "$KIT/skills/orchestration/." "$TARGET/.agents/skills/orchestration/"
+# Фабричные роли (созданные после установки) не перезаписываем — они ценнее
+if [ -d "$CLAUDE_DIR/skills/orchestration/_factory_roles" ]; then
+  cp -rn "$CLAUDE_DIR/skills/orchestration/_factory_roles/." "$CLAUDE_DIR/skills/orchestration/references/roles/" 2>/dev/null || true
+fi
 cp "$KIT/commands/claude-orch-menu.md" "$CLAUDE_DIR/commands/orch-menu.md"
 echo "  скилл+команда: $CLAUDE_DIR (+ .agents/skills в папке)"
 
@@ -149,9 +154,9 @@ else
 fi
 KIMI_DIR="${KIMI_HOME:-$HOME/.kimi-code}"
 mkdir -p "$KIMI_DIR/skills" "$HOME/.agents/skills"
-rm -rf "$KIMI_DIR/skills/orchestration" "$HOME/.agents/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$KIMI_DIR/skills/orchestration"
-cp -r "$KIT/skills/orchestration" "$HOME/.agents/skills/orchestration"
+mkdir -p "$KIMI_DIR/skills/orchestration/references/roles" "$HOME/.agents/skills/orchestration/references/roles"
+cp -r "$KIT/skills/orchestration/." "$KIMI_DIR/skills/orchestration/"
+cp -r "$KIT/skills/orchestration/." "$HOME/.agents/skills/orchestration/"
 echo "  скилл: ~/.kimi-code/skills + ~/.agents/skills"
 if [ "$HAVE_PY" = "1" ]; then
   KIMI_CFG="$KIMI_DIR/config.toml"
