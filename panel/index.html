@@ -72,6 +72,8 @@
     <input type="number" id="execution.parallel_per_task" min="1" max="8"></div>
   <div><label>Критиков на каждый дифф (перепроверка)</label>
     <input type="number" id="review.reviewers_per_diff" min="1" max="8"></div>
+  <div><label>Предстарт-порог пачки (прогонов)</label>
+    <input type="number" id="execution.ask_before_runs" min="5" max="200"></div>
 </div>
 
 <h2>3. Токен Cursor (для режима «облако Cursor»)</h2>
@@ -168,7 +170,7 @@
 
 <script>
 let P = {};
-const IDS = ["orchestration.enabled","execution.executor","execution.on_cursor_fail","execution.parallel_per_task","review.reviewers_per_diff","review.max_rounds",
+const IDS = ["orchestration.enabled","execution.executor","execution.on_cursor_fail","execution.parallel_per_task","review.reviewers_per_diff","execution.ask_before_runs","review.max_rounds",
   "execution.timeout_s","execution.retry_on_fail","reground.every_min","reground.every_n_calls",
   "reground.compact_reground","orchestrator.claude","orchestrator.claude_effort",
   "orchestrator.codex","orchestrator.codex_effort","orchestrator.budget_usd"];

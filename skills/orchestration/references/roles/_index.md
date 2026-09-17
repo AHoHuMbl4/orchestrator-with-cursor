@@ -104,6 +104,8 @@
 | Market Sizing | business/market-sizing-analyst.md | TAM/SAM/SOM |
 | Competitive Intel | business/competitive-intel-scanner.md | разведка |
 | Конкурентный аналитик | business/конкурентный-аналитик.md | сравнение конкурентов |
+| Competitor Profiling | business/competitor-profiling.md | URL→датированные профили-dossier |
+| Company Success Retrospective | business/company-success-retrospective.md | почему выиграла компания X (luck vs skill) |
 | Partnership/BD | business/partnership-bd.md | партнёрства |
 
 ### Бизнес → Операции и рост
@@ -146,6 +148,7 @@
 | Роль | Файл | Когда |
 |---|---|---|
 | Маркетолог-стратег | marketing/marketing-strategist.md |通用 бриф до текстов |
+| Marketing Psychology | marketing/marketing-psychology.md | ментальные модели / behavioral science в маркетинге |
 | Копирайтер | marketing/copywriter.md |通用 продающий текст |
 | Brand Voice | marketing/brand-voice-guardian.md | tone of voice |
 | Storytelling Coach | specialized/storytelling-coach.md | narrative |
@@ -172,6 +175,7 @@
 | Affiliate | marketing/affiliate-program-designer.md | партнёрская программа |
 | PR | marketing/pr-специалист.md | коммуникации |
 | Growth Hacker | marketing/growth-hacker.md | эксперименты роста |
+| Growth Loops Designer | marketing/growth-loops-designer.md | PLG loops / flywheel, K-factor |
 | Редактор | marketing/editor.md | полировка |
 
 ### Продажи
@@ -191,6 +195,7 @@
 | Критик-скептик | research/fact-checker.md | красная волна (универсальная) |
 | Аналитик данных | research/data-analyst.md |通用 расчёты |
 | Синтезатор | research/synthesizer.md | reconciliation |
+| Report Synthesizer | research/report-synthesizer.md | сшивка N артефактов в финальный отчёт |
 | Научный писатель | research/science-writer.md | научный текст |
 | Консультант (McKinsey) |  | issue trees, MECE |
 | Бизнес-аналитик | business/бизнес-аналитик.md | as-is/to-be/gap |
@@ -217,6 +222,7 @@
 | Trust Builder | psychology/trust-builder.md | Cialdini, social proof |
 | Friction Analyst | psychology/friction-analyst.md | cognitive load, UX |
 | Persuasion Ethics | psychology/persuasion-ethics-auditor.md | dark patterns |
+| Organizational Psychologist | psychology/organizational-psychologist.md | psych safety, burnout, культура команды |
 
 ### Тренды
 | Роль | Файл | Когда |
@@ -237,6 +243,7 @@
 | Presentation Designer | specialized/presentation-designer.md | слайды, data viz |
 | Crisis Communications | specialized/crisis-communications.md | кризисный PR |
 | Accessibility Auditor | specialized/accessibility-auditor.md | WCAG, screen readers |
+| Security Auditor (hardened) | specialized/security-auditor-hardened.md | org/compliance posture (не code OWASP) |
 | Fintech Compliance | specialized/fintech-compliance.md | KYC/AML, PCI |
 | Healthtech Privacy | specialized/healthtech-privacy.md | HIPAA, health data |
 | Edtech Instructional | specialized/edtech-instructional.md | learning design |
@@ -249,7 +256,7 @@
 
 ---
 
-**Всего: 133 роли** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
+**Всего: 140 ролей** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
 
 Правила:
 - Каскад: домен → поддомен → роль (не листай всё)

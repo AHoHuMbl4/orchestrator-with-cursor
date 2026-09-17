@@ -114,6 +114,7 @@ powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 - Параметры — в `.orchestration/params.json`, изменения хук доносит при
   следующем сообщении. Тумблер `orchestration.enabled=false` возвращает агенту
   прямую работу, хуки замолкают.
+- Предстарт-порог пачки: оркестратор спрашивает перед запуском пачек больше N прогонов (`execution.ask_before_runs`, по умолчанию 20).
 - Меню в чате: «меню» или `/orch-menu` (Claude).
 
 ## Итоги прогонов и надёжность

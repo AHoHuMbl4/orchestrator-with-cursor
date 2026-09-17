@@ -26,6 +26,7 @@ DEFAULTS = {
         "parallel_per_task": 1,     # параллельных агентов на 1 задачу одновременно
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
         "retry_on_fail": 1,         # перезапусков при фейле (по доктрине: 1 раз)
+        "ask_before_runs": 20,      # спросить владельца, если прогноз пачки > N прогонов
     },
     "review": {
         "reviewers_per_diff": 3,    # сколькими агентами перепроверять каждый дифф
@@ -53,6 +54,7 @@ RANGES = {  # (min, max) для целочисленных полей
     "execution.parallel_per_task": (1, 8),
     "execution.timeout_s": (60, 21600),
     "execution.retry_on_fail": (0, 3),
+    "execution.ask_before_runs": (5, 200),
     "review.reviewers_per_diff": (1, 8),
     "review.max_rounds": (1, 6),
     "orchestrator.budget_usd": (0, 1000),
@@ -346,10 +348,12 @@ def params_summary(p):
         "параллельных исполнителей на задачу {par}; "
         "критиков на каждый дифф {rev}; круги ревью до {rns} (дальше — стоп и доклад владельцу); "
         "таймаут прогона {tmo} c; перезапуск при фейле {ret}. "
-        "Контроль курса: сверка не реже чем каждые {emin} мин (или {ecall} вызовов инструментов)."
+        "Контроль курса: сверка не реже чем каждые {emin} мин (или {ecall} вызовов инструментов); "
+        "предстарт-порог: спросить владельца при пачке > {abr} прогонов."
     ).format(
         mode=ex.get("executor", "subagents"),
         par=ex.get("parallel_per_task"), rev=rv.get("reviewers_per_diff"),
         rns=rv.get("max_rounds"), tmo=ex.get("timeout_s"), ret=ex.get("retry_on_fail"),
         emin=rg.get("every_min"), ecall=rg.get("every_n_calls"),
+        abr=ex.get("ask_before_runs"),
     )

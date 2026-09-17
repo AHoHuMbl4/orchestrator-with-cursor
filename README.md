@@ -113,6 +113,7 @@ cursor-agent if present, else ask; never silent fallback) needs no keys.
 - Settings live in `.orchestration/params.json`; hooks deliver changes with the
   next message. The `orchestration.enabled=false` toggle switches the agent
   back to direct work; hooks go silent.
+- Pre-batch threshold: orchestrator asks before launching batches larger than N runs (`execution.ask_before_runs`, default 20).
 - In-chat menu: say "меню" / `menu` or `/orch-menu` (Claude).
 
 ## Run outcomes & reliability
