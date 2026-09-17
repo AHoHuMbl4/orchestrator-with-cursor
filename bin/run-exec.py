@@ -169,10 +169,8 @@ def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra
         return "4"
     log_fh = open(log_path, "a", encoding="utf-8")
     cmd = build_agent_cmd(exe, prompt, model, extra)
-    kwargs = {}
-    if os.name != "nt":
-        kwargs["start_new_session"] = True
-    proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
+    proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT,
+                            **detach_popen_kwargs())
     try:
         with open(pid_path, "w", encoding="utf-8") as f:
             f.write(str(proc.pid))

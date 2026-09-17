@@ -18,14 +18,15 @@ You: "find top-10 business models in edTech subscriptions"
 
 Agent (automatically):
   1. Hook injects session parameters (machine, not prompt)
-  2. Skill loads: agent becomes orchestrator
-  3. Planning: decompose → TODO checklist in compass → validate
-  4. Role selection: cascade domain→subdomain→role (137 narrow specialists)
-  5. Executor: cursor-agent on Cursor quota (never main engine quota)
-  6. Critics: 3 fresh skeptics check every result (never see executor's reasoning)
-  7. Mismatch? → mismatch wave → fresh arbiters → synthesis
-  8. Acceptance: by measurement only (file exists, test green, URL verified)
-  9. Report to you with sources
+  2. Session compass auto-seeded from template (sessions/<id>/compass.md)
+  3. Skill loads: agent becomes orchestrator
+  4. Planning: decompose → TODO checklist in session compass → validate
+  5. Role selection: cascade domain→subdomain→role (137 narrow specialists)
+  6. Executor: cursor-agent on Cursor quota (never main engine quota)
+  7. Critics: 3 fresh skeptics check every result (never see executor's reasoning)
+  8. Mismatch? → mismatch wave → fresh arbiters → synthesis
+  9. Acceptance: by measurement only (file exists, test green, URL verified)
+ 10. Report to you with sources
 ```
 
 ## Requirements
@@ -68,9 +69,11 @@ touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
 | Kimi Code | `/reload` in a live session or restart kimi | `/skill:orchestration` resolves |
 
 All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
-(auto-picks a free port). The panel has an on/off toggle, task (compass),
-executors per task, critics per diff, review rounds, timeout, course-check
-interval, models, and the Cursor API token field.
+(auto-picks a free port). The panel has a session selector (session compasses
+only in the main zone), on/off toggle, executors per task, critics per diff,
+review rounds, timeout, `retry_on_fail`, course-check interval, models, Cursor
+API token, and **Advanced** for the shared starter template
+(`.orchestration/compass.md` — confirm to save; restore-default button).
 
 ## Cursor API token (for the "Cursor cloud" executor mode)
 
@@ -84,8 +87,8 @@ interval, models, and the Cursor API token field.
 4. Switch executor mode to `cursor-cloud` and the orchestrator will run
    executors as Cursor Cloud Agents (no local install needed).
 
-Don't need cloud executors? Skip this — the default executor mode (engine
-subagents) needs no keys at all.
+Don't need cloud executors? Skip this — the default executor mode (`auto`:
+cursor-agent if present, else ask; never silent fallback) needs no keys.
 
 ## How it works
 
@@ -93,16 +96,44 @@ subagents) needs no keys at all.
   into an orchestrator: decompose → fresh executor per subtask → N fresh
   critics per result (critics see the result + acceptance criterion, never the
   executor's reasoning) → rounds until convergence → acceptance by measurement.
+- Compass model: `.orchestration/compass.md` is the **shared starter template**
+  (edit only in the panel **Advanced**, with confirm + restore-default). Each
+  session auto-gets `sessions/<id>/compass.md` on the first message; the agent
+  writes the working task there. CLI `menu.py` refuses template writes
+  (`--global-template` → exit 2).
 - Hooks (Claude/Codex: SessionStart, UserPromptSubmit, PostToolUse; Kimi:
   UserPromptSubmit, SessionHeartbeat) inject current parameters with every
   message and remind to re-read the task every `reground.every_min` minutes —
   the agent cannot quietly forget the mode or drift off course.
-- Executor modes: engine subagents (default), local `cursor-agent --model auto`,
-  Cursor Cloud Agents API (token from the panel).
+- Executor modes: `auto` (default), local `cursor-agent --model auto`,
+  Cursor Cloud Agents API (token from the panel), or engine subagents (explicit).
 - Settings live in `.orchestration/params.json`; hooks deliver changes with the
   next message. The `orchestration.enabled=false` toggle switches the agent
   back to direct work; hooks go silent.
 - In-chat menu: say "меню" / `menu` or `/orch-menu` (Claude).
+
+## Run outcomes & reliability
+
+Executor/critic reports end with `Вердикт: OK | PROBLEMS | BLOCKED` plus
+evidence. Local runs (`run-exec.py`) append `EXIT=<code>` to the log:
+
+| EXIT | Meaning |
+|---|---|
+| 0 | success |
+| 1 | agent reported failure |
+| 3 | died with assistant report in log |
+| 4 | died with no report (work lost) |
+| 124 | timeout |
+| UNKNOWN | log missing/unreadable |
+
+Auto-restart on EXIT=4 / EXIT=124 only, up to `execution.retry_on_fail`
+(default 1); log lines `RETRY=n/max (prev EXIT=…)`. Machine-readable status:
+
+```bash
+python3 orchestration-kit/bin/verdict.py .orchestration/sessions/<sid>/runs/<id>/run.log
+```
+
+JSON fields: `exit`, `verdict`, `report_present`, `retries`.
 
 ## Manual per-engine paths (if you prefer no installer)
 
@@ -143,6 +174,24 @@ Plugin-marketplace packaging (one-command install via
 `/plugin marketplace add` / `codex plugin marketplace add`) is on the roadmap;
 `install-local.sh` is the canonical path today.
 
+## Scope: all sessions or one folder?
+
+By default the installer targets **this folder** (Claude Code and Codex get
+skill/hooks/command only here; Kimi is always user-level). With `--global`,
+Claude/Codex parts go to the **user level** (`~/.claude`, `~/.codex`) — skill
+and hooks work in **every session in any folder** on this machine. Params
+(`.orchestration/`) stay per-folder on purpose: each project keeps its own
+batch settings and compass template.
+
+```bash
+bash orchestration-kit/install-local.sh --global
+```
+
+On Windows the same via `-Global`:
+`powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1 -Global`.
+
+Both modes are idempotent and merge carefully with existing configs.
+
 ## Troubleshooting
 
 ### Codex: hooks don't fire after install
@@ -169,17 +218,27 @@ Not a 4th engine. GLM Coding Plan is a **backend** for Claude Code / Codex
 (set `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` to GLM endpoint). Skills
 and hooks work unchanged.
 
-### Kimi: skill not listed** — skills register at session start; open a **new
-  session** (or `/reload`) and invoke `/skill:orchestration`. The description in
-  SKILL.md must stay YAML-safe (no `: ` inside the value) — fixed in this repo.
-- **Hooks stopped after app restart** — hook commands now use the **absolute
-  python path**, so they survive restarts from a different environment. Re-run
-  `install-local.sh` to upgrade an existing install (it replaces its own old
-  hook block in `~/.kimi-code/config.toml`). Kimi hooks are fail-open: a
-  failing hook is silent, test manually with
-  `echo '{}' | <python> <kit>/bin/reground.py prompt-submit --engine kimi`.
-- **Panel closes with the terminal** — run `./panel.sh --bg` (background mode,
-  log in `panel.log`); for LAN access set `panel.host` to `0.0.0.0` in params.
+### Kimi: skill not listed
+Skills register at session start; open a **new session** (or `/reload`) and
+invoke `/skill:orchestration`. The description in SKILL.md must stay YAML-safe
+(no `: ` inside the value) — fixed in this repo.
+
+### Hooks stopped after app restart
+Hook commands use the **absolute python path**, so they survive restarts from a
+different environment. Re-run `install-local.sh` to upgrade an existing install
+(it replaces its own old hook block in `~/.kimi-code/config.toml`). Kimi hooks
+are fail-open: a failing hook is silent, test manually with
+`echo '{}' | <python> <kit>/bin/reground.py prompt-submit --engine kimi`.
+
+### Panel closes with the terminal
+Run `./panel.sh --bg` (background mode, log in `panel.log`); for LAN access set
+`panel.host` to `0.0.0.0` in params.
+
+### Windows notes
+Claude hooks use **exec form** (`command` + `args`) — they spawn python
+directly and do **not** depend on Git Bash. For Codex/Kimi: prefer a kit path
+**without spaces** and the `py` launcher (`py -3 …`); paths with spaces can
+break cmd.exe-style hook spawn.
 
 ## Uninstall
 

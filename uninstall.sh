@@ -21,13 +21,13 @@ done
 
 # Пути, которые создавал установщик
 if [ "$GLOBAL" = "1" ]; then
-  CLAUDE_DIR="$HOME/.claude"
+  CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   CODEX_HOOKS="$HOME/.codex/hooks.json"
 else
   CLAUDE_DIR="$TARGET/.claude"
   CODEX_HOOKS="$TARGET/.codex/hooks.json"
 fi
-KIMI_DIR="${KIMI_HOME:-$HOME/.kimi-code}"
+KIMI_DIR="${KIMI_CODE_HOME:-${KIMI_HOME:-$HOME/.kimi-code}}"
 
 echo "== Удаление оркестрации =="
 [ "$GLOBAL" = "1" ] && echo "  режим: --global (пользовательский уровень)" || echo "  режим: локальный (папка $TARGET)"

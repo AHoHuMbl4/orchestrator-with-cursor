@@ -33,21 +33,22 @@ HTML-панель, локальный и облачный запуск испо�
 
 ```
 params.json            шаблон параметров (сеется в .orchestration/params.json)
-compass.md             шаблон задачи
+compass.md             общий стартовый шаблон (сеется в .orchestration/compass.md)
 bin/orchlib.py         общая библиотека (state-каталог, params, валидация)
 bin/discover.py        снимок моделей/efforts -> .orchestration/discovered.json
 bin/reground.py        движок сверки курса (session-start / post-tool / heartbeat)
 bin/run-exec.py        локальный запуск cursor-agent (доктрина §2, кроссплатформенно)
 bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (нулевая установка)
+bin/verdict.py         JSON-статус прогона из лога (exit/verdict/report_present/retries)
 hooks/*.snippet.*      сниппеты хуков для Claude Code / Codex / Kimi
 panel/server.py        HTTP-панель параметр-редактор + статус прогонов
 panel/index.html       интерфейс панели
-skills/cursor-orchestration/  скилл-регламент (SKILL.md + references)
+skills/orchestration/  скилл-регламент (SKILL.md + references)
 ```
 
-Runtime (создаётся сам): `.orchestration/` — params.json, compass.md,
-discovered.json, counters/, prompt-*.md, cursor-run-*.log, cloud-*.log,
-pid-файлы. Добавить в `.gitignore`. Сменить расположение: env `ORCHESTRATION_DIR`.
+Runtime (создаётся сам): `.orchestration/` — params.json, compass.md (шаблон),
+sessions/<id>/compass.md, discovered.json, counters/, runs/, логи, pid-файлы.
+Добавить в `.gitignore`. Сменить расположение: env `ORCHESTRATION_DIR`.
 
 ## Быстрый старт (любая ОС)
 
@@ -81,7 +82,7 @@ CURSOR_API_KEY в настройках окружения claude.ai + allowlist 
 
 ## Установка скилла
 
-- Claude Code: `.claude/skills/cursor-orchestration/` (проект) или
+- Claude Code: `.claude/skills/orchestration/` (проект) или
   `%USERPROFILE%\.claude\skills\` (пользователь).
 - Codex: `.agents/skills/` (репо; сканирует от CWD вверх) или
   `%USERPROFILE%\.agents\skills\`. НЕ `.codex/skills/`.
@@ -119,6 +120,45 @@ paid-план, биллинг по токенам. `run` создаёт аген
 (порт конфигурируется в params.json; в песочке сборки 8765 был занят — там
 панель на 8766). Только редактор и наблюдатель: не запускает задачи, не решает.
 Наружу не выставлять; доступ извне — ssh-туннель/tailscale.
+
+Основная зона: **селектор сессий** (compass только сессионные —
+`sessions/<id>/compass.md`), тумблер, исполнители, критики, таймаут,
+`retry_on_fail`, модели, токен Cursor. Раздел **«Расширенные»**: общий стартовый
+шаблон `.orchestration/compass.md` (сохранение с подтверждением, кнопка
+восстановления стандартного из kit). CLI `menu.py` шаблон не пишет
+(`--global-template` → exit 2).
+
+## Итоги прогонов (EXIT / RETRY / verdict.py)
+
+В конце лога локального прогона — строка `EXIT=<код>`:
+
+| EXIT | Смысл |
+|---|---|
+| 0 | успех |
+| 1 | агент отчитался о фейле |
+| 3 | умер с отчётом ассистента в логе |
+| 4 | умер без отчёта |
+| 124 | таймаут |
+| UNKNOWN | лог нет/нечитаем |
+
+Автоперезапуск при EXIT=4 / EXIT=124 по `execution.retry_on_fail` (в логе
+`RETRY=n/max`). Отчёты исполнителей/критиков кончаются
+`Вердикт: OK | PROBLEMS | BLOCKED` + доказательства. Сводка одной командой:
+
+```bash
+python3 orchestration-kit/bin/verdict.py .orchestration/sessions/<sid>/runs/<id>/run.log
+```
+
+JSON: `exit`, `verdict`, `report_present`, `retries`.
+
+## ENV установщиков
+
+- `CLAUDE_CONFIG_DIR` — каталог конфигурации Claude (замена `~/.claude` при
+  `--global` / `-Global`).
+- `KIMI_CODE_HOME` / `KIMI_HOME` — домашний каталог Kimi (приоритет:
+  `KIMI_CODE_HOME` > `KIMI_HOME` > `~/.kimi-code`).
+- `ORCHESTRATION_DIR` — расположение runtime-state (см. выше).
+- `CURSOR_API_KEY` — ключ облачных исполнителей (альтернатива панели).
 
 ## Проверено при сборке (16.09, песочница /srv/data/cursor/1/ai-setup)
 
@@ -192,9 +232,10 @@ Python ищется: `python` → `py -3` → `python3`; без python — ре�
 скиллы» с предупреждением (как в bash-версии). Установка:
 `winget install Python.Python.3.12` (отметить Add to PATH).
 
-Хуки Claude на Windows исполняются через Git Bash (или PowerShell при его
-отсутствии): поэтому команды хуков — полные пути в двойных кавычках, прямые
-слэши. Git for Windows рекомендован, но не обязателен для установки.
+Хуки Claude на Windows — в **exec-форме** (`command` + `args`): python
+запускается напрямую, **без Git Bash**. Codex/Kimi: рекомендуются путь к kit
+**без пробелов** и лаунчер `py` (`py -3 …`); иначе cmd.exe-спавн может сломаться
+на квотированных путях с пробелами.
 
 Codex: в каждый хук `hooks.json` добавляется поле `commandWindows` (camelCase —
 формат Codex); первый запуск codex → `/hooks` → доверить (общее правило,

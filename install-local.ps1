@@ -67,16 +67,35 @@ function Invoke-OrchPython {
 function New-OrchHookCommand {
     param(
         [string]$Action,
-        [string]$Engine,
-        [switch]$WindowsStyle
+        [string]$Engine
     )
     $kitFwd = Get-ForwardSlashPath -Path $script:Kit
     $reg = "$kitFwd/bin/reground.py"
+    # Windows: unquoted py -3 (cmd.exe breaks on multiple quoted tokens)
+    if ($script:IsWin) {
+        return "py -3 $reg $Action --engine $Engine"
+    }
     if ($script:PyCmd.Count -ge 2 -and $script:PyCmd[0] -eq "py") {
         return "`"py`" `"-3`" `"$reg`" $Action --engine $Engine"
     }
     $pyFwd = Get-ForwardSlashPath -Path $script:PyExe
     return "`"$pyFwd`" `"$reg`" $Action --engine $Engine"
+}
+
+function Write-OrchWinHookSpaceWarning {
+    if ($script:WarnedWinHookSpace) { return }
+    if (-not $script:IsWin) { return }
+    $kitSpace = ($script:Kit.IndexOf(' ') -ge 0)
+    if ($kitSpace) {
+        Write-Host "путь kit содержит пробелы: хуки Codex/Kimi могут не запуститься из-за особенностей cmd.exe; установи kit в путь без пробелов" -ForegroundColor Yellow
+        $script:WarnedWinHookSpace = $true
+        return
+    }
+    if ($script:HavePyLauncher) { return }
+    if ($script:PyExe -and ($script:PyExe.IndexOf(' ') -ge 0)) {
+        Write-Host "путь с пробелами: хуки Codex/Kimi могут не запуститься из-за особенностей cmd.exe; поставь kit в путь без пробелов или установи py launcher (python.org, опция py launcher)" -ForegroundColor Yellow
+        $script:WarnedWinHookSpace = $true
+    }
 }
 
 function Write-OrchMergePy {
@@ -112,6 +131,19 @@ function Find-OrchPython {
     $script:HavePy = $false
     $script:PyExe = ""
     $script:PyCmd = @()
+    $script:HavePyLauncher = $false
+
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        try {
+            $probe = & py -3 -c "print(1)" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $script:HavePyLauncher = $true
+            }
+        } catch {
+            # py -3 недоступен
+        }
+    }
 
     $cmd = Get-Command python -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source) {
@@ -121,19 +153,11 @@ function Find-OrchPython {
         return
     }
 
-    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
-    if ($pyLauncher) {
-        try {
-            $probe = & py -3 -c "print(1)" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                $script:PyExe = "py"
-                $script:PyCmd = @("py", "-3")
-                $script:HavePy = $true
-                return
-            }
-        } catch {
-            # py -3 недоступен
-        }
+    if ($script:HavePyLauncher) {
+        $script:PyExe = "py"
+        $script:PyCmd = @("py", "-3")
+        $script:HavePy = $true
+        return
     }
 
     $cmd3 = Get-Command python3 -ErrorAction SilentlyContinue
@@ -261,13 +285,45 @@ function Install-OrchClaudeHooks {
     $tmp = Get-OrchTempDir
     $snipPath = Join-Path $tmp "orch-claude-snippet.json"
     $mergePy = Join-Path $tmp "orch-merge-claude.py"
-    $cmdSs = New-OrchHookCommand -Action "session-start" -Engine "claude"
-    $cmdPs = New-OrchHookCommand -Action "prompt-submit" -Engine "claude"
-    $cmdPt = New-OrchHookCommand -Action "post-tool" -Engine "claude"
-    $eSs = ConvertTo-OrchJsonString -Text $cmdSs
-    $ePs = ConvertTo-OrchJsonString -Text $cmdPs
-    $ePt = ConvertTo-OrchJsonString -Text $cmdPt
-    $snip = @"
+    if ($script:IsWin) {
+        # Exec form: spawn python/reground without a shell (quoted string = PS no-op)
+        $regFwd = Get-ForwardSlashPath -Path (Join-Path (Join-Path $script:Kit "bin") "reground.py")
+        $eReg = ConvertTo-OrchJsonString -Text $regFwd
+        if ($script:PyCmd.Count -ge 2 -and $script:PyCmd[0] -eq "py") {
+            $eCmd = ConvertTo-OrchJsonString -Text "py"
+            $argsSs = "[`"-3`", `"$eReg`", `"session-start`", `"--engine`", `"claude`"]"
+            $argsPs = "[`"-3`", `"$eReg`", `"prompt-submit`", `"--engine`", `"claude`"]"
+            $argsPt = "[`"-3`", `"$eReg`", `"post-tool`", `"--engine`", `"claude`"]"
+        } else {
+            $pyFwd = Get-ForwardSlashPath -Path $script:PyExe
+            $eCmd = ConvertTo-OrchJsonString -Text $pyFwd
+            $argsSs = "[`"$eReg`", `"session-start`", `"--engine`", `"claude`"]"
+            $argsPs = "[`"$eReg`", `"prompt-submit`", `"--engine`", `"claude`"]"
+            $argsPt = "[`"$eReg`", `"post-tool`", `"--engine`", `"claude`"]"
+        }
+        $snip = @"
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "$eCmd", "args": $argsSs, "timeout": 10}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "$eCmd", "args": $argsPs, "timeout": 10}]}
+    ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "$eCmd", "args": $argsPt, "timeout": 10}]}
+    ]
+  }
+}
+"@
+    } else {
+        $cmdSs = New-OrchHookCommand -Action "session-start" -Engine "claude"
+        $cmdPs = New-OrchHookCommand -Action "prompt-submit" -Engine "claude"
+        $cmdPt = New-OrchHookCommand -Action "post-tool" -Engine "claude"
+        $eSs = ConvertTo-OrchJsonString -Text $cmdSs
+        $ePs = ConvertTo-OrchJsonString -Text $cmdPs
+        $ePt = ConvertTo-OrchJsonString -Text $cmdPt
+        $snip = @"
 {
   "hooks": {
     "SessionStart": [
@@ -282,6 +338,7 @@ function Install-OrchClaudeHooks {
   }
 }
 "@
+    }
     Write-Utf8NoBom -Path $snipPath -Text $snip
     Write-OrchMergePy -OutPath $mergePy
     $settings = Join-Path $script:ClaudeDir "settings.json"
@@ -298,6 +355,7 @@ function Install-OrchCodexHooks {
         Write-Host "  .codex/hooks.json пропущен (нет python)"
         return
     }
+    Write-OrchWinHookSpaceWarning
     $hooksDir = Split-Path -Parent $script:CodexHooks
     if (-not (Test-Path -LiteralPath $hooksDir)) {
         New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
@@ -308,28 +366,22 @@ function Install-OrchCodexHooks {
     $cmdSs = New-OrchHookCommand -Action "session-start" -Engine "codex"
     $cmdPs = New-OrchHookCommand -Action "prompt-submit" -Engine "codex"
     $cmdPt = New-OrchHookCommand -Action "post-tool" -Engine "codex"
-    $winSs = New-OrchHookCommand -Action "session-start" -Engine "codex" -WindowsStyle
-    $winPs = New-OrchHookCommand -Action "prompt-submit" -Engine "codex" -WindowsStyle
-    $winPt = New-OrchHookCommand -Action "post-tool" -Engine "codex" -WindowsStyle
     $eSs = ConvertTo-OrchJsonString -Text $cmdSs
     $ePs = ConvertTo-OrchJsonString -Text $cmdPs
     $ePt = ConvertTo-OrchJsonString -Text $cmdPt
-    $wSs = ConvertTo-OrchJsonString -Text $winSs
-    $wPs = ConvertTo-OrchJsonString -Text $winPs
-    $wPt = ConvertTo-OrchJsonString -Text $winPt
     $snip = @"
 {
   "description": "orchestration-kit: сверка курса",
   "hooks": {
     "SessionStart": [
       {"matcher": "startup|resume|clear|compact",
-       "hooks": [{"type": "command", "command": "$eSs", "commandWindows": "$wSs", "timeout": 10}]}
+       "hooks": [{"type": "command", "command": "$eSs", "commandWindows": "$eSs", "timeout": 10}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "$ePs", "commandWindows": "$wPs", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$ePs", "commandWindows": "$ePs", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "$ePt", "commandWindows": "$wPt", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "$ePt", "commandWindows": "$ePt", "timeout": 10}]}
     ]
   }
 }
@@ -382,7 +434,10 @@ function Remove-OrchKimiHookBlock {
 }
 
 function Install-OrchKimi {
-    $kimiHome = $env:KIMI_HOME
+    $kimiHome = $env:KIMI_CODE_HOME
+    if (-not $kimiHome) {
+        $kimiHome = $env:KIMI_HOME
+    }
     if (-not $kimiHome) {
         $kimiHome = Join-Path $Home ".kimi-code"
     }
@@ -404,6 +459,8 @@ function Install-OrchKimi {
         Write-Host "  хуки Kimi пропущены (нет python)"
         return
     }
+
+    Write-OrchWinHookSpaceWarning
 
     $kimiCfg = Join-Path $script:KimiDir "config.toml"
     if (-not (Test-Path -LiteralPath $kimiCfg)) {
@@ -547,7 +604,7 @@ param([switch]$Bg)
 $server = "__SERVER__"
 if ($Bg) {
   $p = Start-Process -FilePath "py" -ArgumentList @("-3","-u",$server) -WindowStyle Hidden -PassThru -RedirectStandardOutput panel.out.log -RedirectStandardError panel.err.log
-  "панель в фоне: pid $($p.Id); остановка: Stop-Process -Id $($p.Id)"
+  "panel running in background: pid $($p.Id); stop: Stop-Process -Id $($p.Id)"
 } else {
   & py -3 -u $server @args
 }
@@ -561,7 +618,7 @@ $py = "__PY__"
 $server = "__SERVER__"
 if ($Bg) {
   $p = Start-Process -FilePath $py -ArgumentList @("-u",$server) -WindowStyle Hidden -PassThru -RedirectStandardOutput panel.out.log -RedirectStandardError panel.err.log
-  "панель в фоне: pid $($p.Id); остановка: Stop-Process -Id $($p.Id)"
+  "panel running in background: pid $($p.Id); stop: Stop-Process -Id $($p.Id)"
 } else {
   & $py -u $server @args
 }
@@ -662,7 +719,11 @@ $script:Target = (Get-Location).Path
 $script:ClaudeDir = Join-Path $script:Target ".claude"
 $script:CodexHooks = Join-Path (Join-Path $script:Target ".codex") "hooks.json"
 if ($Global) {
-    $script:ClaudeDir = Join-Path $Home ".claude"
+    if ($env:CLAUDE_CONFIG_DIR) {
+        $script:ClaudeDir = $env:CLAUDE_CONFIG_DIR
+    } else {
+        $script:ClaudeDir = Join-Path $Home ".claude"
+    }
     $script:CodexHooks = Join-Path (Join-Path $Home ".codex") "hooks.json"
     Write-Host "--global: Claude/Codex ставятся на уровень пользователя (все папки)"
 }

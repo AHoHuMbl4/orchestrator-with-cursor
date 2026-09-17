@@ -18,7 +18,7 @@ GLOBAL=0
 CLAUDE_DIR="$TARGET/.claude"
 CODEX_HOOKS="$TARGET/.codex/hooks.json"
 if [ "$GLOBAL" = "1" ]; then
-  CLAUDE_DIR="$HOME/.claude"
+  CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   CODEX_HOOKS="$HOME/.codex/hooks.json"
   echo "--global: Claude/Codex ставятся на уровень пользователя (все папки)"
 fi
@@ -152,7 +152,7 @@ PYEOF
 else
   echo "  .codex/hooks.json пропущен (нет python)"
 fi
-KIMI_DIR="${KIMI_HOME:-$HOME/.kimi-code}"
+KIMI_DIR="${KIMI_CODE_HOME:-${KIMI_HOME:-$HOME/.kimi-code}}"
 mkdir -p "$KIMI_DIR/skills" "$HOME/.agents/skills"
 mkdir -p "$KIMI_DIR/skills/orchestration/references/roles" "$HOME/.agents/skills/orchestration/references/roles"
 cp -r "$KIT/skills/orchestration/." "$KIMI_DIR/skills/orchestration/"

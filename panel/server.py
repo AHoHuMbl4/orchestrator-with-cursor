@@ -81,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
             running = False
             if os.path.exists(pid_path):
                 try:
-                    with open(pid_path, "r") as f:
+                    with open(pid_path, "r", encoding="utf-8", errors="replace") as f:
                         pid = int(f.read().strip())
                     os.kill(pid, 0)
                     running = True

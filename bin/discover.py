@@ -96,6 +96,7 @@ def probe_codex():
 
 
 def main():
+    orchlib.utf8_stdio()
     snap = {
         "checked_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "cursor": probe_cursor(),

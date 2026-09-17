@@ -25,6 +25,21 @@ function Get-HomeDir {
     return $env:HOME
 }
 
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text, [switch]$Append)
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    $dir = [System.IO.Path]::GetDirectoryName($full)
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    if ($Append) {
+        [System.IO.File]::AppendAllText($full, $Text, $enc)
+    } else {
+        [System.IO.File]::WriteAllText($full, $Text, $enc)
+    }
+}
+
 function Get-PythonArgs {
     # Порядок как у установщика: python -> py -3 -> python3
     $prevEap = $ErrorActionPreference
@@ -137,10 +152,10 @@ function Remove-KimiHooksBlock {
         break
     }
     if ($newLines.Count -eq 0) {
-        Set-Content -LiteralPath $ConfigPath -Value "" -Encoding UTF8
+        Write-Utf8NoBom -Path $ConfigPath -Text ""
     } else {
-        $newLines.Add("") | Out-Null
-        Set-Content -LiteralPath $ConfigPath -Value $newLines.ToArray() -Encoding UTF8
+        $nl = [Environment]::NewLine
+        Write-Utf8NoBom -Path $ConfigPath -Text ([string]::Join($nl, $newLines.ToArray()) + $nl)
     }
 }
 
@@ -161,7 +176,12 @@ function Remove-GitignoreOrchLines {
         }
         $kept.Add($line) | Out-Null
     }
-    Set-Content -LiteralPath $GitignorePath -Value $kept.ToArray() -Encoding UTF8
+    $nl = [Environment]::NewLine
+    if ($kept.Count -eq 0) {
+        Write-Utf8NoBom -Path $GitignorePath -Text ""
+    } else {
+        Write-Utf8NoBom -Path $GitignorePath -Text ([string]::Join($nl, $kept.ToArray()) + $nl)
+    }
 }
 
 # --- пути ---
@@ -253,7 +273,7 @@ else:
     print("  хуки не найдены")
 '@
             try {
-                Set-Content -LiteralPath $tmpPy -Value $pyBody -Encoding UTF8
+                Write-Utf8NoBom -Path $tmpPy -Text $pyBody
                 $env:ORCH_CLAUDE_SETTINGS = $settingsPath
                 Invoke-PythonFile -PyArgs $PyArgs -ScriptPath $tmpPy
             } finally {
@@ -308,7 +328,7 @@ else:
         print("  наши хуки не найдены")
 '@
             try {
-                Set-Content -LiteralPath $tmpPy -Value $pyBody -Encoding UTF8
+                Write-Utf8NoBom -Path $tmpPy -Text $pyBody
                 $env:ORCH_CODEX_HOOKS = $CodexHooks
                 Invoke-PythonFile -PyArgs $PyArgs -ScriptPath $tmpPy
             } finally {
