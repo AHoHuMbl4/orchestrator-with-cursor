@@ -1,7 +1,7 @@
 1e234ec948b804ff62c4ce02d3333b701460e4605d9990ee45bdf6b962b8ea83  ./bin/discover.py
 56ff35f3605399bbe3f6e453f84a6e2056037b3f7bf51ee263c54697828ea653  ./bin/menu.py
-281211aca73df56d7dc66ede8f1de0c7c19d99d1b0ae00a3a36dadc3a7336e9c  ./bin/orchlib.py
-e8918e07071b2ecf947b41d7117341207ffa562f2b52805a4b94f9f905652c7e  ./bin/reground.py
+40948eadf039ec3f78caefdce177184c0224b6970e02d295e708aee76f56bc56  ./bin/orchlib.py
+2679a6b6b0d5f8a7b9676ca0a1f5677a32703cc22abd9abe456955f31c17fb0a  ./bin/reground.py
 a98887dc1ae5c9d442b3cfd28f63e2f88cbae29c8ef0847dc827ead1b0343e94  ./bin/run-cloud.py
 21e6d5bd309be401238f111b9a783893ea21859f53070eec1400d4d797ae8850  ./bin/run-exec.py
 4837c7df4deb86a2e059885abb3eaaa7273a3f95d929c2ebd880e934652551b8  ./commands/claude-orch-menu.md
@@ -13,7 +13,7 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 20b8896645bdef67e7193c996ee10989653a243e3c05e57ddb983c8b9ba6f6f2  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 9942185b2660fdb261e06103ae7355a07fa956fc9acdb2c2ad74559c5568dd92  ./panel/index.html
-9d6ba2a349493e1b86fe312aea2375edee5658968fda8bdb5371888c447e0acb  ./panel/server.py
+e7a7288a3e75e304e5af90189adac469f11d055d8f2cdb0ebfcb4167b3d193e7  ./panel/server.py
 ae6f46ade02ebdfd9ef3eb16a0af736eed4eaebcd9594abaabbdef4e9497dd1d  ./params.json
 403b6d009197fb73fef102310e559496befaea84266477282c25da2fe8932439  ./skills/orchestration/references/engines.md
 bf12dabe7c77d103ea28c657ab802f4f920ffe1466ce3ea1e5941f2c22109c81  ./skills/orchestration/references/planning.md
