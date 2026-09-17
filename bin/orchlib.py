@@ -219,11 +219,9 @@ def session_effective_enabled(p, session_id):
 
 
 def session_compass_path(p, session_id):
-    """Compass конкретной сессии, если создан; иначе общий папочный."""
-    per = os.path.join(session_dir(session_id), "compass.md")
-    if os.path.exists(per):
-        return per
-    return compass_path(p)
+    """Compass КОНКРЕТНОЙ сессии — всегда сессионный путь, без fallback.
+    Если файла нет — агент создаёт его при первой задаче (правило скилла)."""
+    return os.path.join(session_dir(session_id), "compass.md")
 
 
 def touch_session(session_id):

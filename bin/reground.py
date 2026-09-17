@@ -102,7 +102,8 @@ def cmd_session_start(engine, fmt):
         with open(cpath, "r", encoding="utf-8") as f:
             ctext = f.read()[:8500]
     except Exception:
-        ctext = "(compass не найден: %s)" % cpath
+        ctext = ("(compass этой сессии ещё не создан — СОЗДАЙ его по пути %s "
+                 "при первой задаче: цель, критерий, TODO-чеклист, границы)") % cpath
     text = SESSION_TEXT.format(
         summary=orchlib.params_summary(p),
         compass_text=ctext,
@@ -245,6 +246,11 @@ def cmd_prompt_submit(engine, fmt):
         return  # не менялось и нуджа нет — молчим
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
+    cpath_ps = compass_of(p, sid)
+    if not os.path.exists(cpath_ps):
+        compass_hint = "%s (СОЗДАЙ при первой задаче)" % cpath_ps
+    else:
+        compass_hint = cpath_ps
     text = (
         "Сессия: {sid}. Compass этой сессии: {compass}\n"
         "Актуальные параметры пачки{what}:\n{summary}\n"
@@ -252,7 +258,7 @@ def cmd_prompt_submit(engine, fmt):
         "Эти значения — из файла; следующее сообщение владельца обрабатывается "
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
-             compass=compass_of(p, sid))
+             compass=compass_hint)
     emit(fmt, "UserPromptSubmit", (nudge + text)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:

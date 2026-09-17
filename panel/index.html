@@ -52,7 +52,7 @@
 <h2>1. Задача (compass)</h2>
 <div class="row" style="align-items:center;gap:10px">
   <label style="margin:0">Чей compass:</label>
-  <select id="compassTarget" style="width:auto" onchange="loadCompass()"><option value="">общий (папка)</option></select>
+  <select id="compassTarget" style="width:auto" onchange="loadCompass()"><option value="">шаблон (общий)</option></select>
 </div>
 <textarea id="compass"></textarea>
 <div class="hint" id="compassPath"></div>
@@ -193,7 +193,7 @@ async function loadSessions(){
     const tb = document.querySelector("#sessions tbody"); tb.innerHTML = "";
     const sel = document.getElementById("compassTarget");
     const cur = sel.value;
-    sel.innerHTML = '<option value="">общий (папка)</option>';
+    sel.innerHTML = '<option value="">шаблон (общий)</option>';
     (j.sessions||[]).forEach(s=>{
       if (s.has_compass) {
         const o = document.createElement("option"); o.value = s.id; o.textContent = s.id.slice(0,18); sel.appendChild(o);
