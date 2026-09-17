@@ -40,13 +40,22 @@ NUDGE_TEXT = (
     "При расхождении — вернись к последней закрытой строке TODO."
 )
 
+_MAP_MD = os.path.join(
+    orchlib.KIT_DIR, "skills", "orchestration", "references", "MAP.md"
+)
+_MAP_ORIENT = (
+    "Карта системы (что где: инструменты/state/роли/доки): %s — сверяйся с ней "
+    "ДО любого поиска файлов; механика скилла не опциональна."
+) % _MAP_MD
+
 SESSION_TEXT = (
     "Контекст пачки (вклеен автоматически).\n"
     "{summary}\n\n"
     "Задание (compass, полный текст):\n"
     "{compass_text}\n\n"
     "Правило курса: сверка с compass идёт периодически по таймеру; "
-    "перед каждой волной/пачкой — перечитай compass и params заново."
+    "перед каждой волной/пачкой — перечитай compass и params заново.\n"
+    + _MAP_ORIENT
 )
 
 
@@ -266,12 +275,13 @@ def cmd_prompt_submit(engine, fmt):
         compass_hint = "%s (СОЗДАЙ при первой задаче)" % cpath_ps
     text = (
         "Сессия: {sid}. Compass этой сессии: {compass}\n"
+        "{map_orient}\n"
         "Актуальные параметры пачки{what}:\n{summary}\n"
         "Задание: {compass}\n"
         "Эти значения — из файла; следующее сообщение владельца обрабатывается "
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
-             compass=compass_hint)
+             compass=compass_hint, map_orient=_MAP_ORIENT)
     emit(fmt, "UserPromptSubmit", (nudge + text)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:
