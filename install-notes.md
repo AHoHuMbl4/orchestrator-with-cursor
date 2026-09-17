@@ -153,6 +153,11 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic` + `ANTHROPIC_AUTH_TOKEN=<ключ>`
 в `~/.claude/settings.json`. Скиллы и хуки работают без изменений.
 
+## Служебные файлы
+
+- `install-check` — временная сессия самопроверки установщика; автоматически удаляется после установки и скрывается из панели
+- `.orchestration/compass.md` — шаблон; рабочие compass каждой сессии — в `.orchestration/sessions/<id>/compass.md`
+
 ## Известные нюансы
 
 - Codex требует `/hooks` trust после установки — без него хуки молчат (скиллы работают)

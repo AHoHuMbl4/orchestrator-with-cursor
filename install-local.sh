@@ -233,6 +233,8 @@ if [ "$HAVE_PY" = "1" ]; then
   "$PY" "$KIT/bin/menu.py" --show | head -1
   echo '{"session_id":"install-check"}' | "$PY" "$KIT/bin/reground.py" post-tool --engine claude
   echo "  reground молчит (порог не достигнут) — так и должно быть"
+  # Убрать служебную сессию self-check
+  rm -rf "$TARGET/.orchestration/sessions/install-check" 2>/dev/null || true
 else
   echo "  пропущено (нет python)"
 fi
