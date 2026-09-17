@@ -217,6 +217,9 @@ def interactive():
 
 def main():
     orchlib.utf8_stdio()
+    note = orchlib.state_dir_note()
+    if note:
+        sys.stderr.write(note + "\n")
     raw = sys.argv[1:]
     if not raw or raw[0] in ("-h", "--help"):
         sys.stdout.write(__doc__ + "\n")

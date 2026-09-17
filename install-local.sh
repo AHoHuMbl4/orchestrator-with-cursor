@@ -242,9 +242,11 @@ else
   echo "  пропущено (нет python)"
 fi
 
+STATE_ABS="$(cd "$TARGET" && pwd)/.orchestration"
 cat <<EOF
 
 УСТАНОВЛЕНО в $TARGET
+  State/ключ: $STATE_ABS (токен Cursor вставляется в панели)
 EOF
 if [ "$HAVE_PY" = "1" ]; then
 cat <<EOF

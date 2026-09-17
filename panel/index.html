@@ -361,8 +361,9 @@ async function restoreTemplate(){
 }
 async function loadKeyInfo(){
   try{ const j=await (await fetch("/api/cursor-key")).json();
+    const p=j.path||"";
     document.getElementById("cursorKeyInfo").textContent =
-      j.set ? "токен сохранён (.orchestration/cursor.key)" : "токен не задан"; }catch(e){}
+      j.set ? ("токен сохранён. Файл: "+p) : ("токен не задан. Файл будет: "+p); }catch(e){}
 }
 async function saveKey(){
   const k=document.getElementById("cursorKey").value.trim();
@@ -370,7 +371,10 @@ async function saveKey(){
   const r=await fetch("/api/cursor-key",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({key:k})});
   const j=await r.json();
-  msg(r.ok?"токен сохранён ✓":(j.error||"ошибка"), r.ok?"ok":"err");
+  if(r.ok){
+    msg("токен сохранён ✓","ok");
+    if(j.path) document.getElementById("cursorKeyInfo").textContent="токен сохранён. Файл: "+j.path;
+  } else msg(j.error||"ошибка","err");
   document.getElementById("cursorKey").value=""; loadKeyInfo();
 }
 async function delKey(){

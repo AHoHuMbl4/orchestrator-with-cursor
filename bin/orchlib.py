@@ -80,6 +80,23 @@ def find_state_dir():
     return os.path.join(os.getcwd(), ".orchestration")
 
 
+def state_dir_note():
+    """Предупреждение, если найденный state не под cwd (чужой .orchestration выше).
+
+    Пустая строка — state под текущим cwd (или совпадает с ожидаемым локальным).
+    Не вызывать из reground/хуков: тишина в хуках обязательна.
+    """
+    state = os.path.abspath(find_state_dir())
+    cwd = os.path.abspath(os.getcwd())
+    try:
+        if os.path.commonpath([cwd, state]) == cwd:
+            return ""
+    except ValueError:
+        pass  # другой диск (Windows)
+    return ("state выше по дереву: %s "
+            "(запускай из папки проекта или задай ORCHESTRATION_DIR)" % state)
+
+
 def state_path(name):
     d = find_state_dir()
     os.makedirs(d, exist_ok=True)

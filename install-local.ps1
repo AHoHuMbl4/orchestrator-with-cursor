@@ -691,6 +691,8 @@ function Invoke-OrchSelfCheck {
 function Show-OrchFinal {
     Write-Host ""
     Write-Host "УСТАНОВЛЕНО в $($script:Target)"
+    $stateAbs = Join-Path $script:Target ".orchestration"
+    Write-Host "  State/ключ: $stateAbs (токен Cursor вставляется в панели)"
     if ($script:HavePy) {
         Write-Host "  Настройки:   ./panel.ps1  →  http://127.0.0.1:8765 (или соседний порт; -Bg — в фоне)"
         Write-Host "               В панели: тумблер вкл/выкл, задача, исполнители/критики/круги,"

@@ -50,10 +50,16 @@
   (`run-cloud.py --id w1 run --prompt-file P.md` и
   `run-cloud.py run --id w1 --prompt-file P.md`). Промт — только из файла
   (`--prompt-file`); приёмка по артефактам/`run-cloud.py status|artifacts`
-  и логу, не по «словам» исполнителя. Детект исчерпания квоты (для
+  и логу, не по «словам» исполнителя.   Детект исчерпания квоты (для
   `on_cursor_fail`): `429` + «Rate limit…» — временный лимит, подождать;
   «Usage limit exceeded»/spend limit — квота исчерпана, действовать по
-  правилу скилла. Весь прогон — в
+  правилу скилла. `resource_exhausted` на create («Rate limit exceeded for
+  creating cloud agent environments») — burst-лимит попыток: пауза ≥15–30 мин,
+  одиночный повтор, при повторе — экспоненциальный рост паузы (ловушка №17
+  в `traps.md`); 500 internal на create может маскировать тот же лимит.
+  Ключ: `--api-key` > env `CURSOR_API_KEY` > `<state>/cursor.key`; сохранение
+  через панель (абсолютный путь к ключу панель показывает после сохранения).
+  Весь прогон — в
   `.orchestration/sessions/<sid>/runs/<id>/` (prompt.md, run.log, артефакты).
 - **auto** (дефолт): есть ключ → cursor-cloud; нет ключа → СТОП и вопрос
   владельцу (никакого молчаливого fallback). Субагенты движка — только после

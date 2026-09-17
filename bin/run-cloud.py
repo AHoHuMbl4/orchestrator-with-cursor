@@ -26,7 +26,9 @@ https://cursor.com/docs/cloud-agent/api/endpoints):
   run-cloud.py --id w1 run --prompt-file P.md
   run-cloud.py run --id w1 --prompt-file P.md
 
-Ключ: --api-key или env CURSOR_API_KEY. Всё пишется в <state>/cloud-<id>.log.
+Ключ (по приоритету): 1) --api-key; 2) env CURSOR_API_KEY; 3) файл
+<state>/cursor.key (state — .orchestration, ищется от cwd вверх / ORCHESTRATION_DIR).
+Всё пишется в <state>/cloud-<id>.log.
 Схема beta: первый живой прогон калибрует парсинг id (ответ логируется целиком).
 """
 import argparse
@@ -90,14 +92,14 @@ def normalize_args(a):
 
 def api_key(a):
     key = a.api_key or os.environ.get("CURSOR_API_KEY")
+    kf = os.path.abspath(os.path.join(orchlib.find_state_dir(), "cursor.key"))
     if not key:
-        kf = os.path.join(orchlib.find_state_dir(), "cursor.key")
         if os.path.exists(kf):
             with open(kf, "r", encoding="utf-8") as f:
                 key = f.read().strip()
     if not key:
-        sys.stderr.write("нужен --api-key, env CURSOR_API_KEY или "
-                         ".orchestration/cursor.key (вносится в панели)\n")
+        sys.stderr.write("нужен --api-key, env CURSOR_API_KEY или файл %s "
+                         "(вносится в панели; state-каталог ищется от cwd вверх)\n" % kf)
         sys.exit(2)
     return key
 
@@ -277,6 +279,9 @@ def cmd_artifacts(a):
 
 def main():
     orchlib.utf8_stdio()
+    note = orchlib.state_dir_note()
+    if note:
+        sys.stderr.write(note + "\n")
     ap = build_parser()
     a = normalize_args(ap.parse_args())
     if a.cmd == "run":

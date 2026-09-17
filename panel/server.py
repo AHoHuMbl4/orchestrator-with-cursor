@@ -137,9 +137,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_json({"error": "discovered.json нет — запусти bin/discover.py"}, 404)
         elif u.path == "/api/cursor-key":
-            kf = os.path.join(orchlib.find_state_dir(), "cursor.key")
+            state = os.path.abspath(orchlib.find_state_dir())
+            kf = os.path.abspath(os.path.join(state, "cursor.key"))
             if self.command == "GET":
                 self.send_json({"set": os.path.exists(kf),
+                                "path": kf,
+                                "state_dir": state,
                                 "hint": "ключ хранится в .orchestration/cursor.key (в .gitignore)"})
             elif self.command == "DELETE":
                 try:
@@ -283,7 +286,8 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump({"enabled": bool(body.get("enabled"))}, f, ensure_ascii=False)
             self.send_json({"ok": True, "id": sid, "enabled": bool(body.get("enabled"))})
         elif u.path == "/api/cursor-key":
-            kf = os.path.join(orchlib.find_state_dir(), "cursor.key")
+            state = os.path.abspath(orchlib.find_state_dir())
+            kf = os.path.abspath(os.path.join(state, "cursor.key"))
             body, err = self.read_body_json()
             if err:
                 self.send_json({"error": err}, 400)
@@ -295,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(kf), exist_ok=True)
             with open(kf, "w", encoding="utf-8") as f:
                 f.write(keyv.strip())
-            self.send_json({"ok": True, "set": True})
+            self.send_json({"ok": True, "set": True, "path": kf})
         elif u.path == "/api/template/restore":
             try:
                 p = orchlib.load_params()
@@ -341,6 +345,9 @@ def main():
         print("не нашлось свободного порта %d..%d" % (base, base + 4))
         return 1
     print("панель: http://%s:%d  (params: %s)" % (host, port, orchlib.params_file()))
+    note = orchlib.state_dir_note()
+    if note:
+        print(note)
     print("остановка: Ctrl+C")
     try:
         httpd.serve_forever()
