@@ -1,12 +1,12 @@
 1e234ec948b804ff62c4ce02d3333b701460e4605d9990ee45bdf6b962b8ea83  ./bin/discover.py
 56ff35f3605399bbe3f6e453f84a6e2056037b3f7bf51ee263c54697828ea653  ./bin/menu.py
 281211aca73df56d7dc66ede8f1de0c7c19d99d1b0ae00a3a36dadc3a7336e9c  ./bin/orchlib.py
-8d1de4743d2b60b5010e681ff20f216480822a080b3bd0dc0e797108be6d6d65  ./bin/reground.py
+e8918e07071b2ecf947b41d7117341207ffa562f2b52805a4b94f9f905652c7e  ./bin/reground.py
 a98887dc1ae5c9d442b3cfd28f63e2f88cbae29c8ef0847dc827ead1b0343e94  ./bin/run-cloud.py
 21e6d5bd309be401238f111b9a783893ea21859f53070eec1400d4d797ae8850  ./bin/run-exec.py
 4837c7df4deb86a2e059885abb3eaaa7273a3f95d929c2ebd880e934652551b8  ./commands/claude-orch-menu.md
 686ef00eeb7af62e4e1bc8c4dd38d7557a40830f7a24c851c26794a52dcf8d6d  ./commands/codex-orch-menu.md
-04779906cc1c96c98cdd010a71c955d404b5ff3fc6aa5f7c539bde56a925055c  ./compass.md
+d761d8dfeb9bfdffec103372195b85fd6b090b8a0be384894180dd893c6ae93c  ./compass.md
 3537d00ed107c9a20640cae673ea9f064bc80bb37e0031825641b2ff2ca25851  ./hooks/claude-settings.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
 5fd0b43b0b94dc7fe36785952ad0509a78d7a44d72273d81ce7190de19c91d14  ./install-local.sh
@@ -16,7 +16,7 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 ff3d6a41985547625c1217bff2c501db4b510085fd1012c556c31e4686e6bc0d  ./panel/server.py
 ae6f46ade02ebdfd9ef3eb16a0af736eed4eaebcd9594abaabbdef4e9497dd1d  ./params.json
 403b6d009197fb73fef102310e559496befaea84266477282c25da2fe8932439  ./skills/orchestration/references/engines.md
-6f67ead40bc8ead8b22e823da76886cecef09f8e546555433092edc151fec567  ./skills/orchestration/references/planning.md
+bf12dabe7c77d103ea28c657ab802f4f920ffe1466ce3ea1e5941f2c22109c81  ./skills/orchestration/references/planning.md
 a7723fd845d6122c313b81c8f6a4938f62e8eb5a81ce736cea467c705deacd18  ./skills/orchestration/references/roles/code/code-reviewer.md
 65c2523f63de730575d6bbae92f1436312cf11f95265501be32fa75907ed9c93  ./skills/orchestration/references/roles/code/coder.md
 b1065b3feb9eecc99aaca4a141cff202bbcfd8ad5f91496d862bc11ee3ed9f6b  ./skills/orchestration/references/roles/code/debugger.md
@@ -36,4 +36,4 @@ db996f812598b2704307e9368af32fb564ebb68db3d3710f758f2e85207ad4c2  ./skills/orche
 2da911bdc8acaa6799ba397bd912523c3db7bdea01c78e73f954d6b2034dd515  ./skills/orchestration/references/roles/research/synthesizer.md
 af8bb8e143efc228d8647b56ff12a3d1f92c39830bca586fc4ae33dcfe6efbfd  ./skills/orchestration/references/roles/_template.md
 2325975a684f0d9d4fbec3060d44aa0ab6a6b5ebfab8d43325ba68a9cca37649  ./skills/orchestration/references/traps.md
-95a062b962f8cfdcb36ff2fb4fe062c328de99a95f79520d6aac6fc017fb00e9  ./skills/orchestration/SKILL.md
+4d10066a851d6969531262ead7133c5e1e0c5dd2d2402cefc265f5f20f020ca5  ./skills/orchestration/SKILL.md
