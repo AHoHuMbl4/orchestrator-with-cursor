@@ -158,3 +158,4 @@ d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orche
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
 2325975a684f0d9d4fbec3060d44aa0ab6a6b5ebfab8d43325ba68a9cca37649  ./skills/orchestration/references/traps.md
 fb61db0f7a1a583bca2fcf12ad8f093a161e809e726d2303c1d0be39cfa0eda8  ./skills/orchestration/SKILL.md
+dc1adb0b2547b11e3030aecbe36fb999bf32a25d4255fbb5dc4e3aa7352cd6fd  ./uninstall.sh
