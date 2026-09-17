@@ -84,6 +84,24 @@ def state_path(name):
     return os.path.join(d, name)
 
 
+def utf8_stdio():
+    """UTF-8 для stdio независимо от локали (Windows: пайпы = cp1251/cp866).
+    Движки шлют и ждут UTF-8; errors=replace — битый байт не должен ронять хук."""
+    import io as _io
+    for name in ("stdout", "stderr", "stdin"):
+        s = getattr(sys, name, None)
+        if s is None:
+            continue
+        try:
+            if hasattr(s, "reconfigure"):          # python 3.7+
+                s.reconfigure(encoding="utf-8", errors="replace")
+            elif hasattr(s, "buffer"):             # python 3.6 fallback
+                wrapper = _io.TextIOWrapper(s.buffer, encoding="utf-8", errors="replace")
+                setattr(sys, name, wrapper)
+        except Exception:
+            pass
+
+
 def params_file():
     return state_path("params.json")
 

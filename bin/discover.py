@@ -31,7 +31,7 @@ CODEX_EFFORTS_FALLBACK = ["minimal", "low", "medium", "high", "xhigh"]
 def run(cmd, timeout=30):
     try:
         out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             timeout=timeout, universal_newlines=True)
+                             timeout=timeout, encoding="utf-8", errors="replace")
         return out.returncode, (out.stdout or "") + "\n" + (out.stderr or "")
     except Exception as e:
         return 127, str(e)

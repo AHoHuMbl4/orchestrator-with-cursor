@@ -91,11 +91,12 @@ CURSOR_API_KEY в настройках окружения claude.ai + allowlist 
 
 ## Установка хуков re-ground (сниппеты в hooks/)
 
-1. Замени `__PYTHON__` → `python3` (Linux/macOS) или `python` / полный путь к
-   `python.exe` (Windows), `<KIT>` → абсолютный путь к orchestration-kit.
+1. Замени `__PYTHON__` → `python3` (Linux/macOS) или полный путь к `python.exe`
+   (Windows), `<KIT>` → абсолютный путь к orchestration-kit. На Windows —
+   полные пути к python.exe и kit в двойных кавычках с прямыми слэшами
+   (см. ## Windows / `_readme` в сниппете).
 2. Claude Code: содержимое `claude-settings.snippet.json` (без ключа `_readme`)
-   → `.claude/settings.json` проекта. Windows-надёжный вариант — exec-форма:
-   `"command": "C:\\...\\python.exe", "args": ["<KIT>\\bin\\reground.py", ...]`.
+   → `.claude/settings.json` проекта.
 3. Codex: `codex-hooks.snippet.json` — схему сверить с
    developers.openai.com/codex/hooks (машина сборки была без codex).
 4. Kimi: блоки из `kimi-config.snippet.toml` → `~/.kimi-code/config.toml`,
@@ -164,3 +165,51 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 - Python 3.6+ обязателен для хуков/панели/скриптов (скилл работает и без него)
 - cursor-agent или ключ Cursor — для исполнителей; без них система спрашивает явно
 - `--permission-prompts none` требует Claude Code ≥ v2.1.259; fallback: `dontAsk`
+
+## Windows
+
+Платформы: Linux, macOS (bash-инсталлер), Windows 10/11 (PowerShell-инсталлер);
+python 3.6+.
+
+Установка (из рабочей папки, куда скопирован/склонирован репозиторий):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
+```
+
+Или `pwsh` вместо `powershell`. `-Global` — уровень пользователя. Повторный
+запуск безопасен (идемпотентен).
+
+Удаление:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -Global
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -All
+```
+
+Python ищется: `python` → `py -3` → `python3`; без python — режим «только
+скиллы» с предупреждением (как в bash-версии). Установка:
+`winget install Python.Python.3.12` (отметить Add to PATH).
+
+Хуки Claude на Windows исполняются через Git Bash (или PowerShell при его
+отсутствии): поэтому команды хуков — полные пути в двойных кавычках, прямые
+слэши. Git for Windows рекомендован, но не обязателен для установки.
+
+Codex: в каждый хук `hooks.json` добавляется поле `commandWindows` (camelCase —
+формат Codex); первый запуск codex → `/hooks` → доверить (общее правило,
+действующее и на Linux).
+
+Kimi на Windows: нативная установка, хуки в `config.toml` (маркерные блоки
+`>>>` / `<<<`).
+
+Python-скрипты оркестрации принудительно держат stdio в UTF-8 (защита от
+cp1251/cp866 на русской Windows); subprocess-вывод (tasklist, cursor-agent)
+декодируется UTF-8. Скрипты `.ps1` сохранены в UTF-8 с BOM.
+
+Панель на Windows: `panel.ps1` (ключ `-Bg` — фон) и `panel.cmd` (для
+cmd/проводника).
+
+Windows-инсталлер проверен статическим ревью и паритет-аудитом против
+bash-версии; живой прогон на Windows выполните по первой установке и сообщите
+результат.

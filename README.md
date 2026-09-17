@@ -48,6 +48,15 @@ git clone https://github.com/AHoHuMbl4/orchestrator-with-cursor.git orchestratio
 bash orchestration-kit/install-local.sh
 ```
 
+Windows (PowerShell 5.1+ or pwsh), from the working folder where the repo is
+cloned/copied:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
+```
+
+Add `-Global` for user-level install. Re-runs are safe (idempotent).
+
 No git? Download the repo zip, unpack as `orchestration-kit/`, run the same
 second line. The installer is idempotent, verifies file checksums and never
 touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
@@ -178,6 +187,14 @@ and hooks work unchanged.
 bash orchestration-kit/uninstall.sh          # remove from this folder
 bash orchestration-kit/uninstall.sh --global  # remove user-level
 bash orchestration-kit/uninstall.sh --all     # also delete .orchestration/
+```
+
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -Global
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -All
 ```
 
 Safe: preserves foreign hooks/settings, creates backups, idempotent.

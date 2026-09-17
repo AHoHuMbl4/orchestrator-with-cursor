@@ -175,6 +175,7 @@ def cmd_artifacts(a):
 
 
 def main():
+    orchlib.utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd")
     common = argparse.ArgumentParser(add_help=False)

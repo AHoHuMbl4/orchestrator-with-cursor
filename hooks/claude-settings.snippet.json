@@ -1,5 +1,5 @@
 {
-  "_readme": "Сниппет хуков Claude Code (.claude/settings.json проекта). Замени __PYTHON__ на python3 (Linux/macOS) или python (Windows; надёжнее полный путь к python.exe или py -3, см. install-notes). <KIT> — абсолютный путь к каталогу orchestration-kit. Удали ключ _readme перед использованием. UserPromptSubmit вклеивает актуальные параметры при первом сообщении и при каждом изменении params/compass (гарантия: сообщение обработается с ними).",
+  "_readme": "Сниппет хуков Claude Code (.claude/settings.json проекта). Замени __PYTHON__ на python3 (Linux/macOS) или python (Windows; надёжнее полный путь к python.exe или py -3, см. install-notes). <KIT> — абсолютный путь к каталогу orchestration-kit. На Windows в командах хуков используй полный путь к python.exe и kit в двойных кавычках с прямыми слэшами, например: \"C:/Python312/python.exe\" \"C:/tools/orchestration-kit/bin/reground.py\" prompt-submit --engine claude. Удали ключ _readme перед использованием. UserPromptSubmit вклеивает актуальные параметры при первом сообщении и при каждом изменении params/compass (гарантия: сообщение обработается с ними).",
   "hooks": {
     "SessionStart": [
       {

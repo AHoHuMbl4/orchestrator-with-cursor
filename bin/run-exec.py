@@ -85,7 +85,7 @@ def pid_alive(pid):
         if os.name == "nt":
             out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
                                  stdout=subprocess.PIPE,
-                                 universal_newlines=True).stdout
+                                 encoding="utf-8", errors="replace").stdout
             return str(pid) in out
         os.kill(pid, 0)
         return True

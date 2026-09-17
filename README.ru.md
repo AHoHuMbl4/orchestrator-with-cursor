@@ -48,6 +48,15 @@ git clone https://github.com/AHoHuMbl4/orchestrator-with-cursor.git orchestratio
 bash orchestration-kit/install-local.sh
 ```
 
+Windows (PowerShell 5.1+ или pwsh), из рабочей папки, куда скопирован/склонирован
+репозиторий:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
+```
+
+`-Global` — уровень пользователя. Повторный запуск безопасен (идемпотентен).
+
 Нет git — скачайте zip репозитория, распакуйте как `orchestration-kit/` и
 выполните ту же вторую строку. Установщик идемпотентен, проверяет контрольные
 суммы и не трогает чужие настройки (kimi-конфиг — с бэкапом `.bak-orch`).
@@ -147,6 +156,9 @@ SHA256SUMS         контрольные суммы (проверяет уст�
 bash orchestration-kit/install-local.sh --global
 ```
 
+На Windows то же через `-Global`:
+`powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1 -Global`.
+
 Оба режима идемпотентны и аккуратно мержатся с существующими конфигами.
 
 ## Если что-то не работает
@@ -177,6 +189,14 @@ cursor-agent; (в) вставить ключ Cursor в панели.» Нико�
 bash orchestration-kit/uninstall.sh          # из этой папки
 bash orchestration-kit/uninstall.sh --global  # пользовательский уровень
 bash orchestration-kit/uninstall.sh --all     # и .orchestration/
+```
+
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -Global
+powershell -ExecutionPolicy Bypass -File orchestration-kit\uninstall.ps1 -All
 ```
 
 ### Прочее

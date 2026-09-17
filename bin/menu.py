@@ -126,6 +126,7 @@ def interactive():
 
 
 def main():
+    orchlib.utf8_stdio()
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
         sys.stdout.write(__doc__ + "\n")

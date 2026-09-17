@@ -70,7 +70,12 @@ def counter_file(session_id):
 
 
 def read_stdin_json():
-    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    if sys.stdin.isatty():
+        raw = ""
+    elif hasattr(sys.stdin, "buffer"):
+        raw = sys.stdin.buffer.read().decode("utf-8", "replace")
+    else:
+        raw = sys.stdin.read()
     try:
         return json.loads(raw) if raw.strip() else {}
     except Exception:
@@ -268,6 +273,7 @@ def cmd_prompt_submit(engine, fmt):
 
 
 def main():
+    orchlib.utf8_stdio()
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
         sys.stdout.write(__doc__ + "\n")
