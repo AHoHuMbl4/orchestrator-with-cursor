@@ -16,8 +16,9 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 ff3d6a41985547625c1217bff2c501db4b510085fd1012c556c31e4686e6bc0d  ./panel/server.py
 ae6f46ade02ebdfd9ef3eb16a0af736eed4eaebcd9594abaabbdef4e9497dd1d  ./params.json
 403b6d009197fb73fef102310e559496befaea84266477282c25da2fe8932439  ./skills/orchestration/references/engines.md
+42cb080c2ce8659d24daec97950a039e09d359a8822f7b657bd6f8d0f79638e7  ./skills/orchestration/references/planning.md
 a7723fd845d6122c313b81c8f6a4938f62e8eb5a81ce736cea467c705deacd18  ./skills/orchestration/references/roles/code/code-reviewer.md
-2232fb7942df96c3d7e0f6979fc938ae7ac924464754b2ffe7a88f7bfece706a  ./skills/orchestration/references/roles/code/coder.md
+65c2523f63de730575d6bbae92f1436312cf11f95265501be32fa75907ed9c93  ./skills/orchestration/references/roles/code/coder.md
 b1065b3feb9eecc99aaca4a141cff202bbcfd8ad5f91496d862bc11ee3ed9f6b  ./skills/orchestration/references/roles/code/debugger.md
 80f4b6e339ee37813c6d1884beb2eedc212d1a22554463800aa3b613b062b3b1  ./skills/orchestration/references/roles/code/devops.md
 6972fcd3b9d1abc442d3aba3fa3b6a831b60e23222a8f0446aac5cf5ca7d841a  ./skills/orchestration/references/roles/code/refactorer.md
@@ -30,9 +31,9 @@ d4cff164bba3ce50fcdeb3426467cd903735d2bf8052727fc64af1bb07f2bee7  ./skills/orche
 0b268b066906999e35b3a60d84bd2484edcbd889555ec9df5034cea1dfefd203  ./skills/orchestration/references/roles/research/analyst.md
 14c489bc44a3b070faf26eec9a1f3f55cc9907f072f6d5201324b06a044b62f9  ./skills/orchestration/references/roles/research/data-analyst.md
 20c9b5b53a721cc19840f19d3d9224fb349cdea1755ed3d644168ea4037c156c  ./skills/orchestration/references/roles/research/fact-checker.md
-0dbcfb6906d2d34456a50fdf2e67269e7391c628f341169417f1fb69d5e85e5b  ./skills/orchestration/references/roles/research/researcher.md
+460a37c7f39ab28cf9c988f2af655c3da41c069740ede9113179de18b23aa528  ./skills/orchestration/references/roles/research/researcher.md
 db996f812598b2704307e9368af32fb564ebb68db3d3710f758f2e85207ad4c2  ./skills/orchestration/references/roles/research/science-writer.md
 2da911bdc8acaa6799ba397bd912523c3db7bdea01c78e73f954d6b2034dd515  ./skills/orchestration/references/roles/research/synthesizer.md
-1298e23e7ba9ba0475e1b55da022c321015ab6282825d6b823eaa4da87f088bf  ./skills/orchestration/references/roles/_template.md
+af8bb8e143efc228d8647b56ff12a3d1f92c39830bca586fc4ae33dcfe6efbfd  ./skills/orchestration/references/roles/_template.md
 2325975a684f0d9d4fbec3060d44aa0ab6a6b5ebfab8d43325ba68a9cca37649  ./skills/orchestration/references/traps.md
-a01a0f29f444f0854ca51b45248e9de07574449b424f46d56ccc0207e1356e0a  ./skills/orchestration/SKILL.md
+61d2aaf2e9ae1019eb0470e654d62ff22cd0831bc54c9d93249c19e4036c7d1d  ./skills/orchestration/SKILL.md
