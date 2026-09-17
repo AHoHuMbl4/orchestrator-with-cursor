@@ -99,6 +99,8 @@ def main():
         return 0
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--id", required=True, help="метка прогона (файлы логов/промтов)")
+    ap.add_argument("--session", default=None,
+                    help="id сессии: все файлы прогона лягут в .orchestration/sessions/<id>/runs/<run>/")
     ap.add_argument("--prompt-file", default=None,
                     help="по умолчанию <state>/prompt-<id>.md")
     ap.add_argument("--timeout", type=int, default=None, help="сек; по умолчанию из params")
@@ -113,6 +115,13 @@ def main():
     state = orchlib.find_state_dir()
     os.makedirs(state, exist_ok=True)
 
+    run_dir = os.path.join(state, "prompt-%s" % a.id)  # совместимость без --session
+    if a.session:
+        run_dir = os.path.join(state, "sessions", a.session, "runs", a.id)
+        os.makedirs(run_dir, exist_ok=True)
+        if not a.prompt_file:
+            a.prompt_file = os.path.join(run_dir, "prompt.md")
+
     prompt_file = a.prompt_file or os.path.join(state, "prompt-%s.md" % a.id)
     if not os.path.exists(prompt_file):
         sys.stderr.write("промт-файл не найден: %s\n" % prompt_file)
@@ -123,7 +132,12 @@ def main():
         sys.stderr.write("промт-файл пуст: %s\n" % prompt_file)
         return 2
 
-    run_prompt_file = os.path.join(state, "prompt-%s.run.md" % a.id)
+    if a.session:
+        run_prompt_file = os.path.join(run_dir, "prompt.run.md")
+        log_path = os.path.join(run_dir, "run.log")
+        pid_path = os.path.join(run_dir, "run.pid")
+    else:
+        run_prompt_file = os.path.join(state, "prompt-%s.run.md" % a.id)
     if not a.no_reground_line:
         prompt += REGROUND_LINE.format(path=os.path.abspath(prompt_file))
     with open(run_prompt_file, "w", encoding="utf-8") as f:
@@ -138,14 +152,16 @@ def main():
     cmd = [exe, "-p", prompt, "--force", "--model", a.model,
            "--output-format", "stream-json"] + list(a.extra)
 
-    log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
+    if not a.session:
+        log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
     log_fh = open(log_path, "w", encoding="utf-8")
     kwargs = {}
     if os.name != "nt":
         kwargs["start_new_session"] = True
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
 
-    pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
+    if not a.session:
+        pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
     with open(pid_path, "w", encoding="utf-8") as f:
         f.write(str(proc.pid))
 
