@@ -17,17 +17,17 @@
 
 Состав kit: skills/orchestration (скилл: SKILL.md + references), commands/
 (файлы команды /orch-menu для Claude и Codex), bin/ (orchlib — общее ядро,
-reground — сверка курса, menu — детерминированное меню, run-exec — локальный
-cursor-agent, run-cloud — облако Cursor, discover — снимок моделей),
+reground — сверка курса, menu — детерминированное меню, run-cloud — облако
+Cursor, discover — снимок моделей),
 hooks/ (сниппеты), panel/ (панель настроек), params.json и compass.md
 (шаблоны), install.sh (режим «kit внутри репо»), install-local.sh (главный).
 
 
 Портативный набор: параметры пачки (params.json + compass), динамическое
 подтягивание моделей, периодическая сверка курса (re-ground хуки), меню в чате,
-HTML-панель, локальный и облачный запуск исполнителей. Всё — python3.6+ stdlib,
-кроссплатформенно (Linux/macOS/Windows), без зависимостей и без git для слоя
-параметров.
+HTML-панель, облачный запуск исполнителей (Cursor Cloud API). Всё — python3.6+
+stdlib, кроссплатформенно (Linux/macOS/Windows), без зависимостей и без git
+для слоя параметров.
 
 ## Состав
 
@@ -37,8 +37,8 @@ compass.md             общий стартовый шаблон (сеется 
 bin/orchlib.py         общая библиотека (state-каталог, params, валидация)
 bin/discover.py        снимок моделей/efforts -> .orchestration/discovered.json
 bin/reground.py        движок сверки курса (session-start / post-tool / heartbeat)
-bin/run-exec.py        локальный запуск cursor-agent (доктрина §2, кроссплатформенно)
-bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (нулевая установка)
+bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (единственный
+                       курсор-путь; нулевая установка CLI)
 bin/verdict.py         JSON-статус прогона из лога (exit/verdict/report_present/retries)
 hooks/*.snippet.*      сниппеты хуков для Claude Code / Codex / Kimi
 panel/server.py        HTTP-панель параметр-редактор + статус прогонов
@@ -55,7 +55,7 @@ sessions/<id>/compass.md, discovered.json, counters/, runs/, логи, pid-фа�
 ```bash
 python3 orchestration-kit/bin/discover.py                # модели/efforts движков
 python3 orchestration-kit/panel/server.py                # панель (порт из params)
-python3 orchestration-kit/bin/run-exec.py --id T1        # запуск исполнителя
+python3 orchestration-kit/bin/run-cloud.py --id T1 run --prompt-file P.md
 python3 orchestration-kit/bin/menu.py --set review.reviewers_per_diff=5   # меню-скрипт
 ```
 
@@ -128,28 +128,19 @@ paid-план, биллинг по токенам. `run` создаёт аген
 восстановления стандартного из kit). CLI `menu.py` шаблон не пишет
 (`--global-template` → exit 2).
 
-## Итоги прогонов (EXIT / RETRY / verdict.py)
+## Итоги прогонов (verdict.py)
 
-В конце лога локального прогона — строка `EXIT=<код>`:
-
-| EXIT | Смысл |
-|---|---|
-| 0 | успех |
-| 1 | агент отчитался о фейле |
-| 3 | умер с отчётом ассистента в логе |
-| 4 | умер без отчёта |
-| 124 | таймаут |
-| UNKNOWN | лог нет/нечитаем |
-
-Автоперезапуск при EXIT=4 / EXIT=124 по `execution.retry_on_fail` (в логе
-`RETRY=n/max`). Отчёты исполнителей/критиков кончаются
-`Вердикт: OK | PROBLEMS | BLOCKED` + доказательства. Сводка одной командой:
+Отчёты исполнителей/критиков кончаются
+`Вердикт: OK | PROBLEMS | BLOCKED` + доказательства. Облачные прогоны —
+через `run-cloud.py` (create → polling → artifacts); приёмка по логу/
+артефактам и строке вердикта. Сводка одной командой:
 
 ```bash
 python3 orchestration-kit/bin/verdict.py .orchestration/sessions/<sid>/runs/<id>/run.log
 ```
 
 JSON: `exit`, `verdict`, `report_present`, `retries`.
+Автоперезапуск — `execution.retry_on_fail` в params.
 
 ## ENV установщиков
 
@@ -171,8 +162,7 @@ JSON: `exit`, `verdict`, `report_present`, `retries`.
   выполним в песочнице (нет авторизации claude API) — проверить на боевой машине;
 - панель: GET/POST params, валидация (кривой parallel_per_task отбивается),
   compass, status/logs с tail;
-- run-exec.py: микро-прогон exit 0, отчёт-файл, строка самопроверки курса в
-  промте (исполнитель её применял);
+- run-cloud.py: путь create → polling → artifacts (ключ / CURSOR_API_KEY);
 - e2e: 2 параллельных research-прогона + меню (ответы владельца записаны в
   params через панель);
 - research-основа: .claude/state/research-R1..R7.md (все URL выборочно проверены).
@@ -203,7 +193,9 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 
 - Codex требует `/hooks` trust после установки — без него хуки молчат (скиллы работают)
 - Python 3.6+ обязателен для хуков/панели/скриптов (скилл работает и без него)
-- cursor-agent или ключ Cursor — для исполнителей; без них система спрашивает явно
+- ключ Cursor (`.orchestration/cursor.key` / `CURSOR_API_KEY`) — для
+  cursor-cloud; без ключа `auto` спрашивает явно (субагенты — только после «да»)
+- локальный Cursor CLI из продукта убран — не устанавливать и не искать в PATH
 - `--permission-prompts none` требует Claude Code ≥ v2.1.259; fallback: `dontAsk`
 
 ## Windows
@@ -262,7 +254,7 @@ Kimi на Windows: нативная установка, хуки в `config.toml
 `>>>` / `<<<`).
 
 Python-скрипты оркестрации принудительно держат stdio в UTF-8 (защита от
-cp1251/cp866 на русской Windows); subprocess-вывод (tasklist, cursor-agent)
+cp1251/cp866 на русской Windows); subprocess-вывод (tasklist и др.)
 декодируется UTF-8. Скрипты `.ps1` сохранены в UTF-8 с BOM.
 
 Панель на Windows: `panel.ps1` (ключ `-Bg` — фон) и `panel.cmd` (для

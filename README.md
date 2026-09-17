@@ -3,7 +3,7 @@
 **English** | [Русский](README.ru.md)
 
 Agent orchestration for **Claude Code, Codex CLI and Kimi Code**: every task runs
-in a fresh executor subagent (or cursor-agent / Cursor Cloud), results are checked
+in a fresh executor (Cursor Cloud Agents API or engine subagents), results are checked
 by waves of fresh critics, and engine hooks periodically pull the agent back to
 the task and parameters — by machine, not by prompt discipline.
 
@@ -22,7 +22,8 @@ Agent (automatically):
   3. Skill loads: agent becomes orchestrator
   4. Planning: decompose → TODO checklist in session compass → validate
   5. Role selection: cascade domain→subdomain→role (137 narrow specialists)
-  6. Executor: cursor-agent on Cursor quota (never main engine quota)
+  6. Executor: Cursor Cloud on Cursor quota (never main engine quota)
+     — or engine subagents after explicit owner "yes"
   7. Critics: 3 fresh skeptics check every result (never see executor's reasoning)
   8. Mismatch? → mismatch wave → fresh arbiters → synthesis
   9. Acceptance: by measurement only (file exists, test green, URL verified)
@@ -87,11 +88,14 @@ API token, and **Advanced** for the shared starter template
 3. Paste the key into the **"Cursor API token"** field on the panel's main
    screen (the panel stores it in `.orchestration/cursor.key`, which is
    gitignored) — or set the `CURSOR_API_KEY` environment variable instead.
-4. Switch executor mode to `cursor-cloud` and the orchestrator will run
-   executors as Cursor Cloud Agents (no local install needed).
+4. Switch executor mode to `cursor-cloud` (or leave `auto` with a key present)
+   and the orchestrator will run executors as Cursor Cloud Agents via
+   `run-cloud.py` (no local Cursor CLI).
 
-Don't need cloud executors? Skip this — the default executor mode (`auto`:
-cursor-agent if present, else ask; never silent fallback) needs no keys.
+Don't need Cursor Cloud? Skip the key — default `auto` **stops and asks** if
+there is no key (never silent fallback; never looks for a local binary).
+Choose engine subagents only after an explicit "yes" (or set
+`execution.executor = subagents`).
 
 ## How it works
 
@@ -108,8 +112,10 @@ cursor-agent if present, else ask; never silent fallback) needs no keys.
   UserPromptSubmit, SessionHeartbeat) inject current parameters with every
   message and remind to re-read the task every `reground.every_min` minutes —
   the agent cannot quietly forget the mode or drift off course.
-- Executor modes: `auto` (default), local `cursor-agent --model auto`,
-  Cursor Cloud Agents API (token from the panel), or engine subagents (explicit).
+- Executor modes: `auto` (default: key → `cursor-cloud`, else stop & ask),
+  Cursor Cloud Agents API via `run-cloud.py` (token from the panel /
+  `.orchestration/cursor.key`), or engine subagents (explicit owner "yes").
+  Local Cursor CLI was removed from the product.
 - Settings live in `.orchestration/params.json`; hooks deliver changes with the
   next message. The `orchestration.enabled=false` toggle switches the agent
   back to direct work; hooks go silent.
@@ -119,25 +125,18 @@ cursor-agent if present, else ask; never silent fallback) needs no keys.
 ## Run outcomes & reliability
 
 Executor/critic reports end with `Вердикт: OK | PROBLEMS | BLOCKED` plus
-evidence. Local runs (`run-exec.py`) append `EXIT=<code>` to the log:
+evidence. Cloud runs (`run-cloud.py`) write session logs under
+`.orchestration/sessions/<sid>/runs/<id>/`; accept by artifacts/status and
+verdict line, never by the executor's summary alone.
 
-| EXIT | Meaning |
-|---|---|
-| 0 | success |
-| 1 | agent reported failure |
-| 3 | died with assistant report in log |
-| 4 | died with no report (work lost) |
-| 124 | timeout |
-| UNKNOWN | log missing/unreadable |
-
-Auto-restart on EXIT=4 / EXIT=124 only, up to `execution.retry_on_fail`
-(default 1); log lines `RETRY=n/max (prev EXIT=…)`. Machine-readable status:
+Machine-readable status when a run log is present:
 
 ```bash
 python3 orchestration-kit/bin/verdict.py .orchestration/sessions/<sid>/runs/<id>/run.log
 ```
 
 JSON fields: `exit`, `verdict`, `report_present`, `retries`.
+Auto-restart policy: see `execution.retry_on_fail` in params (default 1).
 
 ## Manual per-engine paths (if you prefer no installer)
 
@@ -158,12 +157,11 @@ panel/             settings panel (python3 stdlib, no dependencies)
 params.json, compass.md   default templates (seeded into .orchestration/)
 bin/               orchlib (core), reground (course-check hooks),
                    menu (validated settings), discover (model snapshot),
-                   run-exec (local cursor-agent), run-cloud (Cursor Cloud)
+                   run-cloud (Cursor Cloud Agents API)
 skills/orchestration/  the skill (SKILL.md + references)
 hooks/             hook snippets for Claude / Codex / Kimi
 SHA256SUMS         checksums, verified by the installer
-bin/run-exec.py    local cursor-agent runner (prompt from file, EXIT in log)
-bin/run-cloud.py   Cursor Cloud Agents API runner
+bin/run-cloud.py   Cursor Cloud Agents API runner (create → poll → artifacts)
 bin/menu.py        deterministic settings menu (validated writes)
 bin/discover.py    snapshot of available models/effort levels
 skills/orchestration/  the skill (SKILL.md + references)
@@ -209,9 +207,9 @@ with a clear warning. Install Python 3.6+ and re-run the installer:
 `bash orchestration-kit/install-local.sh`
 
 ### Cursor not available
-Agent stops and asks explicitly: "Cursor unavailable. (a) continue on engine
-subagents — uses main quota; (b) install cursor-agent; (c) add Cursor API key
-in panel." Never silently falls back.
+Agent stops and asks explicitly: "Cursor unavailable: no API key.
+(a) continue on engine subagents — uses main quota; (b) add Cursor API key
+in panel." Never silently falls back; does not search for a local binary.
 
 ### Old Claude Code version
 `--permission-prompts none` requires v2.1.259+. On older versions use

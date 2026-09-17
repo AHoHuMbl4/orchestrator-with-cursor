@@ -67,6 +67,7 @@
 <button class="sec" id="saveCompassBtn" onclick="saveCompass()" disabled>Сохранить задачу</button>
 
 <h2>2. Главные параметры</h2>
+<button id="saveParamsBtnTop" onclick="saveParams()">Сохранить параметры</button>
 <div class="row">
   <div><label>Параллельных агентов на 1 задачу</label>
     <input type="number" id="execution.parallel_per_task" min="1" max="8"></div>
@@ -107,10 +108,9 @@
   <div class="row">
     <div><label>Исполнители (режим)</label>
       <select id="execution.executor">
-        <option value="auto">авто: курсор если есть, иначе спросит (без молчаливого fallback)</option>
+        <option value="auto">авто: cloud при ключе API, иначе спросит владельца</option>
         <option value="subagents">субагенты движка</option>
         <option value="cursor-cloud">облако Cursor (нужен ключ)</option>
-        <option value="local-cursor">локальный cursor-agent</option>
       </select></div>
     <div><label>Круги ревью до схождения</label>
       <input type="number" id="review.max_rounds" min="1" max="6"></div>
@@ -152,7 +152,7 @@
   <div class="hint">Модель/effort применяются при запуске НОВОЙ сессии оркестратора, не на лету.</div>
 </details>
 
-<button onclick="saveParams()">Сохранить параметры</button>
+<button id="saveParamsBtnBottom" onclick="saveParams()">Сохранить параметры</button>
 <span id="msg" style="margin-left:10px"></span>
 
 <h2>Доступные модели (discovered)</h2>
@@ -207,7 +207,14 @@ async function saveParams(){
   const r=await fetch("/api/params",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({params:P})});
   const j=await r.json();
-  if(r.ok){ P=j.params; msg("сохранено ✓","ok"); } else { msg(j.error||"ошибка","err"); }
+  if(r.ok){
+    P=j.params; msg("сохранено ✓","ok");
+    ["saveParamsBtnTop","saveParamsBtnBottom"].forEach(id=>{
+      const b=document.getElementById(id); if(!b) return;
+      const prev=b.textContent; b.textContent="Сохранено ✓";
+      setTimeout(()=>{ b.textContent=prev; }, 1500);
+    });
+  } else { msg(j.error||"ошибка","err"); }
 }
 async function loadSessions(){
   try{

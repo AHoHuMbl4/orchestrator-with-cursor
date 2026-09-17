@@ -31,28 +31,40 @@
   — observation-only (таймер решает «пора сверкиться», доставляет следующий
   UserPromptSubmit); PostToolUse — только наблюдение.
 
-## Внешние исполнители (приоритет режима auto: дёшевы, отдельная квота Cursor)
+## Внешние исполнители (режимы: auto | cursor-cloud | subagents)
 
-- **Локальный cursor-agent** (дёшево, на машине оркестратора):
-  `cursor-agent -p "$(cat промт-файл)" --force --model auto --output-format
-  stream-json` под системным `timeout` = `timeout_min` из params. Промт —
-  только из файла; модель всегда auto; приёмка по логу/файлу, не по exit code.
-  Запуск идёт через Bash-инструмент сессии: применяются её разрешения,
-  sandbox и таймауты инструмента — укладывайся в них (или проси повышения).
-- **Облако Cursor** (без установки, отдельная квота): Cloud Agents API
-  (`https://api.cursor.com`), ключ в **cursor.com/dashboard → API Keys**.
-  **Локальный бинарник НЕ нужен** — чистый REST (curl/python-stdlib);
-  нужны платный план, ключ и привязка GitHub. Создание `POST /v1/agents`,
+Единственный курсор-путь — **удалённый** Cursor Cloud API. Локального CLI
+нет: ни PATH-поиска, ни лаунчера бинарника.
+
+- **cursor-cloud** (отдельная квота Cursor): Cloud Agents API
+  (`https://api.cursor.com`), ключ в **cursor.com/dashboard → API Keys**,
+  файл `.orchestration/cursor.key` или env `CURSOR_API_KEY`. Чистый REST
+  (curl/python-stdlib); нужны платный план, ключ и привязка GitHub.
+  Поток: create → polling → artifacts. Создание `POST /v1/agents`,
   follow-up `POST /v1/agents/{id}/runs`, статус/результат `GET
   /v1/agents/{id}/runs/{runId}`. Результат — текст + git-ветка/PR.
-  Детект исчерпания квоты (для `on_cursor_fail`): `429` + «Rate limit…» —
-  временный лимит, подождать; «Usage limit exceeded»/spend limit — квота
-  исчерпана, действовать по правилу скилла.
+  Тело create/follow-up: `"prompt": {"text": "..."}` (объект, не строка) —
+  см. https://cursor.com/docs/cloud-agent/api/endpoints. Клиент кита —
+  **`run-cloud.py` (единственный лаунчер Cursor)**: общие флаги
+  `--id`/`--api-key` допустимы до и после субкоманды
+  (`run-cloud.py --id w1 run --prompt-file P.md` и
+  `run-cloud.py run --id w1 --prompt-file P.md`). Промт — только из файла
+  (`--prompt-file`); приёмка по артефактам/`run-cloud.py status|artifacts`
+  и логу, не по «словам» исполнителя. Детект исчерпания квоты (для
+  `on_cursor_fail`): `429` + «Rate limit…» — временный лимит, подождать;
+  «Usage limit exceeded»/spend limit — квота исчерпана, действовать по
+  правилу скилла. Весь прогон — в
+  `.orchestration/sessions/<sid>/runs/<id>/` (prompt.md, run.log, артефакты).
+- **auto** (дефолт): есть ключ → cursor-cloud; нет ключа → СТОП и вопрос
+  владельцу (никакого молчаливого fallback). Субагенты движка — только после
+  явного «да» или `execution.executor = subagents`.
+- **subagents** — субагенты движка оркестратора (расход его квоты); см. разделы
+  Claude/Codex/Kimi выше.
 - **Claude Managed Agents API** — облачные сессии без CLI; детали — по доке
   Anthropic на момент запуска.
 
 ## Модели
 
 Имена моделей и уровни effort не хардкодить: снимать с движков на месте
-(`claude --help`, `codex debug models`, `cursor-agent --list-models`) —
-списки меняются.
+(`claude --help`, `codex debug models`) — списки меняются. Для cursor-cloud
+модель задаёт облако/API; локальных `--list-models` у Cursor в продукте нет.
