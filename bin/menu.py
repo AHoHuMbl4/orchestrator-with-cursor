@@ -45,6 +45,61 @@ GLOBAL_TEMPLATE_REFUSED_MSG = (
 )
 
 
+def validate_compass_content(text):
+    """Простые проверки сессионного compass: задвоенные заголовки и пустые секции.
+
+    Возвращает список строк-предупреждений (без префикса «ПРЕДУПРЕЖДЕНИЕ:»).
+    Не блокирует запись/показ — оркестратор чинит сам.
+    """
+    warnings = []
+    if text is None:
+        return warnings
+    lines = text.splitlines()
+    # заголовки: # … ###### (уровень = число #)
+    headers = []  # (level, title, raw, line_idx)
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s.startswith("#"):
+            continue
+        n = 0
+        while n < len(s) and s[n] == "#":
+            n += 1
+        if n < 1 or n > 6:
+            continue
+        if n < len(s) and s[n] not in (" ", "\t"):
+            # не markdown-заголовок (#tag и т.п.)
+            continue
+        title = s[n:].strip()
+        raw = ("#" * n) + (" " + title if title else "")
+        headers.append((n, title, raw, i))
+
+    seen = {}  # (level, title) -> first raw
+    for level, title, raw, _idx in headers:
+        key = (level, title)
+        if key in seen:
+            warnings.append("задвоен заголовок '%s'" % raw)
+        else:
+            seen[key] = raw
+
+    # пустые секции: между заголовком и следующим того же/меньшего уровня нет тела
+    for hi, (level, title, raw, idx) in enumerate(headers):
+        end = len(lines)
+        if hi + 1 < len(headers):
+            end = headers[hi + 1][3]
+        body_lines = lines[idx + 1:end]
+        body = "\n".join(body_lines).strip()
+        if not body:
+            warnings.append("пустая секция '%s'" % raw)
+
+    return warnings
+
+
+def emit_compass_warnings(warnings):
+    """Печать предупреждений в stderr (не блокирует)."""
+    for w in warnings:
+        sys.stderr.write("ПРЕДУПРЕЖДЕНИЕ: %s\n" % w)
+
+
 def parse_set(pairs):
     out = {}
     for pair in pairs:
@@ -115,13 +170,17 @@ def show(session_cli=None):
         print("Общий стартовый шаблон (редактирование — панель, Расширенные)")
     print(orchlib.params_summary(p))
     print("compass: %s" % path)
+    content = None
     try:
         with open(path, "r", encoding="utf-8") as f:
-            head = "".join(f.readlines()[:12])
+            content = f.read()
+        head = "".join(content.splitlines(True)[:12])
         print("--- compass (первые строки) ---")
         print(head.rstrip())
     except Exception:
         print("(compass не найден)")
+    if sid and content is not None:
+        emit_compass_warnings(validate_compass_content(content))
     return 0
 
 
@@ -157,6 +216,7 @@ def set_task(text, task_file, session_cli=None, global_template=False):
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
+        emit_compass_warnings(validate_compass_content(text))
         return 0
     print(TASK_NEEDS_SESSION_MSG, file=sys.stderr)
     return 2

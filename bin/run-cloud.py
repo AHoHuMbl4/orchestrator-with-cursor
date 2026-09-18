@@ -10,8 +10,8 @@
 https://cursor.com/docs/cloud-agent/api/endpoints):
   POST /v1/agents                          — создать агента + первый run
   POST /v1/agents/{agentId}/runs           — follow-up в существующего агента
-  GET  /v1/agents?limit=N                  — список агентов (id, name, createdAt,
-                                             latestRunId) — для recovery после timeout
+  GET  /v1/agents?limit=N                  — список агентов (id, name, status,
+                                             createdAt, latestRunId) — list + recovery
   GET  /v1/agents/{agentId}/runs/{runId}   — статус/результат
   GET  /v1/agents/{agentId}/runs/{runId}/stream — SSE-прогресс
   GET  /v1/agents/{agentId}/artifacts      — артефакты (presigned download)
@@ -33,15 +33,26 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
 Подкоманды:
   run       — создать агента (или follow-up) с промтом из файла
   status    — статус/результат run (опция --wait: поллить до готовности)
+  list      — GET /v1/agents?limit=20; таблица id/name/status/latestRunId/createdAt
   artifacts — список артефактов агента
+
+Файлы рядом с логом (--id нужен для имён; без --id → id=C1):
+  <state>/cloud-<id>.log          — текстовый лог (и для list тоже; не list-<id>.log)
+  <state>/cloud-<id>.result.json  — машиночитаемый итог run/status (обновляется
+                                    при каждом poll): agent_id, run_id, status,
+                                    updated, result (текст терминального ответа
+                                    или null). Для синтеза/вердикт-пайплайна.
+  <state>/agent-<id>.json         — {agent_id, run_id, created} после create/
+                                    follow-up/recovery — follow-up без ре-парсинга лога.
 
 Общие флаги (--id, --api-key, --http-timeout) работают ДО и ПОСЛЕ субкоманды:
   run-cloud.py --id w1 run --prompt-file P.md
   run-cloud.py run --id w1 --prompt-file P.md
+  run-cloud.py list --api-key K
+  run-cloud.py --id L1 list
 
 Ключ (по приоритету): 1) --api-key; 2) env CURSOR_API_KEY; 3) файл
 <state>/cursor.key (state — .orchestration, ищется от cwd вверх / ORCHESTRATION_DIR).
-Всё пишется в <state>/cloud-<id>.log (UTC-штампы с суффиксом Z, line-buffered flush).
 Схема beta: первый живой прогон калибрует парсинг id (ответ логируется целиком).
 """
 import argparse
@@ -91,6 +102,9 @@ def build_parser():
     p.add_argument("--wait", action="store_true")
     p.add_argument("--timeout", type=int, default=1800)
     p.add_argument("--poll", type=int, default=15)
+
+    p = sub.add_parser("list", help="список агентов (свежие первыми)")
+    _add_common_args(p)
 
     p = sub.add_parser("artifacts", help="список артефактов агента")
     _add_common_args(p)
@@ -187,6 +201,67 @@ def logf(state, a):
 def log_write(lf, text):
     lf.write(text)
     lf.flush()
+
+
+def result_json_path(state, run_id_label):
+    """Путь <state>/cloud-<id>.result.json (run_id_label = a.id из --id)."""
+    return os.path.join(state, "cloud-%s.result.json" % run_id_label)
+
+
+def agent_json_path(state, run_id_label):
+    """Путь <state>/agent-<id>.json."""
+    return os.path.join(state, "agent-%s.json" % run_id_label)
+
+
+def _extract_result_text(status_obj):
+    """Текст ответа из тела GET run (поле result / text / output), иначе None."""
+    if not isinstance(status_obj, dict):
+        return None
+    for key in ("result", "text", "output"):
+        v = status_obj.get(key)
+        if isinstance(v, str) and v.strip():
+            return v
+    return None
+
+
+def write_result_json(state, a, agent_id, run_id, status_obj=None):
+    """Записать/обновить cloud-<id>.result.json рядом с логом."""
+    status = None
+    result = None
+    if isinstance(status_obj, dict):
+        st = status_obj.get("status")
+        if isinstance(st, str):
+            status = st
+        if run_status_terminal(status_obj):
+            result = _extract_result_text(status_obj)
+    payload = {
+        "agent_id": agent_id,
+        "run_id": run_id,
+        "status": status,
+        "updated": utc_stamp(),
+        "result": result,
+    }
+    path = result_json_path(state, a.id)
+    os.makedirs(state, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return path
+
+
+def write_agent_json(state, a, agent_id, run_id):
+    """Записать <state>/agent-<id>.json для follow-up без ре-парсинга лога."""
+    payload = {
+        "agent_id": agent_id,
+        "run_id": run_id,
+        "created": utc_stamp(),
+    }
+    path = agent_json_path(state, a.id)
+    os.makedirs(state, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return path
 
 
 def find_ids(obj):
@@ -377,11 +452,15 @@ def cmd_run(a):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
         return 1
 
+    agent = a.agent_id or ids.get("agent_id")
+    run = ids.get("run_id") or ids.get("first_id")
+    if agent and run:
+        write_agent_json(state, a, agent, run)
+        write_result_json(state, a, agent, run, status_obj={"status": "CREATED"})
+
     print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
 
     if a.wait:
-        agent = a.agent_id or ids.get("agent_id")
-        run = ids.get("run_id") or ids.get("first_id")
         if agent and run:
             return wait_and_report(agent, run, key, state, a)
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
@@ -402,10 +481,13 @@ def wait_and_report(agent, run, key, state, a):
     status = {}
     lf = logf(state, a)
     http_timeout = getattr(a, "http_timeout", 300.0)
+    write_result_json(state, a, agent, run, status_obj={"status": "POLLING"})
     while time.time() < deadline:
         status = call("GET", "/v1/agents/%s/runs/%s" % (agent, run), key,
                       timeout=http_timeout)
         log_write(lf, "poll: %s\n" % json.dumps(status, ensure_ascii=False))
+        write_result_json(state, a, agent, run, status_obj=status
+                          if isinstance(status, dict) else None)
         if report_http_error(status):
             lf.close()
             print(json.dumps(status, ensure_ascii=False, indent=2))
@@ -414,6 +496,8 @@ def wait_and_report(agent, run, key, state, a):
             break
         time.sleep(a.poll or 15)
     log_write(lf, "final: %s\n" % json.dumps(status, ensure_ascii=False, indent=2))
+    write_result_json(state, a, agent, run,
+                      status_obj=status if isinstance(status, dict) else None)
     lf.close()
     print(json.dumps(status, ensure_ascii=False, indent=2))
     return 0
@@ -426,6 +510,8 @@ def cmd_status(a):
         return wait_and_report(a.agent_id, a.run_id, key, state, a)
     out = call("GET", "/v1/agents/%s/runs/%s" % (a.agent_id, a.run_id), key,
                timeout=a.http_timeout)
+    write_result_json(state, a, a.agent_id, a.run_id,
+                      status_obj=out if isinstance(out, dict) else None)
     if report_http_error(out):
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 1
@@ -433,6 +519,68 @@ def cmd_status(a):
     with logf(state, a) as lf:
         log_write(lf, "status %s/%s: %s\n" % (a.agent_id, a.run_id,
                                               json.dumps(out, ensure_ascii=False)))
+    return 0
+
+
+def cmd_list(a):
+    """GET /v1/agents?limit=20 → компактная таблица; лог cloud-<id>.log."""
+    key = api_key(a)
+    state = orchlib.find_state_dir()
+    os.makedirs(state, exist_ok=True)
+    out = call("GET", "/v1/agents?limit=20", key, timeout=a.http_timeout)
+    with logf(state, a) as lf:
+        log_write(lf, "=== %s list\n" % utc_stamp())
+        log_write(lf, "%s\n" % json.dumps(out, ensure_ascii=False, indent=2))
+    if report_http_error(out):
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 1
+    if isinstance(out, dict) and "_network_error" in out:
+        sys.stderr.write("network error: %s\n" % out["_network_error"])
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 1
+
+    items = []
+    if isinstance(out, dict):
+        raw = out.get("items")
+        if isinstance(raw, list):
+            items = raw
+    elif isinstance(out, list):
+        items = out
+
+    # компактная таблица
+    headers = ("id", "name", "status", "latestRunId", "createdAt")
+    rows = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        rows.append((
+            str(it.get("id") or ""),
+            str(it.get("name") or ""),
+            str(it.get("status") or ""),
+            str(it.get("latestRunId") or it.get("runId") or ""),
+            str(it.get("createdAt") or ""),
+        ))
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            if len(cell) > widths[i]:
+                widths[i] = len(cell)
+    # ограничить очень длинные ячейки для читаемости
+    max_w = (36, 32, 12, 36, 28)
+    widths = [min(widths[i], max_w[i]) for i in range(5)]
+
+    def _cell(s, w):
+        s = s.replace("\n", " ")
+        if len(s) > w:
+            return s[: max(0, w - 1)] + "…"
+        return s.ljust(w)
+
+    print("  ".join(_cell(headers[i], widths[i]) for i in range(5)))
+    print("  ".join("-" * widths[i] for i in range(5)))
+    for row in rows:
+        print("  ".join(_cell(row[i], widths[i]) for i in range(5)))
+    if not rows:
+        print("(пусто)")
     return 0
 
 
@@ -460,6 +608,8 @@ def main():
         return cmd_run(a)
     if a.cmd == "status":
         return cmd_status(a)
+    if a.cmd == "list":
+        return cmd_list(a)
     if a.cmd == "artifacts":
         return cmd_artifacts(a)
     ap.print_help()

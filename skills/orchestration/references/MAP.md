@@ -7,9 +7,10 @@ State — `.orchestration/` в проекте.
 
 ## A. Файлы кита (что чем запускать)
 
-- `bin/run-cloud.py` — единственный курсор-путь: create→poll→artifacts (`run` / `status` / `artifacts`)
+- `bin/run-cloud.py` — единственный курсор-путь: create→poll→artifacts (`run` / `status` / `artifacts` / `list`)
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
+- `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
@@ -35,6 +36,8 @@ State — `.orchestration/` в проекте.
 - `sessions/<sid>/runs/<id>/run.log` — лог прогона (локальный/обёртка)
 - `sessions/<sid>/runs/<id>/artifact.md` — артефакт приёмки
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
+- `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
+- `<state>/agent-<id>.json` — id агента для follow-up без ре-парсинга лога
 - `cursor.key` — API-ключ Cursor (gitignore; панель сохраняет сюда)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
