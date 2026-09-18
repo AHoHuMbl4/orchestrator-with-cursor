@@ -21,7 +21,7 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
 902bb738418661ddad1ecfe32c003cf14c0cf9317a834a9987147160c2d7aced  ./skills/orchestration/SKILL.md
 54b5ba6cccf5d424a0e29c98a314df5d1e3fd964c266b4c337c7ce43c01473ab  ./skills/orchestration/references/MAP.md
-ac66d0e67f3cfcbde61695aeb94558e50027aea83d12da79310fc1ee10a84404  ./skills/orchestration/references/engines.md
+c2af6675d869b9036df34205f2ac72cc5027651fcddc2188ea3fc5690253abe3  ./skills/orchestration/references/engines.md
 77772fab4365b22b37f9196c62e8e4081a8a3a64d7f90c88461677b8ab2e494d  ./skills/orchestration/references/planning.md
 00a4e5579a973c9f7c396d0884fc3576918a9c83a689f94386f3c6721aa300bf  ./skills/orchestration/references/roles/_index.md
 acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orchestration/references/roles/_template.md
@@ -169,6 +169,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-ade5c05064b684db22ac2591e42a14429fde2b31236823301ba6e5c885d219df  ./skills/orchestration/references/traps.md
+7641b3b0500a601c7fe9953e10731ea9101c578989e5652cfa5223c07cea6f6f  ./skills/orchestration/references/traps.md
 b9e3fdf52a26b2f39dd4e3ad045d58d3a9e6da8223d5e2ddf2ad75e87423205a  ./uninstall.ps1
 d52d438b298b94a62ec70e08865924c61c951284db0ac3ef0354a3ecc738e35f  ./uninstall.sh
