@@ -17,17 +17,18 @@
 
 Состав kit: skills/orchestration (скилл: SKILL.md + references), commands/
 (файлы команды /orch-menu для Claude и Codex), bin/ (orchlib — общее ядро,
-reground — сверка курса, menu — детерминированное меню, run-cloud — облако
-Cursor, discover — снимок моделей),
+reground — сверка курса, menu — детерминированное меню, run-exec — локальный
+CLI для кода, run-cloud — облако Cursor, discover — снимок моделей),
 hooks/ (сниппеты), panel/ (панель настроек), params.json и compass.md
 (шаблоны), install.sh (режим «kit внутри репо»), install-local.sh (главный).
 
 
 Портативный набор: параметры пачки (params.json + compass), динамическое
 подтягивание моделей, периодическая сверка курса (re-ground хуки), меню в чате,
-HTML-панель, облачный запуск исполнителей (Cursor Cloud API). Всё — python3.6+
-stdlib, кроссплатформенно (Linux/macOS/Windows), без зависимостей и без git
-для слоя параметров.
+HTML-панель, **dual-path исполнители** (локальный CLI для кода через
+`run-exec.py`; Cursor Cloud для исследований через `run-cloud.py`). Всё —
+python3.6+ stdlib, кроссплатформенно (Linux/macOS/Windows), без зависимостей
+и без git для слоя параметров.
 
 ## Состав
 
@@ -37,8 +38,10 @@ compass.md             общий стартовый шаблон (сеется 
 bin/orchlib.py         общая библиотека (state-каталог, params, валидация)
 bin/discover.py        снимок моделей/efforts -> .orchestration/discovered.json
 bin/reground.py        движок сверки курса (session-start / post-tool / heartbeat)
-bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (единственный
-                       курсор-путь; нулевая установка CLI)
+bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (не-код;
+                       исследования / без ФС)
+bin/run-exec.py        локальный CLI: cursor-agent для код-задач (промт из
+                       файла, лог/EXIT/retry; прямая ФС проекта)
 bin/verdict.py         JSON-статус прогона из лога (exit/verdict/report_present/retries)
 hooks/*.snippet.*      сниппеты хуков для Claude Code / Codex / Kimi
 panel/server.py        HTTP-панель параметр-редактор + статус прогонов
@@ -64,7 +67,8 @@ State-каталог `.orchestration` ищется **от текущей пап�
 ```bash
 python3 orchestration-kit/bin/discover.py                # модели/efforts движков
 python3 orchestration-kit/panel/server.py                # панель (порт из params)
-python3 orchestration-kit/bin/run-cloud.py --id T1 run --prompt-file P.md
+python3 orchestration-kit/bin/run-exec.py --id T1 --prompt-file P.md   # код-волна
+python3 orchestration-kit/bin/run-cloud.py --id T1 run --prompt-file P.md  # не-код
 python3 orchestration-kit/bin/menu.py --set review.reviewers_per_diff=5   # меню-скрипт
 ```
 
@@ -113,15 +117,21 @@ CURSOR_API_KEY в настройках окружения claude.ai + allowlist 
    рестарт процесса kimi web (env читается при старте сервера — ловушка №10).
 5. Проверка standalone — см. `skills/.../references/reground.md`.
 
-## Облачные исполнители (нулевая установка)
+## Исполнители: dual-path (код → local CLI; не-код → cloud)
 
-`bin/run-cloud.py` — Cursor Cloud Agents API (`api.cursor.com`, public beta):
-ключ из Cursor Dashboard → API Keys (`--api-key` или env `CURSOR_API_KEY`),
-paid-план, биллинг по токенам. `run` создаёт агента с промтом из файла
-(`--wait` — поллить до done), `status`/`artifacts` — опрос. Схема beta: первый
-живой прогон калибрует парсинг id (ответ логируется в cloud-<id>.log целиком).
-Альтернативы: Claude Managed Agents API (см. references/cloud.md), Codex cloud —
-только веб-UI/CLI.
+**Код-волна** — через `bin/run-exec.py` (нужен `cursor-agent` в PATH): промт
+из файла, лог с `EXIT=`, retry при 4/124. Агент сам читает/правит ФС проекта.
+
+**Не-код / исследования** — через `bin/run-cloud.py` (Cursor Cloud Agents API,
+`api.cursor.com`): ключ из Cursor Dashboard → API Keys (`--api-key` или env
+`CURSOR_API_KEY`), paid-план, биллинг по токенам. `run` создаёт агента с
+промтом из файла (`--wait` — поллить до done), `status`/`artifacts` — опрос.
+Схема beta: первый живой прогон калибрует парсинг id (ответ логируется в
+cloud-<id>.log целиком). Альтернативы: Claude Managed Agents API (см.
+references/cloud.md), Codex cloud — только веб-UI/CLI.
+
+Маршрут `auto`: роль из `code/` → local CLI; иначе → cloud при ключе; нет
+нужного инструмента → стоп-вопрос. Cloud-код без репо — только явный fallback.
 
 ## Панель
 
@@ -140,9 +150,9 @@ paid-план, биллинг по токенам. `run` создаёт аген
 ## Итоги прогонов (verdict.py)
 
 Отчёты исполнителей/критиков кончаются
-`Вердикт: OK | PROBLEMS | BLOCKED` + доказательства. Облачные прогоны —
-через `run-cloud.py` (create → polling → artifacts); приёмка по логу/
-артефактам и строке вердикта. Сводка одной командой:
+`Вердикт: OK | PROBLEMS | BLOCKED` + доказательства. Код-прогоны — через
+`run-exec.py`; облачные — через `run-cloud.py` (create → polling → artifacts);
+приёмка по логу/артефактам и строке вердикта. Сводка одной командой:
 
 ```bash
 python3 orchestration-kit/bin/verdict.py .orchestration/sessions/<sid>/runs/<id>/run.log
@@ -203,8 +213,10 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 - Codex требует `/hooks` trust после установки — без него хуки молчат (скиллы работают)
 - Python 3.6+ обязателен для хуков/панели/скриптов (скилл работает и без него)
 - ключ Cursor (`.orchestration/cursor.key` / `CURSOR_API_KEY`) — для
-  cursor-cloud; без ключа `auto` спрашивает явно (субагенты — только после «да»)
-- локальный Cursor CLI из продукта убран — не устанавливать и не искать в PATH
+  cursor-cloud (не-код); для кода нужен `cursor-agent` в PATH + `run-exec.py`
+- dual-path: код → локальный CLI (`run-exec.py`); исследования → cloud
+  (`run-cloud.py`); без нужного инструмента `auto` спрашивает явно
+  (субагенты — только после «да»)
 - `--permission-prompts none` требует Claude Code ≥ v2.1.259; fallback: `dontAsk`
 
 ## Windows

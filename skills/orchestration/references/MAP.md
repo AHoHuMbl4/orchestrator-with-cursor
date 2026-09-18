@@ -7,7 +7,9 @@ State — `.orchestration/` в проекте.
 
 ## A. Файлы кита (что чем запускать)
 
-- `bin/run-cloud.py` — единственный курсор-путь: create→poll→artifacts (`run` / `status` / `artifacts` / `list`)
+- Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта)
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`)
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
@@ -47,7 +49,7 @@ State — `.orchestration/` в проекте.
 
 - `skills/orchestration/SKILL.md` — регламент: исполнители, контроль, компас, вердикт
 - `references/planning.md` — план, волны, DAG, preflight-бюджет
-- `references/engines.md` — исполнители/ключи/движки (cursor-cloud, Claude, Codex, Kimi)
+- `references/engines.md` — исполнители/ключи/движки (local-cursor / cursor-cloud, Claude, Codex, Kimi)
 - `references/traps.md` — ловушки (читать перед пачкой)
 - `references/MAP.md` — эта карта (инструменты и state)
 - `references/roles/_index.md` — КАТАЛОГ РОЛЕЙ; выбор ТОЛЬКО через него

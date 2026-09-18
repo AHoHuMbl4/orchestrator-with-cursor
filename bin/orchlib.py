@@ -21,7 +21,7 @@ DEFAULTS = {
         "description_file": ".orchestration/compass.md",
     },
     "execution": {
-        "executor": "auto",        # auto | cursor-cloud | subagents
+        "executor": "auto",        # auto | local-cursor | cursor-cloud | subagents
         "on_cursor_fail": "ask",    # ask | wait | subagents — поведение при отказе курсора
         "parallel_per_task": 3,     # параллельных исполнителей на 1 задачу, дефолт 3 по решению владельца
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
@@ -175,8 +175,8 @@ def validate_params(p):
     if ocf not in ("ask", "wait", "subagents"):
         errs.append("execution.on_cursor_fail: ожидается ask|wait|subagents")
     exe = p.get("execution", {}).get("executor")
-    if exe not in ("auto", "cursor-cloud", "subagents"):
-        errs.append("execution.executor: ожидается auto|cursor-cloud|subagents")
+    if exe not in ("auto", "local-cursor", "cursor-cloud", "subagents"):
+        errs.append("execution.executor: ожидается auto|local-cursor|cursor-cloud|subagents")
     en = p.get("orchestration", {}).get("enabled")
     if not isinstance(en, bool):
         errs.append("orchestration.enabled: ожидается true/false")

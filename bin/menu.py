@@ -21,11 +21,12 @@
 Ключи --set: любые из схемы (см. orchlib.DEFAULTS/RANGES). Кроссплатформенно,
 python3.6+, stdlib. Выход: 0 — применено, 2 — ошибка валидации.
 
-execution.executor: auto | cursor-cloud | subagents.
-  auto         — cursor-cloud при наличии ключа API, иначе вопрос владельцу;
+execution.executor: auto | local-cursor | cursor-cloud | subagents.
+  auto         — КОД (роль из code/) → локальный CLI если бинарник есть;
+                 не-код → cloud если ключ; нет нужного → стоп-вопрос/лестница;
+  local-cursor — локальный cursor-agent CLI;
   cursor-cloud — только удалённый API Cursor;
   subagents    — субагенты движка (по явному «да» владельца).
-Локальный cursor-agent в продукте не используется.
 """
 import os
 import sys
