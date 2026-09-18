@@ -19,7 +19,7 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 33ab972d56e33c3361acee8714f858f8b51fc77b62c52225e427ee43dba2a2f1  ./panel/index.html
 710d903ce88c291d8ecfb38fc4b055bcb13eaec4f8151544ef5df52cafaeed3a  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
-41727cd064674c0468d8888f3949fd3d36e71741477978d58925a9c509de8035  ./skills/orchestration/SKILL.md
+902bb738418661ddad1ecfe32c003cf14c0cf9317a834a9987147160c2d7aced  ./skills/orchestration/SKILL.md
 54b5ba6cccf5d424a0e29c98a314df5d1e3fd964c266b4c337c7ce43c01473ab  ./skills/orchestration/references/MAP.md
 ac66d0e67f3cfcbde61695aeb94558e50027aea83d12da79310fc1ee10a84404  ./skills/orchestration/references/engines.md
 77772fab4365b22b37f9196c62e8e4081a8a3a64d7f90c88461677b8ab2e494d  ./skills/orchestration/references/planning.md
