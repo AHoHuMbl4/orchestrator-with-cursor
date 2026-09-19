@@ -7,7 +7,7 @@ f77a93716086eae085347193c1acf7c6f2dd27471aa9902afa2236d457baf64f  ./bin/orchlib.
 49297c0a0e5aa68bd405a1147e872b32e24544bd8b9bb0c644015822287af518  ./bin/reground.py
 121e72bf343fb5837f1d6eb261783ff8f29f7c9a323564c63e5cea7bd3df9058  ./bin/run-cloud.py
 298044f1ced6d097a085ee83953b10addf6e542af61b09ee3f32e96bf71f9bc9  ./bin/run-exec.py
-b4cef74a313eca5931f536db41cc687b93623a3c53de86be3878e02d0dcacde0  ./bin/verdict.py
+4d4188f9d5fc8396e9dcb896538cca98c131c95b8f68157d3be7faa94b19d112  ./bin/verdict.py
 7d7d597bba514b32c6ff96b830cba4b52b27ebc852b48ae87ac1cc5e9472dcf8  ./commands/claude-orch-menu.md
 98583655c179629c1926c4d02155915ec860ccfc088805ff57d02fbbae7db929  ./commands/codex-orch-menu.md
 d761d8dfeb9bfdffec103372195b85fd6b090b8a0be384894180dd893c6ae93c  ./compass.md
@@ -20,7 +20,7 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 dfa7fcb58c3155211d58fe76ec3f344f38bb819618475fd9df26ecc8a200ac3b  ./panel/index.html
 ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
-53c29ea4e12ac2c53d8b971a3ae89194f3addf65ad14ff2bfbc940c44346d6a4  ./skills/orchestration/SKILL.md
+08715c8946b595a41a23ebb3b47a6315f76ab4f445803323426a20619183f3a0  ./skills/orchestration/SKILL.md
 79a7b670eb02917e5fdc22e08a4e84082462ae13d8ebfa9221f59997969bc761  ./skills/orchestration/references/MAP.md
 f347c6b8b2ca88a62c6a8349758b2200d9232a5552d0e305b71f5a7d8ccd134b  ./skills/orchestration/references/engines.md
 f06e22e1183305304c17722674d58d9b70886d3e945c388ecab1f306f534adab  ./skills/orchestration/references/planning.md

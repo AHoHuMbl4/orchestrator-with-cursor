@@ -25,8 +25,13 @@ LAST_LINES_CHARS = 200
 
 # Последняя строка-вердикт (не «Вердикт: OK/PROBLEMS» в прозе):
 #   Вердикт/Итог: OK[.]; Вердикт: PROBLEMS|BLOCKED...; **OK**; PROBLEMS:|BLOCKED:
+#   Популярный суффикс «| PROBLEMS: нет/—/none» → OK (явное «нет», не PROBLEMS).
 VERDICT_OK_RE = re.compile(
     r"(?i)(?:(?:вердикт|итог)\s*:\s*\**\s*ok\**\s*\.?\s*$|^\s*\*\*\s*ok\s*\*\*\s*\.?\s*$)"
+)
+VERDICT_OK_EMPTY_PROBLEMS_RE = re.compile(
+    r"(?i)^\s*(?:вердикт|итог)\s*:\s*\**\s*ok\**\s*"
+    r"\|\s*problems\s*:\s*(?:нет|—|–|none)\s*\.?\s*$"
 )
 VERDICT_BAD_RE = re.compile(
     r"(?i)(?:(?:вердикт|итог)\s*:\s*\**\s*(problems|blocked)\b|^\s*\**\s*(problems|blocked)\s*:)"
@@ -95,7 +100,7 @@ def _extract_verdict(report_text):
         s = line.strip()
         if not s:
             continue
-        if VERDICT_OK_RE.search(s):
+        if VERDICT_OK_EMPTY_PROBLEMS_RE.search(s) or VERDICT_OK_RE.search(s):
             found = "OK"
             continue
         m = VERDICT_BAD_RE.search(s)
