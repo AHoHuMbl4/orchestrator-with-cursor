@@ -17,8 +17,9 @@ State — `.orchestration/` в проекте.
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
 - `bin/reground.py` — хук-движок: `session-start` / `prompt-submit` / `post-tool` / `heartbeat`
-- `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии); не лаунчер
-- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…)
+- `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); не лаунчер
+- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`
+- `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
 - `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel
 - `uninstall.sh` / `uninstall.ps1` — снятие установки
@@ -43,6 +44,9 @@ State — `.orchestration/` в проекте.
 - `cursor.key` — API-ключ Cursor (gitignore; панель сохраняет сюда)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
+- `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
+- статусы фронта: `planned` / `running` / `blocked` / `done` / `failed`
+- `<state>/fronts/<id>/compass.md` — compass каждого фронта (`orchlib.front_compass_path`)
 - Правило: запускай всё из одной папки проекта (или задай `ORCHESTRATION_DIR`)
 
 ## C. Скилл и роли (как выбирать)
@@ -56,6 +60,9 @@ State — `.orchestration/` в проекте.
 - Каскад `_index.md`: домен → поддомен → роль (колонка «Когда»); не `ls` дерева
 - `references/roles/_template.md` — каркас: `{{ЗАДАЧА}}` / `{{КРИТЕРИЙ}}` / `{{ГРАНИЦЫ}}` + процесс/анти-паттерны
 - `references/roles/<домен>/<роль>.md` — шаблон промта роли (путь берётся из `_index.md`)
+- `references/roles/meta/` — meta-роли иерархии; выбор через `_index.md`
+- `references/roles/meta/front-general.md` — генерал фронта: умная модель, узкий фронт, критики плана, выжимка вверх
+- `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
 
 ## D. Быстрые ответы
 
@@ -65,4 +72,6 @@ State — `.orchestration/` в проекте.
 | Куда пишется задача? | `sessions/<sid>/compass.md` (`menu.py --session`) |
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`) |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
+| Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
+| Compass фронта? | `<state>/fronts/<id>/compass.md` |
 | Что-то не найти? | НЕ искать по ФС вслепую: сначала эта карта, потом файл из неё |

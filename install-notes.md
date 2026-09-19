@@ -78,20 +78,10 @@ python3 orchestration-kit/bin/menu.py --set review.reviewers_per_diff=5   # ме
 
 - Claude Code: `commands/claude-orch-menu.md` → `.claude/commands/orch-menu.md`.
 - Codex CLI: `commands/codex-orch-menu.md` → `~/.codex/prompts/orch-menu.md`.
-- Kimi Code: ничего не нужно — скилл `skills/orch-menu/` сам регистрируется
-  слэш-командой `/orch-menu`; при занятом агенте команда встаёт в очередь,
-  Ctrl-S — вклинить немедленно.
+- Kimi Code: отдельного файла команды нет — в чате «меню» / `menu` через скилл
+  `skills/orchestration/` (как in-chat меню у остальных движков).
 Применение — всегда через `bin/menu.py` (валидация, rc=2 на мусор), плюс хук
 `UserPromptSubmit` вклеивает изменённые параметры при следующем сообщении.
-
-## Бутстрап веб-режима без компа
-
-`python3 orchestration-kit/bin/make-bootstrap.py bootstrap-web.md` — собирает
-весь kit в один промт (23 файла, ~100КБ) для ПЕРВОЙ облачной сессии
-claude.ai/code: она создаёт файлы, хуки, команды, коммитит и показывает
-приёмку (git show --stat, discover, ls .claude/skills). Дальше — работа с
-телефона: `/orch-menu` в чате, исполнители через run-cloud.py (ключ
-CURSOR_API_KEY в настройках окружения claude.ai + allowlist api.cursor.com).
 
 ## Установка скилла
 
@@ -142,8 +132,9 @@ references/cloud.md), Codex cloud — только веб-UI/CLI.
 
 Основная зона: **селектор сессий** (compass только сессионные —
 `sessions/<id>/compass.md`), тумблер, исполнители, критики, таймаут,
-`retry_on_fail`, модели, токен Cursor. Раздел **«Расширенные»**: общий стартовый
-шаблон `.orchestration/compass.md` (сохранение с подтверждением, кнопка
+`retry_on_fail`, модели, токен Cursor; раздел **«Фронты»** (волны, статусы,
+JSON-редактор). Раздел **«Расширенные»**: общий стартовый шаблон
+`.orchestration/compass.md` (сохранение с подтверждением, кнопка
 восстановления стандартного из kit). CLI `menu.py` шаблон не пишет
 (`--global-template` → exit 2).
 

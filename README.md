@@ -22,7 +22,7 @@ Agent (automatically):
   2. Session compass auto-seeded from template (sessions/<id>/compass.md)
   3. Skill loads: agent becomes orchestrator
   4. Planning: decompose → TODO checklist in session compass → validate
-  5. Role selection: cascade domain→subdomain→role (137 narrow specialists)
+  5. Role selection: cascade domain→subdomain→role (146 narrow specialists)
   6. Executor (dual-path): code (role under code/) → local cursor-agent via
      `run-exec.py` (direct FS); research/no-FS → Cursor Cloud via `run-cloud.py`
      — or engine subagents after explicit owner "yes"
@@ -80,8 +80,9 @@ All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
 (auto-picks a free port). The panel has a session selector (session compasses
 only in the main zone), on/off toggle, executors per task (default 3), critics per diff,
 review rounds, timeout, `retry_on_fail`, course-check interval, models, Cursor
-API token, and **Advanced** for the shared starter template
-(`.orchestration/compass.md` — confirm to save; restore-default button).
+API token, **Fronts** (waves, statuses, JSON editor), and **Advanced** for the
+shared starter template (`.orchestration/compass.md` — confirm to save;
+restore-default button).
 
 ## Cursor API token (for Cursor Cloud / non-code executors)
 
@@ -127,6 +128,14 @@ No key and no local binary for the needed path? Default `auto` **stops and asks*
   back to direct work; hooks go silent.
 - Pre-batch threshold: orchestrator asks before launching batches larger than N runs (`execution.ask_before_runs`, default 20).
 - In-chat menu: say "меню" / `menu` or `/orch-menu` (Claude).
+
+## Hierarchy for large projects
+
+Large projects run as a command chain: commander → observer generals + front
+generals (smart engine subagents) → colonels/executors (Cursor). The front graph
+lives in `.orchestration/fronts.json` and advances in dependency waves. Each
+level plans through critics before execution. The panel shows the front tree
+(waves, statuses, JSON editor).
 
 ## Run outcomes & reliability
 
