@@ -196,6 +196,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"sessions": visible})
         elif u.path == "/api/status":
             self.send_json({"runs": self.runs_status()})
+        elif u.path == "/api/fronts":
+            data = orchlib.load_fronts()
+            fronts_out = []
+            for fr in data.get("fronts") or []:
+                if not isinstance(fr, dict):
+                    continue
+                item = dict(fr)
+                fid = item.get("id", "")
+                cp = orchlib.front_compass_path(fid) if fid else ""
+                item["compass"] = item.get("compass") or cp
+                item["compass_exists"] = bool(cp and os.path.isfile(cp))
+                item["compass_path"] = cp
+                fronts_out.append(item)
+            try:
+                waves = orchlib.front_waves({"goal": data.get("goal", ""),
+                                             "fronts": data.get("fronts") or [],
+                                             "notes": data.get("notes", "")})
+            except ValueError:
+                waves = []
+            self.send_json({
+                "goal": data.get("goal", ""),
+                "fronts": fronts_out,
+                "notes": data.get("notes", ""),
+                "waves": waves,
+            })
         elif u.path == "/api/logs":
             name = (q.get("name") or [""])[0]
             try:
@@ -217,8 +242,49 @@ class Handler(BaseHTTPRequestHandler):
         # /api/cursor-key: удаление токена (роутинг общий с GET по path)
         self.do_GET()
 
+    def do_PUT(self):
+        self.do_POST()
+
+    def _save_fronts_request(self):
+        body, err = self.read_body_json()
+        if err:
+            self.send_json({"error": err}, 400)
+            return
+        raw = body
+        if isinstance(body, dict) and "fronts" in body and (
+                isinstance(body.get("fronts"), list) or
+                "goal" in body or "notes" in body):
+            raw = {
+                "goal": body.get("goal", ""),
+                "fronts": body.get("fronts") if isinstance(body.get("fronts"), list) else [],
+                "notes": body.get("notes", ""),
+            }
+        elif isinstance(body, dict) and isinstance(body.get("data"), dict):
+            raw = body["data"]
+        if not isinstance(raw, dict):
+            self.send_json({"error": "ожидается объект fronts.json"}, 400)
+            return
+        try:
+            orchlib.save_fronts(raw)
+            data = orchlib.load_fronts()
+            waves = orchlib.front_waves(data)
+            self.send_json({"ok": True, "goal": data["goal"], "fronts": data["fronts"],
+                            "notes": data["notes"], "waves": waves})
+        except ValueError as e:
+            msg = e.args[0] if e.args else str(e)
+            if isinstance(msg, list):
+                text = "; ".join(str(x) for x in msg)
+            else:
+                text = str(e)
+            self.send_json({"error": text}, 400)
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/fronts":
+            self._save_fronts_request()
+            return
         if u.path == "/api/params":
             body, err = self.read_body_json()
             if err:

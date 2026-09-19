@@ -377,3 +377,194 @@ def params_summary(p):
         emin=rg.get("every_min"), ecall=rg.get("every_n_calls"),
         abr=ex.get("ask_before_runs"),
     )
+
+
+# --- граф фронтов большого проекта (<state>/fronts.json) ---
+
+FRONT_STATUSES = ("planned", "running", "blocked", "done", "failed")
+EMPTY_FRONTS = {"goal": "", "fronts": [], "notes": ""}
+
+
+def fronts_path():
+    return state_path("fronts.json")
+
+
+def load_fronts():
+    """Читает fronts.json; если файла нет — пустая структура."""
+    pf = fronts_path()
+    if not os.path.exists(pf):
+        return {"goal": "", "fronts": [], "notes": ""}
+    try:
+        with open(pf, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception:
+        return {"goal": "", "fronts": [], "notes": ""}
+    if not isinstance(data, dict):
+        return {"goal": "", "fronts": [], "notes": ""}
+    return {
+        "goal": data.get("goal", "") if isinstance(data.get("goal"), str) else "",
+        "fronts": data.get("fronts") if isinstance(data.get("fronts"), list) else [],
+        "notes": data.get("notes", "") if isinstance(data.get("notes"), str) else "",
+    }
+
+
+def front_compass_path(fid):
+    """Путь compass фронта: <state>/fronts/<safe_id>/compass.md."""
+    return os.path.join(find_state_dir(), "fronts", safe_name(fid), "compass.md")
+
+
+def _fronts_cycle_dfs(ids, deps_map):
+    """DFS: True если есть цикл. ids — порядок обхода."""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {i: WHITE for i in ids}
+
+    def dfs(u):
+        color[u] = GRAY
+        for v in deps_map.get(u, []):
+            if v not in color:
+                continue
+            if color[v] == GRAY:
+                return True
+            if color[v] == WHITE and dfs(v):
+                return True
+        color[u] = BLACK
+        return False
+
+    for i in ids:
+        if color[i] == WHITE and dfs(i):
+            return True
+    return False
+
+
+def validate_fronts(f):
+    """Проверка графа фронтов; возвращает список ошибок (пустой = ок)."""
+    errs = []
+    if not isinstance(f, dict):
+        return ["fronts: ожидается объект"]
+    if "goal" in f and not isinstance(f.get("goal"), str):
+        errs.append("goal: ожидается строка")
+    if "notes" in f and not isinstance(f.get("notes"), str):
+        errs.append("notes: ожидается строка")
+    fronts = f.get("fronts")
+    if fronts is None:
+        fronts = []
+    if not isinstance(fronts, list):
+        errs.append("fronts: ожидается список")
+        return errs
+    ids = []
+    seen = set()
+    for i, fr in enumerate(fronts):
+        if not isinstance(fr, dict):
+            errs.append("fronts[%d]: ожидается объект" % i)
+            continue
+        fid = fr.get("id")
+        if not isinstance(fid, str) or not fid.strip():
+            errs.append("fronts[%d].id: ожидается непустая строка" % i)
+            continue
+        if fid in seen:
+            errs.append("дубликат id: %s" % fid)
+        else:
+            seen.add(fid)
+            ids.append(fid)
+        for field in ("title", "role", "compass"):
+            v = fr.get(field)
+            if v is None:
+                errs.append("fronts[%d].%s: обязательное поле" % (i, field))
+            elif not isinstance(v, str):
+                errs.append("fronts[%d].%s: ожидается строка" % (i, field))
+        deps = fr.get("deps")
+        if deps is None:
+            errs.append("fronts[%d].deps: обязательное поле" % i)
+        elif not isinstance(deps, list):
+            errs.append("fronts[%d].deps: ожидается список" % i)
+        else:
+            for d in deps:
+                if not isinstance(d, str):
+                    errs.append("fronts[%d].deps: элементы — строки" % i)
+                    break
+        st = fr.get("status")
+        if st not in FRONT_STATUSES:
+            errs.append("fronts[%d].status: ожидается %s, получено %r" % (
+                i, "|".join(FRONT_STATUSES), st))
+    id_set = set(ids)
+    deps_map = {}
+    for i, fr in enumerate(fronts):
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not isinstance(fid, str) or fid not in id_set:
+            continue
+        deps = fr.get("deps") if isinstance(fr.get("deps"), list) else []
+        deps_map[fid] = [d for d in deps if isinstance(d, str)]
+        for d in deps_map[fid]:
+            if d not in id_set:
+                errs.append("неизвестный dep: %s → %s" % (fid, d))
+    if id_set and _fronts_cycle_dfs(ids, deps_map):
+        errs.append("цикл в deps")
+    return errs
+
+
+def save_fronts(f):
+    """Атомарная запись fronts.json после валидации."""
+    errs = validate_fronts(f)
+    if errs:
+        raise ValueError(errs)
+    out = {
+        "goal": f.get("goal", "") if isinstance(f.get("goal"), str) else "",
+        "fronts": f.get("fronts") if isinstance(f.get("fronts"), list) else [],
+        "notes": f.get("notes", "") if isinstance(f.get("notes"), str) else "",
+    }
+    pf = fronts_path()
+    d = os.path.dirname(pf)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, pf)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def front_waves(f):
+    """Волны фронтов (топосорт по deps). При цикле — ValueError."""
+    if not isinstance(f, dict):
+        raise ValueError(["fronts: ожидается объект"])
+    fronts = f.get("fronts") if isinstance(f.get("fronts"), list) else []
+    order = []
+    deps_map = {}
+    for fr in fronts:
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not isinstance(fid, str) or not fid:
+            continue
+        if fid in deps_map:
+            raise ValueError(["дубликат id: %s" % fid])
+        order.append(fid)
+        deps = fr.get("deps") if isinstance(fr.get("deps"), list) else []
+        deps_map[fid] = [d for d in deps if isinstance(d, str)]
+    id_set = set(order)
+    for fid, deps in deps_map.items():
+        for d in deps:
+            if d not in id_set:
+                raise ValueError(["неизвестный dep: %s → %s" % (fid, d)])
+    if order and _fronts_cycle_dfs(order, deps_map):
+        raise ValueError(["цикл в deps"])
+    done = set()
+    remaining = set(order)
+    waves = []
+    while remaining:
+        wave = [fid for fid in order
+                if fid in remaining and all(d in done for d in deps_map[fid])]
+        if not wave:
+            raise ValueError(["цикл в deps"])
+        waves.append(wave)
+        done.update(wave)
+        remaining -= set(wave)
+    return waves

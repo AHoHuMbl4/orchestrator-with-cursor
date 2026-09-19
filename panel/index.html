@@ -30,6 +30,11 @@
   th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #e3e8ee; }
   th { color: #5a6572; font-weight: 600; }
   .run { color: #b07a00; } .done { color: #1e8e4e; } .fail { color: #c62828; }
+  .st-planned { color: #6f7b88; } .st-running { color: #2c6bed; }
+  .st-blocked { color: #c62828; } .st-done { color: #1e8e4e; } .st-failed { color: #c62828; }
+  .wave-block { margin: 10px 0; padding: 8px 12px; background: #fff;
+    border: 1px solid #e3e8ee; border-radius: 6px; }
+  .wave-block h3 { font-size: 13px; margin: 0 0 6px; color: #5a6572; font-weight: 600; }
   pre { background: #ffffff; border: 1px solid #dfe4ea; border-radius: 6px;
         padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
   .hint { font-size: 12px; color: #6f7b88; margin-top: 3px; }
@@ -156,6 +161,15 @@
 <button id="saveParamsBtnBottom" onclick="saveParams()">Сохранить параметры</button>
 <span id="msg" style="margin-left:10px"></span>
 
+<h2>Фронты</h2>
+<div class="hint">Граф фронтов большого проекта — <code>.orchestration/fronts.json</code>.
+Волны считаются по deps; compass фронта — <code>fronts/&lt;id&gt;/compass.md</code>.</div>
+<div id="frontsWaves"><div class="hint">загрузка…</div></div>
+<label>JSON фронтов</label>
+<textarea id="frontsJson" style="min-height:180px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+<button type="button" onclick="saveFronts()">Проверить и сохранить</button>
+<span id="frontsMsg" style="margin-left:10px"></span>
+
 <h2>Доступные модели (discovered)</h2>
 <div class="hint" id="discoveredInfo">—</div>
 
@@ -199,6 +213,66 @@ async function loadAll(){
   loadKeyInfo();
   await loadSessions();
   await loadTemplate();
+  await loadFronts();
+}
+function frontsMsg(t,cls){ const m=document.getElementById("frontsMsg"); m.textContent=t; m.className=cls||""; }
+function statusClass(st){
+  const m={planned:"st-planned",running:"st-running",blocked:"st-blocked",done:"st-done",failed:"st-failed"};
+  return m[st]||"st-planned";
+}
+function renderFrontsWaves(j){
+  const box=document.getElementById("frontsWaves");
+  const byId={};
+  (j.fronts||[]).forEach(f=>{ if(f&&f.id) byId[f.id]=f; });
+  const waves=j.waves||[];
+  if(!waves.length){
+    box.innerHTML='<div class="hint">фронтов нет — задайте JSON ниже</div>';
+    return;
+  }
+  let html="";
+  waves.forEach((wave,i)=>{
+    html+='<div class="wave-block"><h3>Волна '+(i+1)+'</h3><table><thead><tr>'+
+      '<th>title</th><th>роль</th><th>статус</th><th>compass</th></tr></thead><tbody>';
+    wave.forEach(id=>{
+      const f=byId[id]||{id:id,title:id,role:"",status:"planned",compass:""};
+      const cp=f.compass_path||f.compass||"";
+      const exists=f.compass_exists?' ✓':'';
+      html+='<tr><td>'+esc(f.title||id)+'</td><td>'+esc(f.role||"")+'</td>'+
+        '<td><span class="'+statusClass(f.status)+'">'+esc(f.status||"")+'</span></td>'+
+        '<td class="hint" style="margin:0">'+esc(cp)+exists+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  });
+  if(j.goal) html='<div class="hint" style="margin-bottom:8px">цель: <b>'+esc(j.goal)+'</b></div>'+html;
+  box.innerHTML=html;
+}
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+async function loadFronts(){
+  try{
+    const j=await (await fetch("/api/fronts")).json();
+    const edit={goal:j.goal||"", fronts:(j.fronts||[]).map(f=>{
+      const o={id:f.id,title:f.title,role:f.role,deps:f.deps||[],status:f.status,compass:f.compass||f.compass_path||""};
+      return o;
+    }), notes:j.notes||""};
+    document.getElementById("frontsJson").value=JSON.stringify(edit,null,2);
+    renderFrontsWaves(j);
+  }catch(e){
+    document.getElementById("frontsWaves").innerHTML='<div class="err">не удалось загрузить фронты</div>';
+  }
+}
+async function saveFronts(){
+  let raw;
+  try{ raw=JSON.parse(document.getElementById("frontsJson").value); }
+  catch(e){ frontsMsg("невалидный JSON: "+e.message,"err"); return; }
+  const r=await fetch("/api/fronts",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(raw)});
+  const j=await r.json();
+  if(r.ok){
+    frontsMsg("сохранено ✓","ok");
+    await loadFronts();
+  } else {
+    frontsMsg(j.error||"ошибка","err");
+  }
 }
 async function saveParams(){
   IDS.forEach(id=>{ const el=document.getElementById(id);
