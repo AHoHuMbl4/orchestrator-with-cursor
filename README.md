@@ -126,6 +126,7 @@ No key and no local binary for the needed path? Default `auto` **stops and asks*
 - Settings live in `.orchestration/params.json`; hooks deliver changes with the
   next message. The `orchestration.enabled=false` toggle switches the agent
   back to direct work; hooks go silent.
+- Hierarchy mode: off (flat, single orchestrator) / auto (doctrine heuristic) / on (prefer fronts for multi-block tasks) — `orchestration.hierarchy`, default auto. Full orchestration off remains the existing on/off toggle (`orchestration.enabled`).
 - Pre-batch threshold: orchestrator asks before launching batches larger than N runs (`execution.ask_before_runs`, default 20).
 - In-chat menu: say "меню" / `menu` or `/orch-menu` (Claude).
 

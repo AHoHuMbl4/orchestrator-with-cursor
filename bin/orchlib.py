@@ -16,6 +16,7 @@ KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULTS = {
     "orchestration": {
         "enabled": True,              # тумблер: False — работать напрямую, без исполнителей
+        "hierarchy": "auto",          # auto | on | off — режим иерархии (генералов/фронтов)
     },
     "task": {
         "description_file": ".orchestration/compass.md",
@@ -180,6 +181,9 @@ def validate_params(p):
     en = p.get("orchestration", {}).get("enabled")
     if not isinstance(en, bool):
         errs.append("orchestration.enabled: ожидается true/false")
+    hier = p.get("orchestration", {}).get("hierarchy")
+    if hier not in ("auto", "on", "off"):
+        errs.append("orchestration.hierarchy: ожидается auto|on|off")
     port = p.get("panel", {}).get("port")
     if not isinstance(port, int) or not (1 <= port <= 65535):
         errs.append("panel.port: ожидается 1..65535")
@@ -363,19 +367,22 @@ def read_compass(p, limit=9000):
 def params_summary(p):
     """Короткая фактическая сводка параметров для вклейки в контекст."""
     ex, rv, rg = p.get("execution", {}), p.get("review", {}), p.get("reground", {})
+    orch = p.get("orchestration", {})
     return (
         "Параметры пачки: исполнители — {mode}; "
         "параллельных исполнителей на задачу {par}; "
         "критиков на каждый дифф {rev}; круги ревью до {rns} (дальше — стоп и доклад владельцу); "
         "таймаут прогона {tmo} c; перезапуск при фейле {ret}. "
         "Контроль курса: сверка не реже чем каждые {emin} мин (или {ecall} вызовов инструментов); "
-        "предстарт-порог: спросить владельца при пачке > {abr} прогонов."
+        "предстарт-порог: спросить владельца при пачке > {abr} прогонов. "
+        "Режим иерархии: {hier}"
     ).format(
         mode=ex.get("executor", "subagents"),
         par=ex.get("parallel_per_task"), rev=rv.get("reviewers_per_diff"),
         rns=rv.get("max_rounds"), tmo=ex.get("timeout_s"), ret=ex.get("retry_on_fail"),
         emin=rg.get("every_min"), ecall=rg.get("every_n_calls"),
         abr=ex.get("ask_before_runs"),
+        hier=orch.get("hierarchy", "auto"),
     )
 
 
