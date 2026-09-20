@@ -90,6 +90,7 @@
 | API Docs Writer | tech/api-documentation-writer.md | OpenAPI, документация |
 | Code Docs Generator | code/code-documentation-generator.md | JSDoc, docstrings |
 | Git Workflow | code/git-workflow-specialist.md | branching, conflicts |
+| Git Warden | code/git-warden.md | чекпоинт до пишущей волны кода, ревизия после, откат только git |
 | Dependency Upgrader | code/dependency-upgrade-specialist.md | breaking changes, миграции |
 | ML-инженер | code/ml-инженер.md | ML-модели, pipelines |
 | Security Auditor | code/security-auditor.md | аудит безопасности |
