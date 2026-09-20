@@ -21,10 +21,10 @@ dfa7fcb58c3155211d58fe76ec3f344f38bb819618475fd9df26ecc8a200ac3b  ./panel/index.
 ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
 be2c33bbb5dab3f481c0c4bfaee634c27ce1a5229ca43babded4ae2bb9c8b538  ./skills/orchestration/SKILL.md
-e99f9e16345c37c5725090bd65ac9d703def5367b51034e90712198c9995047f  ./skills/orchestration/references/MAP.md
+106e8b7c2ae42d71fbcb7a13957f0e025aff8933b79509fe1f895e2800b0f781  ./skills/orchestration/references/MAP.md
 f347c6b8b2ca88a62c6a8349758b2200d9232a5552d0e305b71f5a7d8ccd134b  ./skills/orchestration/references/engines.md
 ac1151557d89ea392243d1c93bc7977403834b7fe7cd116b237404f6612432c2  ./skills/orchestration/references/planning.md
-4f977077877c4e50f4cca13ad7f8808f34d70ce1c110051339aa16970abf396c  ./skills/orchestration/references/roles/_index.md
+d7078ad665ba68ed3a0ed3e7d02de108a95013928f65bf1edc214caad71e943c  ./skills/orchestration/references/roles/_index.md
 acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
 4231f9d155202d53ba93cd2981071f20f718515642d66f917b8761d8c42a23af  ./skills/orchestration/references/roles/business/churn-analyst.md
@@ -67,6 +67,7 @@ b3ea5f4f135672500df215fb3d327c2a77372de4c404cb36ccd62f56ab7cf0ae  ./skills/orche
 7e0cde24c09f929c4daadf3146b70ea511239edda7df054ff2d8199eda1c5d4c  ./skills/orchestration/references/roles/code/refactorer.md
 c75324e35159a7b5491089c92ed29d953e2ca4dfd6692f8035a42444be9ca78d  ./skills/orchestration/references/roles/code/refactoring-pattern-specialist.md
 a99b3bda73cabb1072f7a11e46e04277b2f91c896cee9dc108f20dfc8eca66c1  ./skills/orchestration/references/roles/code/security-auditor.md
+4e7856d6f990ede746060414709336644849db1ffa15c6ff0e96a43dbedbd38d  ./skills/orchestration/references/roles/code/simplicity-warden.md
 18c32607576297dd02839b83558b14401bc761848adf2661462d4cf1b7a5e0f5  ./skills/orchestration/references/roles/code/state-management-architect.md
 8489643e89bfa0efe5829ed634a72c1fc476ede75c655d9da38db784aaa92cfa  ./skills/orchestration/references/roles/code/test-pyramid-designer.md
 f841f30def08baba0a12ddbdf99cc7350df0a957e835e26f257913348b41e21d  ./skills/orchestration/references/roles/code/tester.md
