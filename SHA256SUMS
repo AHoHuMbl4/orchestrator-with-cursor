@@ -21,10 +21,10 @@ dfa7fcb58c3155211d58fe76ec3f344f38bb819618475fd9df26ecc8a200ac3b  ./panel/index.
 ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
 be2c33bbb5dab3f481c0c4bfaee634c27ce1a5229ca43babded4ae2bb9c8b538  ./skills/orchestration/SKILL.md
-9ce618508123ed1dcd4ab8a2a6bcc367155700fd1567291095472ecf7ac1aa3a  ./skills/orchestration/references/MAP.md
+e99f9e16345c37c5725090bd65ac9d703def5367b51034e90712198c9995047f  ./skills/orchestration/references/MAP.md
 f347c6b8b2ca88a62c6a8349758b2200d9232a5552d0e305b71f5a7d8ccd134b  ./skills/orchestration/references/engines.md
 ac1151557d89ea392243d1c93bc7977403834b7fe7cd116b237404f6612432c2  ./skills/orchestration/references/planning.md
-64b41c975e8bc6869f8344b63a07ed23d8bc7cebe3def6e4fab301e214be0e9f  ./skills/orchestration/references/roles/_index.md
+4f977077877c4e50f4cca13ad7f8808f34d70ce1c110051339aa16970abf396c  ./skills/orchestration/references/roles/_index.md
 acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
 4231f9d155202d53ba93cd2981071f20f718515642d66f917b8761d8c42a23af  ./skills/orchestration/references/roles/business/churn-analyst.md
@@ -54,6 +54,7 @@ df9173b426a4ac5b61ed2ab110a48cac2855bc2b478031fc24d6a045543e276e  ./skills/orche
 f690fb3d549d29582af1ee22d65a113808f7ffa2f874f2568d2a1dd3c5ca9043  ./skills/orchestration/references/roles/code/dependency-upgrade-specialist.md
 12d6fa410937af040b8aa638e5376ae199b0f57f03c0563ec44242cf1bd136c5  ./skills/orchestration/references/roles/code/deployment-strategy-designer.md
 632ae5e20ebe7623e7ec027f304e80386f7acb6e2fe8da2a571784555fb7404d  ./skills/orchestration/references/roles/code/devops.md
+a946ecd85346911915df9459611679988d53483da7db812878a60b844fb72710  ./skills/orchestration/references/roles/code/docs-keeper.md
 bbaef957e675dadf51e9acd2750c349c19d28d228dcd9e3eef56935af70223b2  ./skills/orchestration/references/roles/code/error-handling-designer.md
 b3ea5f4f135672500df215fb3d327c2a77372de4c404cb36ccd62f56ab7cf0ae  ./skills/orchestration/references/roles/code/git-warden.md
 1fe8cddd0c777af88e831bb81bb64eab225fa9fd8d53f2d37987001bf8edc4a5  ./skills/orchestration/references/roles/code/git-workflow-specialist.md

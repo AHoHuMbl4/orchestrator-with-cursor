@@ -88,7 +88,8 @@
 | Архитектор ПО | code/архитектор-по.md | проектирование систем |
 | API Design Reviewer | tech/api-design-reviewer.md | REST design, versioning |
 | API Docs Writer | tech/api-documentation-writer.md | OpenAPI, документация |
-| Code Docs Generator | code/code-documentation-generator.md | JSDoc, docstrings |
+| Code Docs Generator | code/code-documentation-generator.md | JSDoc, docstrings в коде |
+| Docs Keeper | code/docs-keeper.md | проектные доки: карта, обновление после волны, аудит протухания (не docstrings) |
 | Git Workflow | code/git-workflow-specialist.md | branching, conflicts |
 | Git Warden | code/git-warden.md | чекпоинт до пишущей волны кода, ревизия после, откат только git |
 | Dependency Upgrader | code/dependency-upgrade-specialist.md | breaking changes, миграции |
