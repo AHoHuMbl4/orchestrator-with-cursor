@@ -24,7 +24,7 @@ DEFAULTS = {
     "execution": {
         "executor": "auto",        # auto | local-cursor | cursor-cloud | subagents
         "on_cursor_fail": "ask",    # ask | wait | subagents — поведение при отказе курсора
-        "parallel_per_task": 3,     # параллельных исполнителей на 1 задачу, дефолт 3 по решению владельца
+        "parallel_per_task": 3,     # N слепых исполнителей для READ-ONLY задач (поиск/аудит); пишущая задача — 1 исполнитель + волна критиков; spike — отдельное решение; дефолт 3
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
         "retry_on_fail": 1,         # перезапусков при фейле (по доктрине: 1 раз)
         "ask_before_runs": 20,      # спросить владельца, если прогноз пачки > N прогонов

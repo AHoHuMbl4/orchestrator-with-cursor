@@ -1,6 +1,6 @@
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
-3fe285e254ed2012300bece6de1dde11cdd0e49e2f8117fc8c06fac04f36918f  ./bin/menu.py
-f77a93716086eae085347193c1acf7c6f2dd27471aa9902afa2236d457baf64f  ./bin/orchlib.py
+27f41c8ea17ad774675afb1963b3ce8d858d60086f2b0861cc61579c041078bf  ./bin/menu.py
+6a59ef4468033c549ab79793b4b03701208d5985a909a58a8edc97b9b5c93c3a  ./bin/orchlib.py
 49297c0a0e5aa68bd405a1147e872b32e24544bd8b9bb0c644015822287af518  ./bin/reground.py
 121e72bf343fb5837f1d6eb261783ff8f29f7c9a323564c63e5cea7bd3df9058  ./bin/run-cloud.py
 298044f1ced6d097a085ee83953b10addf6e542af61b09ee3f32e96bf71f9bc9  ./bin/run-exec.py
@@ -13,16 +13,16 @@ d761d8dfeb9bfdffec103372195b85fd6b090b8a0be384894180dd893c6ae93c  ./compass.md
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
 ed516c3da1140c968347365a71908ba2f7977ba3093157e23300875b1ced4f87  ./install-local.ps1
 7453ba35b708b5ce200ad1f104e01625bfe7f91894b076075837540fe81aa877  ./install-local.sh
-3801128b39ad277249f59c5e85e29a941d91880ec87e8f9e55e59e4d361cadb5  ./install-notes.md
+e394e44c8f6ccdac7009e24d64206d2358807ad66f77fabbde2f21757f503bc4  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 dfa7fcb58c3155211d58fe76ec3f344f38bb819618475fd9df26ecc8a200ac3b  ./panel/index.html
 ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
-7dcd5e4ee0549e2d1bc3996751da4a1b17b0fa55794b7f02ce5b912ded5784cf  ./README.md
-7b2aec69ddc51e34ee269825c1948be2a22a9ddda8b5142e1ea53dae06e89d77  ./README.ru.md
+61a7b0cc7f6b1f5a5a477cbff9e2f643b307054e4fbdc26f03b03ca51c852ac5  ./README.md
+60f44a5662c31c1823813b306291618df368134f1c87316518bdbda7fd6ba407  ./README.ru.md
 f347c6b8b2ca88a62c6a8349758b2200d9232a5552d0e305b71f5a7d8ccd134b  ./skills/orchestration/references/engines.md
 106e8b7c2ae42d71fbcb7a13957f0e025aff8933b79509fe1f895e2800b0f781  ./skills/orchestration/references/MAP.md
-854eb36d75a0709afa61a441b97620b6eaf0b52e156b94c7dff4fa705fc6e286  ./skills/orchestration/references/planning.md
+d79954ae8210529742d1d5dc0d6512343ed3c3c63d61c43ec5c61f4b02188c49  ./skills/orchestration/references/planning.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
 4231f9d155202d53ba93cd2981071f20f718515642d66f917b8761d8c42a23af  ./skills/orchestration/references/roles/business/churn-analyst.md
 022538d8856dc83c36fef28987085404a645f0199c2a75ad12558c45bc50b049  ./skills/orchestration/references/roles/business/company-success-retrospective.md
@@ -94,7 +94,7 @@ bf3b58c4ac3c6bfa0e7810dbafd2111d70478b764c53fb1ae3c31a382cb8c1f8  ./skills/orche
 4f74f072976931a814f5a59098bee5a07ef6c2f9df9b4c7f55b70620175ca41f  ./skills/orchestration/references/roles/finance/финансовый-аналитик.md
 bc88a9722d4baf8d709d76b3ef1c16fd8d721b5c1060d1f60f878182b2a3e4cd  ./skills/orchestration/references/roles/hr/hr-/-рекрутер.md
 720cf1ef8c48ae3236676f3f0c9bdd0daab88bd4ee932133927f2fca00a874a4  ./skills/orchestration/references/roles/hr/hr-рекрутер.md
-d7078ad665ba68ed3a0ed3e7d02de108a95013928f65bf1edc214caad71e943c  ./skills/orchestration/references/roles/_index.md
+706930cfb439ecb52a2de879d40a39c8617857f738ed5f27cc2bd6c4c8adc53c  ./skills/orchestration/references/roles/_index.md
 07d9ce13d55c7b70c8aaa7d8494e3bdc821656a123d4b6287f9a75d097a879b0  ./skills/orchestration/references/roles/legal/legal-analyst.md
 1d6b9ddcd3a9d0dab60afdb3452bf4baa7656faa64f4ae6baca47421b38fc213  ./skills/orchestration/references/roles/marketing/ad-copy-google.md
 256207d218f1a5356aa7af51ebc6156b1d4383e134a050faea97d9ddbc1f142c  ./skills/orchestration/references/roles/marketing/ad-copy-meta.md
@@ -117,7 +117,7 @@ a05d1b7c8ab07863312aef4fea88392281909494849f0368b0c12cd4aae1950a  ./skills/orche
 44801bb51d097556b4b2e6af99b88bf453c465673de2ec4998fed61bca853fc0  ./skills/orchestration/references/roles/marketing/seo.md
 65eac1ccb4b81e7408dc444f2d479d89aa5c3c4e1c74520ee85f29a54e5d38ff  ./skills/orchestration/references/roles/marketing/smm-специалист.md
 495911a465d6ec1515a29c5f56322ed89eebf90a08207ad28161db1efb6e1099  ./skills/orchestration/references/roles/marketing/video-script-writer.md
-e4099391a786e807142fae18d3753e0edc6dd46669a84297988597fba8d570eb  ./skills/orchestration/references/roles/meta/front-general.md
+14eca855218ad4db83f7d59ad50d495333a1e375d42ee29f82f659d8ccbbad5e  ./skills/orchestration/references/roles/meta/front-general.md
 b10b5e02182b1415ed973f8c031a0405e5525c41f575371d99f6a90f40240200  ./skills/orchestration/references/roles/meta/front-observer.md
 b6401561d85f741a1d073118bf14e5d4786ffe5866e0145c3c316df0fd0fec2e  ./skills/orchestration/references/roles/operations/coo-/-операционный-директор.md
 af583d4bc895aedbad0317e16bea01874b38cb3427cf3b83d5264cde8ae8f3eb  ./skills/orchestration/references/roles/operations/coo-операционный-директор.md
@@ -175,6 +175,6 @@ acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orche
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
 b384c306202be7a37bcea4384d7ae22c12a4a497a14ad751603df4f301a7fb38  ./skills/orchestration/references/traps.md
-be2c33bbb5dab3f481c0c4bfaee634c27ce1a5229ca43babded4ae2bb9c8b538  ./skills/orchestration/SKILL.md
+0cfe0c991ff873d8f6207ec8e0a1595860824fe1e660ad23aa10e18d28334b3d  ./skills/orchestration/SKILL.md
 b9e3fdf52a26b2f39dd4e3ad045d58d3a9e6da8223d5e2ddf2ad75e87423205a  ./uninstall.ps1
 d52d438b298b94a62ec70e08865924c61c951284db0ac3ef0354a3ecc738e35f  ./uninstall.sh

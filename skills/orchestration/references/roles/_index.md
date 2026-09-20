@@ -103,7 +103,7 @@
 |---|---|---|
 | Стратег | business/стратег.md |通用 направление, позиционирование |
 | GTM Strategist | business/gtm-strategist.md | вывод на рынок |
-| BMC Facilitator | business/business-model-canvas-facilitator.md | бизнес-модель |
+| BMC Facilitator / Business Model Analyst | business/business-model-canvas-facilitator.md | бизнес-модель (BMC) |
 | Market Sizing | business/market-sizing-analyst.md | TAM/SAM/SOM |
 | Competitive Intel | business/competitive-intel-scanner.md | разведка |
 | Конкурентный аналитик | business/конкурентный-аналитик.md | сравнение конкурентов |
@@ -120,7 +120,6 @@
 | Org Design | business/org-design-consultant.md | структура команды |
 | Project Manager | operations/project-manager.md | планирование, риски |
 | Risk Manager | operations/risk-manager.md | риски, compliance |
-| Business Model Analyst | business/business-model-canvas-facilitator.md | BMC |
 
 ### Финансы → Метрики
 | Роль | Файл | Когда |

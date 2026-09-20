@@ -22,7 +22,7 @@ Agent (automatically):
   2. Session compass auto-seeded from template (sessions/<id>/compass.md)
   3. Skill loads: agent becomes orchestrator
   4. Planning: decompose → TODO checklist in session compass → validate
-  5. Role selection: cascade domain→subdomain→role (146 narrow specialists)
+  5. Role selection: cascade domain→subdomain→role (149 narrow specialists)
   6. Executor (dual-path): code (role under code/) → local cursor-agent via
      `run-exec.py` (direct FS); research/no-FS → Cursor Cloud via `run-cloud.py`
      — or engine subagents after explicit owner "yes"
@@ -140,8 +140,8 @@ level plans through critics before execution. The panel shows the front tree
 
 ## Run outcomes & reliability
 
-Executor/critic reports end with `Вердикт: OK | PROBLEMS | BLOCKED` plus
-evidence. Cloud runs (`run-cloud.py`) write session logs under
+Executor/critic reports end with `Вердикт: OK` / `Вердикт: PROBLEMS: <list>` /
+`Вердикт: BLOCKED: <reason>` plus evidence. Cloud runs (`run-cloud.py`) write session logs under
 `.orchestration/sessions/<sid>/runs/<id>/`; accept by artifacts/status and
 verdict line, never by the executor's summary alone.
 

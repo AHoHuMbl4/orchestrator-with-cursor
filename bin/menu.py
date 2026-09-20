@@ -27,6 +27,10 @@ execution.executor: auto | local-cursor | cursor-cloud | subagents.
   local-cursor — локальный cursor-agent CLI;
   cursor-cloud — только удалённый API Cursor;
   subagents    — субагенты движка (по явному «да» владельца).
+
+execution.parallel_per_task: N слепых исполнителей для READ-ONLY задач
+  (поиск/аудит); пишущая задача — 1 исполнитель + волна критиков;
+  spike — отдельное решение.
 """
 import os
 import sys
@@ -241,7 +245,9 @@ def reset_template():
 
 
 QUESTIONS = [
-    ("execution.parallel_per_task", "Параллельных агентов на 1 задачу"),
+    ("execution.parallel_per_task",
+     "N слепых исполнителей для READ-ONLY задач (поиск/аудит); "
+     "пишущая — 1 + критики; spike — отдельно"),
     ("review.reviewers_per_diff", "Критиков на каждый дифф"),
     ("review.max_rounds", "Круги ревью до схождения"),
     ("execution.timeout_s", "Таймаут прогона, сек"),
