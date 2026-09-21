@@ -215,10 +215,26 @@ function Test-OrchIntegrity {
             $bad += "ошибка чтения: $rel ($($_.Exception.Message))"
         }
     }
+    # _index.md — живой каталог: локальные строки не блокируют. Остальное — строго.
+    $livingRel = "skills/orchestration/references/roles/_index.md"
+    $livingTag = "несовпадение: " + $livingRel
+    $onlyLiving = $true
+    $sawLiving = $false
+    foreach ($b in $bad) {
+        if ($b -eq $livingTag) {
+            $sawLiving = $true
+        } else {
+            $onlyLiving = $false
+        }
+    }
     if ($bad.Count -gt 0) {
-        Write-Host "ОШИБКА: суммы не сошлись. Если склонировали на Windows — Git LF→CRLF; переклонируйте с git -c core.autocrlf=false <repo>"
-        foreach ($b in $bad) { Write-Host "  $b" }
-        exit 1
+        if ($onlyLiving -and $sawLiving) {
+            Write-Host "каталог ролей локально расширен (фабрика/ваши роли) — не блокирует; целостность остальных файлов подтверждена" -ForegroundColor Yellow
+        } else {
+            Write-Host "ОШИБКА: суммы не сошлись. Если склонировали на Windows — Git LF→CRLF; переклонируйте с git -c core.autocrlf=false <repo>"
+            foreach ($b in $bad) { Write-Host "  $b" }
+            exit 1
+        }
     }
 }
 

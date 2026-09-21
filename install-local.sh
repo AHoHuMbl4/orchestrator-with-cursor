@@ -45,10 +45,44 @@ else
 fi
 
 echo "== 1/6 проверка целостности kit =="
-(cd "$KIT" && sha256sum -c SHA256SUMS --quiet) || {
+# _index.md — живой каталог ролей: локальные строки (фабрика/свои роли) не блокируют.
+# Статус успеха зависит от локали: OK (C), ОК, ЦЕЛ (ru_RU coreutils). Иначе — несовпадение.
+LIVING_REL="skills/orchestration/references/roles/_index.md"
+set +e
+check_out="$(cd "$KIT" && sha256sum -c SHA256SUMS 2>/dev/null)"
+check_rc=$?
+set -e
+hard=0
+living_bad=0
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  case "$line" in
+    *:*) ;;
+    *) hard=1; continue ;;
+  esac
+  status="${line##*: }"
+  name="${line%": $status"}"
+  name="${name#./}"
+  status="${status%$'\r'}"
+  name="${name%$'\r'}"
+  case "$status" in
+    OK|ОК|ЦЕЛ) ;;
+    *)
+      if [ "$name" = "$LIVING_REL" ]; then
+        living_bad=1
+      else
+        hard=1
+      fi
+      ;;
+  esac
+done <<< "$check_out"
+if [ "$hard" = "1" ] || { [ "$check_rc" -ne 0 ] && [ "$living_bad" != "1" ]; }; then
   echo "ОШИБКА: суммы не сошлись. Если склонировали на Windows — Git конвертирует LF→CRLF; переклонируйте: git clone -c core.autocrlf=false <repo> (или обновите репо: git rm --cached -r . && git reset --hard после добавления .gitattributes)"
   exit 1
-}
+fi
+if [ "$living_bad" = "1" ]; then
+  printf '\033[33m%s\033[0m\n' "каталог ролей локально расширен (фабрика/ваши роли) — не блокирует; целостность остальных файлов подтверждена"
+fi
 echo "ok (TARGET=$TARGET)"
 
 echo "== 2/6 скиллы (все три движка) =="
