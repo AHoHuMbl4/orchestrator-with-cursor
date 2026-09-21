@@ -21,8 +21,8 @@ ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server
 61a7b0cc7f6b1f5a5a477cbff9e2f643b307054e4fbdc26f03b03ca51c852ac5  ./README.md
 60f44a5662c31c1823813b306291618df368134f1c87316518bdbda7fd6ba407  ./README.ru.md
 f347c6b8b2ca88a62c6a8349758b2200d9232a5552d0e305b71f5a7d8ccd134b  ./skills/orchestration/references/engines.md
-106e8b7c2ae42d71fbcb7a13957f0e025aff8933b79509fe1f895e2800b0f781  ./skills/orchestration/references/MAP.md
-03df0abb55ec0b496b8b28546a6341d7e314ff4f6a70976abe76abc82d51a426  ./skills/orchestration/references/planning.md
+1d7dbf23c964950eec3faca3301865fc8ffec6d371ea5f271d36a757d4ea4252  ./skills/orchestration/references/MAP.md
+0b4a37a80c04eb50c369fa8102f325bcfcdae648433339665b6e38dc92a53131  ./skills/orchestration/references/planning.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
 4231f9d155202d53ba93cd2981071f20f718515642d66f917b8761d8c42a23af  ./skills/orchestration/references/roles/business/churn-analyst.md
 022538d8856dc83c36fef28987085404a645f0199c2a75ad12558c45bc50b049  ./skills/orchestration/references/roles/business/company-success-retrospective.md
@@ -94,7 +94,7 @@ bf3b58c4ac3c6bfa0e7810dbafd2111d70478b764c53fb1ae3c31a382cb8c1f8  ./skills/orche
 4f74f072976931a814f5a59098bee5a07ef6c2f9df9b4c7f55b70620175ca41f  ./skills/orchestration/references/roles/finance/финансовый-аналитик.md
 bc88a9722d4baf8d709d76b3ef1c16fd8d721b5c1060d1f60f878182b2a3e4cd  ./skills/orchestration/references/roles/hr/hr-/-рекрутер.md
 720cf1ef8c48ae3236676f3f0c9bdd0daab88bd4ee932133927f2fca00a874a4  ./skills/orchestration/references/roles/hr/hr-рекрутер.md
-706930cfb439ecb52a2de879d40a39c8617857f738ed5f27cc2bd6c4c8adc53c  ./skills/orchestration/references/roles/_index.md
+aab1bc5fd853caff8ef362162a92e44a185ba54df245b4b9922fab82a0af7e05  ./skills/orchestration/references/roles/_index.md
 07d9ce13d55c7b70c8aaa7d8494e3bdc821656a123d4b6287f9a75d097a879b0  ./skills/orchestration/references/roles/legal/legal-analyst.md
 1d6b9ddcd3a9d0dab60afdb3452bf4baa7656faa64f4ae6baca47421b38fc213  ./skills/orchestration/references/roles/marketing/ad-copy-google.md
 256207d218f1a5356aa7af51ebc6156b1d4383e134a050faea97d9ddbc1f142c  ./skills/orchestration/references/roles/marketing/ad-copy-meta.md
@@ -119,6 +119,7 @@ a05d1b7c8ab07863312aef4fea88392281909494849f0368b0c12cd4aae1950a  ./skills/orche
 495911a465d6ec1515a29c5f56322ed89eebf90a08207ad28161db1efb6e1099  ./skills/orchestration/references/roles/marketing/video-script-writer.md
 24302db530975e23a4a11d9741429311867d47522de098178114c643812e22d2  ./skills/orchestration/references/roles/meta/front-general.md
 b10b5e02182b1415ed973f8c031a0405e5525c41f575371d99f6a90f40240200  ./skills/orchestration/references/roles/meta/front-observer.md
+cec9c8383851a963f926921e8c7749ef3166e7cbbe17dc9a69caab95feb2ae8a  ./skills/orchestration/references/roles/meta/opportunity-advisor.md
 b6401561d85f741a1d073118bf14e5d4786ffe5866e0145c3c316df0fd0fec2e  ./skills/orchestration/references/roles/operations/coo-/-операционный-директор.md
 af583d4bc895aedbad0317e16bea01874b38cb3427cf3b83d5264cde8ae8f3eb  ./skills/orchestration/references/roles/operations/coo-операционный-директор.md
 0b2116e4d358c078be394ef37bee77943fc7a8d626e92621de8f04cf05119978  ./skills/orchestration/references/roles/operations/project-manager.md
@@ -174,7 +175,7 @@ acd6edea681b82e0ce529771f609f74bd36b298e1b4ed1505e878bb3225c687e  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-4e909e9e303f0e3789d5b85a39961c2f0cbad327b54af787070b32033c768ff6  ./skills/orchestration/references/traps.md
-0139d140e2ee5cb00fe96fa335342e6ce21ca232ed884ce99fd1d5b8c7e8d396  ./skills/orchestration/SKILL.md
+480545badae97ae11a817cf92d76f7f1a533e9326ecd6194b11e15a6c3dce16e  ./skills/orchestration/references/traps.md
+cef4847e291089e7223a47dffe0c587a1f7d0a71baf0a28a1fba2f855d954a63  ./skills/orchestration/SKILL.md
 b9e3fdf52a26b2f39dd4e3ad045d58d3a9e6da8223d5e2ddf2ad75e87423205a  ./uninstall.ps1
 d52d438b298b94a62ec70e08865924c61c951284db0ac3ef0354a3ecc738e35f  ./uninstall.sh

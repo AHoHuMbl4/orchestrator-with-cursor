@@ -73,6 +73,7 @@ State — `.orchestration/` в проекте.
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`) |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
+| генералу нужны варианты? | meta/opportunity-advisor (облако) |
 | Compass фронта? | `<state>/fronts/<id>/compass.md` |
 | Правки кода: гит до/после волны? | чекпоинт git до волны, ревизия после — `code/git-warden` |
 | Доки протухли/обновить после волны? | `code/docs-keeper` |
