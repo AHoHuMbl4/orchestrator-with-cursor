@@ -10,10 +10,13 @@ $(cat ...) и без кавычек). Модель исполнителя все
 (у cursor нет хуков — периодический re-ground идёт на уровне промта).
 
   python3 run-exec.py --id T1 [--prompt-file ...] [--timeout 1800] [--detach]
-                      [--no-reground-line] [--model auto] [доп. флаги cursor-agent]
+                      [--yield-after 480] [--no-reground-line] [--model auto]
+                      [доп. флаги cursor-agent]
 
 Лог: <state>/cursor-run-<id>.log, в конце строка EXIT=<код>.
 При --detach: pid-файл <state>/cursor-run-<id>.pid, процесс не ждём.
+Foreground: после --yield-after сек (дефолт 480; 0 = выкл) — авто-уступка
+в фон через тот же watcher, exit 0.
 
 Коды EXIT:
   0       — result success
@@ -140,10 +143,21 @@ def build_agent_cmd(exe, prompt, model, extra):
             "--output-format", "stream-json"] + list(extra or [])
 
 
-def wait_child(proc, log_fh, log_path, timeout_s):
-    """Ждём дочерний proc; таймаут → kill → 124. Возвращает строковый код."""
+def wait_child(proc, log_fh, log_path, timeout_s, yield_after=0):
+    """Ждём дочерний proc; таймаут → kill → 124; yield_after → 'YIELDED'.
+
+    yield_after: сек ожидания до авто-уступки в фон (0 = отключить).
+    Возвращает строковый код или 'YIELDED'.
+    """
     deadline = time.time() + timeout_s
+    started = time.time()
     while proc.poll() is None and time.time() < deadline:
+        if yield_after and (time.time() - started) >= yield_after:
+            try:
+                log_fh.close()
+            except Exception:
+                pass
+            return "YIELDED"
         time.sleep(1)
     if proc.poll() is None:
         kill_tree(proc)
@@ -158,6 +172,15 @@ def wait_child(proc, log_fh, log_path, timeout_s):
     except Exception:
         pass
     return classify_after_wait(log_path, rc)
+
+
+def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model):
+    """Запуск detached --__watch (общий для --detach и авто-уступки)."""
+    watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
+                 str(pid), log_path, pid_path, str(timeout_s),
+                 run_prompt_file, model]
+    subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, **detach_popen_kwargs())
 
 
 def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra):
@@ -452,6 +475,9 @@ def main():
                     help="по умолчанию <state>/prompt-<id>.md")
     ap.add_argument("--timeout", type=int, default=None, help="сек; по умолчанию из params")
     ap.add_argument("--detach", action="store_true", help="фон: pid-файл, не ждать")
+    ap.add_argument("--yield-after", type=int, default=480,
+                    help="сек foreground-ожидания до авто-уступки в фон "
+                         "(дефолт 480; 0 = ждать до конца/таймаута)")
     ap.add_argument("--status", action="store_true",
                     help="статус прогона --id (лог/pid/exit/вердикт); exit 0")
     ap.add_argument("--list", action="store_true",
@@ -526,15 +552,24 @@ def main():
 
     if a.detach:
         # watcher допишет EXIT= и при 4/124 рестартнет агента как своего потомка
-        watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
-                     str(proc.pid), log_path, pid_path, str(timeout_s),
-                     run_prompt_file, a.model]
-        subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, **detach_popen_kwargs())
+        start_watcher(proc.pid, log_path, pid_path, timeout_s,
+                      run_prompt_file, a.model)
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
         return 0
 
-    code = wait_child(proc, log_fh, log_path, timeout_s)
+    # foreground: pid-файл уже записан; при уступке watcher его удалит
+    code = wait_child(proc, log_fh, log_path, timeout_s,
+                      yield_after=a.yield_after)
+    if code == "YIELDED":
+        start_watcher(proc.pid, log_path, pid_path, timeout_s,
+                      run_prompt_file, a.model)
+        sys.stdout.write(
+            "yield: ожидание >%ss — прогон продолжается в фоне "
+            "(переживает смерть этой сессии). pid=%s лог=%s. "
+            "Статус: run-exec.py --id %s --status\n"
+            % (a.yield_after, proc.pid, log_path, a.id))
+        return 0
+
     code = apply_retries(code, log_path, pid_path, timeout_s,
                          run_prompt_file, retry_on_fail, a.model, a.extra)
 
