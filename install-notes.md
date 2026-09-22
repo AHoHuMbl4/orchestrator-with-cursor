@@ -30,6 +30,27 @@ HTML-панель, **dual-path исполнители** (локальный CLI 
 python3.6+ stdlib, кроссплатформенно (Linux/macOS/Windows), без зависимостей
 и без git для слоя параметров.
 
+## Что нового
+
+- **Лимиты compass:** сессионный ≤ 8500 символов, фронтовый (и мини-compass
+  полковника) ≤ 4000; значения в `.orchestration/params.json` (секция
+  compass-лимитов; без секции — те же дефолты в хуках). Настройка — правкой
+  params или панелью.
+- **Гарды reground** (`bin/reground.py`): prompt-submit — громкий блок при
+  превышении по всем `**/compass.md` состояния (живое превышение или
+  pending-флаг); heartbeat при overflow пишет pending-флаг гарда
+  (пути+размеры), доставка — в ближайший prompt-submit (не «громкий блок
+  сразу»: SessionHeartbeat observation-only); post-tool — только при записи
+  в compass-путь; session-start — видимая обрезка с маркером вместо тихого
+  среза.
+- **Валидация menu/panel:** отказ при записи надлимитного compass; в панели
+  размер виден, превышение подсвечено.
+- **Слой полковников:** командующий → наблюдатели + генералы фронтов →
+  полковники подзадач со свитой → исполнители. Новые роли: `meta/front-colonel`,
+  `meta/raw-brief-synthesizer` (свита: `opportunity-advisor`, критики плана
+  `fact-checker`/`code-reviewer`, критики приёмки, `git-warden`,
+  `docs-keeper`).
+
 ## Состав
 
 ```

@@ -39,6 +39,8 @@
         padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
   .hint { font-size: 12px; color: #6f7b88; margin-top: 3px; }
   .hint b { color: #445060; }
+  .compass-size { font-size: 12px; color: #5a6572; margin-top: 4px; }
+  .compass-size.over { color: #c62828; font-weight: 600; }
   .warn-template { background: #fff8e1; border: 1px solid #f0d78c; color: #7a5b00;
     padding: 8px 10px; border-radius: 6px; margin-top: 8px; font-size: 12px; }
   .warn-template label { display: flex; align-items: center; gap: 6px; margin: 8px 0 0;
@@ -66,8 +68,9 @@
   <select id="compassTarget" style="width:auto" onchange="onCompassTargetChange()"></select>
 </div>
 <div class="hint" id="compassEmptyHint" style="display:none">Сессии появятся после первого сообщения в движке; общий стартовый шаблон — в Расширенных</div>
-<textarea id="compass" disabled></textarea>
+<textarea id="compass" disabled oninput="updateCompassSizeUi()"></textarea>
 <div class="hint" id="compassPath"></div>
+<div class="compass-size" id="compassSize"></div>
 <div class="hint">Можно вставить заранее. Если задача даётся в чате — агент сам запишет её в compass перед запуском исполнителей и будет обновлять фазу после каждой волны.</div>
 <button class="sec" id="saveCompassBtn" onclick="saveCompass()" disabled>Сохранить задачу</button>
 
@@ -191,6 +194,7 @@
 
 <script>
 let P = {};
+let compassLimit = null;  // сессионный лимит из API (null = не задан)
 const IDS = ["orchestration.enabled","orchestration.hierarchy","execution.executor","execution.on_cursor_fail","execution.parallel_per_task","review.reviewers_per_diff","execution.ask_before_runs","review.max_rounds",
   "execution.timeout_s","execution.retry_on_fail","reground.every_min","reground.every_n_calls",
   "reground.compact_reground","orchestrator.claude","orchestrator.claude_effort",
@@ -200,6 +204,24 @@ function set(id,v){ const [s,f]=id.split("."); P[s]=P[s]||{}; P[s][f]=v; }
 function fill(){ IDS.forEach(id=>{ const el=document.getElementById(id); if(!el) return;
   let v=get(id); if(el.tagName==="SELECT") v=String(v); if(el.type==="number") v=v??""; el.value=v; }); }
 function msg(t,cls){ const m=document.getElementById("msg"); m.textContent=t; m.className=cls||""; }
+function formatCompassSize(size, limit){
+  const n = (size==null||size==="") ? 0 : Number(size);
+  if (limit==null || limit==="") return n + " / лимит не задан";
+  return n + " / " + limit;
+}
+function isOverLimit(size, limit){
+  return limit!=null && limit!=="" && Number(size) > Number(limit);
+}
+function updateCompassSizeUi(){
+  const el = document.getElementById("compassSize");
+  if (!el) return;
+  const sid = document.getElementById("compassTarget").value;
+  if (!sid) { el.textContent = ""; el.className = "compass-size"; return; }
+  const size = (document.getElementById("compass").value || "").length;
+  const over = isOverLimit(size, compassLimit);
+  el.textContent = (over ? "⛔ " : "") + formatCompassSize(size, compassLimit);
+  el.className = "compass-size" + (over ? " over" : "");
+}
 async function loadAll(){
   P=(await (await fetch("/api/params")).json()).params;
   fill();
@@ -238,14 +260,21 @@ function renderFrontsWaves(j){
   let html="";
   waves.forEach((wave,i)=>{
     html+='<div class="wave-block"><h3>Волна '+(i+1)+'</h3><table><thead><tr>'+
-      '<th>title</th><th>роль</th><th>статус</th><th>compass</th></tr></thead><tbody>';
+      '<th>title</th><th>роль</th><th>статус</th><th>compass</th><th>размер</th></tr></thead><tbody>';
     wave.forEach(id=>{
       const f=byId[id]||{id:id,title:id,role:"",status:"planned",compass:""};
       const cp=f.compass_path||f.compass||"";
       const exists=f.compass_exists?' ✓':'';
+      const lim=(f.compass_limit!=null)?f.compass_limit:j.compass_limit;
+      const size=f.compass_size||0;
+      const over=isOverLimit(size, lim);
+      const sizeHtml=over
+        ? '<span class="compass-size over" style="margin:0">⛔ '+esc(formatCompassSize(size, lim))+'</span>'
+        : '<span class="compass-size" style="margin:0">'+esc(formatCompassSize(size, lim))+'</span>';
       html+='<tr><td>'+esc(f.title||id)+'</td><td>'+esc(f.role||"")+'</td>'+
         '<td><span class="'+statusClass(f.status)+'">'+esc(f.status||"")+'</span></td>'+
-        '<td class="hint" style="margin:0">'+esc(cp)+exists+'</td></tr>';
+        '<td class="hint" style="margin:0">'+esc(cp)+exists+'</td>'+
+        '<td>'+sizeHtml+'</td></tr>';
     });
     html+='</tbody></table></div>';
   });
@@ -368,6 +397,8 @@ function updateCompassSaveUi(){
     ta.disabled = true;
     btn.disabled = true;
     document.getElementById("compassPath").textContent = "";
+    compassLimit = null;
+    updateCompassSizeUi();
   } else {
     empty.style.display = "none";
     ta.disabled = false;
@@ -381,6 +412,8 @@ async function loadCompass(){
   const c = await (await fetch("/api/compass?id="+encodeURIComponent(sid))).json();
   document.getElementById("compass").value = c.text;
   document.getElementById("compassPath").textContent = "файл: " + c.path + " (сессионный)";
+  compassLimit = (c.compass_limit!=null) ? c.compass_limit : null;
+  updateCompassSizeUi();
 }
 async function saveCompass(){
   const sid = document.getElementById("compassTarget").value;
@@ -389,8 +422,10 @@ async function saveCompass(){
   const r = await fetch("/api/compass",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)});
   const j = await r.json();
+  if (j.compass_limit!=null) compassLimit = j.compass_limit;
+  updateCompassSizeUi();
   msg(r.ok?"задача сохранена ✓":(j.error||"ошибка"), r.ok?"ok":"err");
-  loadSessions();
+  if (r.ok) loadSessions();
 }
 function updateTemplateSaveUi(){
   document.getElementById("saveTemplateBtn").disabled =

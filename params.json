@@ -29,5 +29,9 @@
   "panel": {
     "host": "127.0.0.1",
     "port": 8765
+  },
+  "compass": {
+    "max_session_chars": 8500,
+    "max_front_chars": 4000
   }
 }

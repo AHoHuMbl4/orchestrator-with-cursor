@@ -49,6 +49,10 @@ DEFAULTS = {
         "host": "127.0.0.1",
         "port": 8765,
     },
+    "compass": {
+        "max_session_chars": 8500,  # лимит сессионного/общего compass (символы)
+        "max_front_chars": 4000,    # лимит compass фронта/полковника (fronts/**)
+    },
 }
 
 RANGES = {  # (min, max) для целочисленных полей
@@ -61,6 +65,8 @@ RANGES = {  # (min, max) для целочисленных полей
     "orchestrator.budget_usd": (0, 1000),
     "reground.every_min": (1, 120),
     "reground.every_n_calls": (5, 500),
+    "compass.max_session_chars": (100, 200000),
+    "compass.max_front_chars": (100, 200000),
 }
 
 
@@ -353,7 +359,124 @@ def compass_path(p):
     return path
 
 
-def read_compass(p, limit=9000):
+def compass_limits(p=None):
+    """Лимиты compass: (session_chars, front_chars). Дефолты 8500/4000 без секции."""
+    c = (p or {}).get("compass") if isinstance(p, dict) else None
+    if not isinstance(c, dict):
+        c = {}
+    try:
+        sess = int(c.get("max_session_chars", DEFAULTS["compass"]["max_session_chars"]))
+    except (TypeError, ValueError):
+        sess = DEFAULTS["compass"]["max_session_chars"]
+    try:
+        front = int(c.get("max_front_chars", DEFAULTS["compass"]["max_front_chars"]))
+    except (TypeError, ValueError):
+        front = DEFAULTS["compass"]["max_front_chars"]
+    return sess, front
+
+
+def compass_session_limit(p=None):
+    return compass_limits(p)[0]
+
+
+def compass_front_limit(p=None):
+    return compass_limits(p)[1]
+
+
+def find_compass_files():
+    """Все compass.md состояния: общий, sessions/*/compass.md, fronts/**/compass.md."""
+    st = find_state_dir()
+    out = []
+    root = os.path.join(st, "compass.md")
+    if os.path.isfile(root):
+        out.append(root)
+    sess_root = os.path.join(st, "sessions")
+    if os.path.isdir(sess_root):
+        try:
+            names = os.listdir(sess_root)
+        except OSError:
+            names = []
+        for name in names:
+            path = os.path.join(sess_root, name, "compass.md")
+            if os.path.isfile(path):
+                out.append(path)
+    fronts_root = os.path.join(st, "fronts")
+    if os.path.isdir(fronts_root):
+        for dirpath, _dirnames, filenames in os.walk(fronts_root):
+            if "compass.md" in filenames:
+                out.append(os.path.join(dirpath, "compass.md"))
+    return out
+
+
+def compass_limit_for_path(p, path):
+    """Сессионный/общий — session limit; fronts/** — front limit."""
+    sess_lim, front_lim = compass_limits(p)
+    st = find_state_dir()
+    fronts_root = os.path.normpath(os.path.join(st, "fronts"))
+    norm = os.path.normpath(os.path.abspath(path))
+    try:
+        if os.path.commonpath([norm, fronts_root]) == fronts_root:
+            return front_lim
+    except ValueError:
+        pass
+    return sess_lim
+
+
+def compass_char_size(path):
+    """Число символов (unicode) в файле; None если не читается."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return len(f.read())
+    except Exception:
+        return None
+
+
+def compass_overflows(p=None):
+    """Список превышений [{path, size, limit}] по всем compass состояния."""
+    if p is None:
+        p = load_params()
+    result = []
+    for path in find_compass_files():
+        size = compass_char_size(path)
+        if size is None:
+            continue
+        limit = compass_limit_for_path(p, path)
+        if size > limit:
+            result.append({"path": path, "size": size, "limit": limit})
+    return result
+
+
+def format_compass_overflows(overflows):
+    """Громкий блок превышений (по строке на файл). Пустая строка если нет."""
+    if not overflows:
+        return ""
+    lines = []
+    for o in overflows:
+        lines.append(
+            "⛔ COMPASS ПРЕВЫШЕН: %s: %d символов при лимите %d. "
+            "Хвост НЕ виден вклейками. Ужми файл: историю — в артефакты, не в compass."
+            % (o["path"], o["size"], o["limit"])
+        )
+    return "\n".join(lines)
+
+
+def is_compass_path(path):
+    """True если путь — compass.md под state (общий / sessions / fronts/**)."""
+    if not path:
+        return False
+    norm = os.path.normpath(os.path.abspath(path))
+    if os.path.basename(norm) != "compass.md":
+        return False
+    st = os.path.normpath(find_state_dir())
+    try:
+        return os.path.commonpath([norm, st]) == st
+    except ValueError:
+        return False
+
+
+def read_compass(p, limit=None):
+    if limit is None:
+        limit = compass_session_limit(p)
     try:
         with open(compass_path(p), "r", encoding="utf-8") as f:
             text = f.read()

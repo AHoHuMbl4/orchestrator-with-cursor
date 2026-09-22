@@ -184,6 +184,14 @@ def show(session_cli=None):
         print(head.rstrip())
     except Exception:
         print("(compass не найден)")
+    if content is not None:
+        limit = orchlib.compass_limit_for_path(p, path)
+        if len(content) > limit:
+            sys.stderr.write(
+                "ПРЕДУПРЕЖДЕНИЕ: compass превышает лимит: %d символов при лимите %d "
+                "(%s). Ужми файл: историю — в артефакты.\n"
+                % (len(content), limit, path)
+            )
     if sid and content is not None:
         emit_compass_warnings(validate_compass_content(content))
     return 0
@@ -217,6 +225,15 @@ def set_task(text, task_file, session_cli=None, global_template=False):
     sid = resolve_session_id(session_cli)
     if sid:
         path = orchlib.session_compass_path(p, sid)
+        limit = orchlib.compass_session_limit(p)
+        if len(text) > limit:
+            print(
+                "ошибка: compass превышает лимит сессии: %d символов при лимите %d. "
+                "Файл не записан. Ужми: историю — в артефакты, не в compass."
+                % (len(text), limit),
+                file=sys.stderr,
+            )
+            return 2
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)

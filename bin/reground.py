@@ -116,9 +116,17 @@ def cmd_session_start(engine, fmt):
     if p.get("reground", {}).get("compact_reground", True) == False:
         return
     cpath = compass_of(p, sid)
+    limit = orchlib.compass_session_limit(p)
     try:
         with open(cpath, "r", encoding="utf-8") as f:
-            ctext = f.read()[:8500]
+            full = f.read()
+        n = len(full)
+        if n > limit:
+            ctext = (full[:limit] +
+                     "\n⚠️ ВКЛЕЙКА ОБРЕЗАНА: показаны первые %d из %d символов; "
+                     "хвост НЕ виден — ужми файл." % (limit, n))
+        else:
+            ctext = full
     except Exception:
         if seeded is False and not os.path.exists(cpath):
             ctext = ("(compass этой сессии ещё не создан — СОЗДАЙ его по пути %s "
@@ -133,6 +141,21 @@ def cmd_session_start(engine, fmt):
     )[:9500]
     text = ("Сессия: %s. Compass этой сессии: %s\n\n" % (sid, cpath) + text)[:9800]
     emit(fmt, "SessionStart", text)
+
+
+def _tool_write_path(ev):
+    """Целевой путь записи из PostToolUse (Claude/Codex): tool_name + tool_input.file_path."""
+    tool = ev.get("tool_name") or ev.get("toolName") or ""
+    write_tools = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+    if tool not in write_tools:
+        return None
+    ti = ev.get("tool_input") or ev.get("toolInput") or {}
+    if not isinstance(ti, dict):
+        return None
+    path = ti.get("file_path") or ti.get("filePath") or ti.get("path")
+    if isinstance(path, str) and path.strip():
+        return path.strip()
+    return None
 
 
 def cmd_post_tool(engine, fmt):
@@ -167,13 +190,13 @@ def cmd_post_tool(engine, fmt):
     elif since_nudge_calls >= every_calls:
         triggered = "%d вызовов" % since_nudge_calls
 
+    parts = []
     if triggered:
-        text = NUDGE_TEXT.format(
+        parts.append(NUDGE_TEXT.format(
             minutes=int(elapsed // 60), calls=since_nudge_calls,
             summary=orchlib.params_summary(p),
             compass=compass_of(p, session_id),
-        )[:9000]
-        emit(fmt, "PostToolUse", text)
+        )[:9000])
         data["last_nudge_ts"] = now
         data["calls_at_nudge"] = data["calls"]
 
@@ -182,6 +205,20 @@ def cmd_post_tool(engine, fmt):
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
         sys.stderr.write("counter write failed: %s\n" % e)
+
+    # гард: только если инструмент писал в compass-путь и файл превысил лимит
+    wpath = _tool_write_path(ev)
+    if wpath and orchlib.is_compass_path(wpath):
+        size = orchlib.compass_char_size(wpath)
+        if size is not None:
+            limit = orchlib.compass_limit_for_path(p, wpath)
+            if size > limit:
+                parts.append(orchlib.format_compass_overflows(
+                    [{"path": os.path.normpath(os.path.abspath(wpath)),
+                      "size": size, "limit": limit}]))
+
+    if parts:
+        emit(fmt, "PostToolUse", "\n".join(parts)[:9000])
 
 
 def cmd_heartbeat(engine, fmt):
@@ -192,6 +229,17 @@ def cmd_heartbeat(engine, fmt):
     p = orchlib.load_params()
     if not enabled(p, sid):
         return
+    # SessionHeartbeat — observation-only (stdout НЕ в контекст модели):
+    # при overflow — pending-флаг гарда; доставка — в UserPromptSubmit.
+    overflows = orchlib.compass_overflows(p)
+    if overflows:
+        flag_g = os.path.join(orchlib.session_dir(sid), "pending_compass_guard.json")
+        try:
+            with open(flag_g, "w", encoding="utf-8") as f:
+                json.dump({"overflows": overflows}, f, ensure_ascii=False)
+            sys.stderr.write("compass guard pending: %d file(s)\n" % len(overflows))
+        except Exception as e:
+            sys.stderr.write("compass guard flag failed: %s\n" % e)
     every_min = int(p.get("reground", {}).get("every_min", 7))
     uptime_ms = ev.get("uptime_ms")
     if not isinstance(uptime_ms, (int, float)):
@@ -204,8 +252,7 @@ def cmd_heartbeat(engine, fmt):
             last = json.load(f).get("uptime_ms")
     except Exception:
         pass
-    # SessionHeartbeat — observation-only (stdout НЕ попадает в контекст модели):
-    # heartbeat только решает «пора» и ставит флажок; доставит следующий
+    # heartbeat только решает «пора» и ставит флажок nudge; доставит следующий
     # UserPromptSubmit (у него append в контекст документирован).
     if last is None:
         last = uptime_ms  # первый тик: инициализация без напоминания
@@ -235,6 +282,32 @@ def cmd_prompt_submit(engine, fmt):
     orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
+    # гард: живое превышение ИЛИ pending-флаг от heartbeat → громкий блок первым
+    live_ov = orchlib.compass_overflows(p)
+    flag_g = os.path.join(orchlib.session_dir(sid), "pending_compass_guard.json")
+    pending_ov = None
+    try:
+        with open(flag_g, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            pending_ov = payload.get("overflows")
+        elif isinstance(payload, list):
+            pending_ov = payload
+    except Exception:
+        pass
+    if live_ov:
+        guard = orchlib.format_compass_overflows(live_ov)
+    elif pending_ov:
+        guard = orchlib.format_compass_overflows(pending_ov)
+    else:
+        guard = ""
+    # снять pending-флаг после доставки (как nudge); живое превышение и так
+    # поймает следующий prompt-submit. Сняли и если превышение уже ушло.
+    if pending_ov is not None:
+        try:
+            os.unlink(flag_g)
+        except Exception:
+            pass
     marks = {}
     for name, path in (("params", orchlib.params_file()),
                        ("compass", compass_of(p, sid))):
@@ -266,8 +339,12 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
+    if not guard and not nudge and prev == marks:
+        return  # не менялось, нуджа нет, превышений нет — молчим
     if not nudge and prev == marks:
-        return  # не менялось и нуджа нет — молчим
+        # только превышения — громкий блок без сводки params
+        emit(fmt, "UserPromptSubmit", guard[:9500])
+        return
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
     cpath_ps = compass_of(p, sid)
@@ -285,7 +362,8 @@ def cmd_prompt_submit(engine, fmt):
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
              compass=compass_hint, map_orient=_MAP_ORIENT)
-    emit(fmt, "UserPromptSubmit", (nudge + text)[:9500])
+    prefix = (guard + "\n") if guard else ""
+    emit(fmt, "UserPromptSubmit", (prefix + nudge + text)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:
             json.dump(marks, f)

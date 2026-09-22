@@ -25,6 +25,77 @@ PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+def _compass_char_size(text):
+    """Размер в символах Unicode (не байтах)."""
+    if text is None:
+        return 0
+    if not isinstance(text, str):
+        text = str(text)
+    return len(text)
+
+
+def _compass_limits(p=None):
+    """(session_limit, front_limit) — int или None, если секция/функция не заданы.
+
+    B1: orchlib.compass_limits(p) → (session, front) с дефолтами 8500/4000.
+    Пока хелпера нет — читаем params.compass; нет секции → оба None
+    (панель: «лимит не задан», POST без отказа).
+    """
+    if p is None:
+        p = orchlib.load_params()
+    fn = getattr(orchlib, "compass_limits", None)
+    if callable(fn):
+        try:
+            lim = fn(p)
+            if isinstance(lim, (tuple, list)) and len(lim) >= 2:
+                return _as_limit(lim[0]), _as_limit(lim[1])
+            if isinstance(lim, dict):
+                return (_as_limit(lim.get("max_session_chars", lim.get("session"))),
+                        _as_limit(lim.get("max_front_chars", lim.get("front"))))
+        except Exception:
+            pass
+    sec = p.get("compass") if isinstance(p, dict) else None
+    if not isinstance(sec, dict):
+        return None, None
+    return (_as_limit(sec.get("max_session_chars")),
+            _as_limit(sec.get("max_front_chars")))
+
+
+def _as_limit(v):
+    """Положительное int-лимит или None."""
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _compass_over_limit_msg(size, limit, kind="сессионный"):
+    return ("compass превышен: %d символов при лимите %d (%s). "
+            "Файл не записан. Ужмите: историю — в артефакты, не в compass."
+            % (size, limit, kind))
+
+
+def _compass_file_size(path):
+    """Число символов в файле; 0 если нет/не читается."""
+    if not path or not os.path.isfile(path):
+        return 0
+    fn = getattr(orchlib, "compass_char_size", None)
+    if callable(fn):
+        try:
+            n = fn(path)
+            return int(n) if n is not None else 0
+        except Exception:
+            pass
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return _compass_char_size(f.read())
+    except Exception:
+        return 0
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "orch-panel/1.0"
 
@@ -128,7 +199,13 @@ class Handler(BaseHTTPRequestHandler):
                     text = f.read()[:200000]
             except Exception:
                 text = ""
-            self.send_json({"path": target, "text": text, "session": sid})
+            sess_lim, _front_lim = _compass_limits(p)
+            size = _compass_char_size(text)
+            self.send_json({
+                "path": target, "text": text, "session": sid,
+                "compass_size": size,
+                "compass_limit": sess_lim,  # None → UI: «лимит не задан»
+            })
         elif u.path == "/api/discovered":
             dj = orchlib.state_path("discovered.json")
             if os.path.exists(dj):
@@ -198,6 +275,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"runs": self.runs_status()})
         elif u.path == "/api/fronts":
             data = orchlib.load_fronts()
+            _sess_lim, front_lim = _compass_limits(orchlib.load_params())
             fronts_out = []
             for fr in data.get("fronts") or []:
                 if not isinstance(fr, dict):
@@ -208,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
                 item["compass"] = item.get("compass") or cp
                 item["compass_exists"] = bool(cp and os.path.isfile(cp))
                 item["compass_path"] = cp
+                item["compass_size"] = _compass_file_size(cp) if item["compass_exists"] else 0
+                item["compass_limit"] = front_lim  # None → UI: «лимит не задан»
                 fronts_out.append(item)
             try:
                 waves = orchlib.front_waves({"goal": data.get("goal", ""),
@@ -220,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
                 "fronts": fronts_out,
                 "notes": data.get("notes", ""),
                 "waves": waves,
+                "compass_limit": front_lim,
             })
         elif u.path == "/api/logs":
             name = (q.get("name") or [""])[0]
@@ -325,15 +406,28 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "глобальный compass — шаблон; подтвердите запись"}, 400)
                 return
             p = orchlib.load_params()
+            sess_lim, _front_lim = _compass_limits(p)
+            size = _compass_char_size(text)
+            # Отказ только если лимит задан в params/orchlib; иначе — как раньше.
+            if sess_lim is not None and size > sess_lim:
+                self.send_json({
+                    "error": _compass_over_limit_msg(size, sess_lim, "сессионный"),
+                    "compass_size": size,
+                    "compass_limit": sess_lim,
+                }, 400)
+                return
             if sid:
                 path = os.path.join(orchlib.session_dir(sid), "compass.md")
             else:
                 path = orchlib.compass_path(p)
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
-            self.send_json({"ok": True, "path": path})
+            self.send_json({
+                "ok": True, "path": path,
+                "compass_size": size,
+                "compass_limit": sess_lim,
+            })
         elif u.path == "/api/sessions":
             body, err = self.read_body_json()
             if err:

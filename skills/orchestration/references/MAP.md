@@ -47,6 +47,7 @@ State — `.orchestration/` в проекте.
 - `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
 - статусы фронта: `planned` / `running` / `blocked` / `done` / `failed`
 - `<state>/fronts/<id>/compass.md` — compass каждого фронта (`orchlib.front_compass_path`)
+- `<state>/fronts/<id>/colonels/<cid>/compass.md` — мини-compass полковника (лимит как у фронтового)
 - Правило: запускай всё из одной папки проекта (или задай `ORCHESTRATION_DIR`)
 
 ## C. Скилл и роли (как выбирать)
@@ -62,6 +63,8 @@ State — `.orchestration/` в проекте.
 - `references/roles/<домен>/<роль>.md` — шаблон промта роли (путь берётся из `_index.md`)
 - `references/roles/meta/` — meta-роли иерархии; выбор через `_index.md`
 - `references/roles/meta/front-general.md` — генерал фронта: умная модель, узкий фронт, критики плана, выжимка вверх
+- `references/roles/meta/front-colonel.md` — полковник подзадачи: cursor, свита, мини-compass, выжимка генералу
+- `references/roles/meta/raw-brief-synthesizer.md` — читатель сырья волны → выжимка ≤15 строк командиру
 - `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
 - `references/roles/meta/front-prosecutor.md` — прокурор: внутриволновой надзор, власть ноль
 
@@ -75,7 +78,8 @@ State — `.orchestration/` в проекте.
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
 | генералу нужны варианты? | meta/opportunity-advisor (облако) |
-| Compass фронта? | `<state>/fronts/<id>/compass.md` |
+| Compass фронта? | `<state>/fronts/<id>/compass.md` (≤ 4000 символов) |
+| Мини-compass полковника? | `<state>/fronts/<id>/colonels/<cid>/compass.md` (лимит как у фронтового) |
 | Правки кода: гит до/после волны? | чекпоинт git до волны, ревизия после — `code/git-warden` |
 | Доки протухли/обновить после волны? | `code/docs-keeper` |
 | дифф переусложнён? | `code/simplicity-warden` |
