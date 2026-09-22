@@ -30,6 +30,8 @@ $(cat ...) и без кавычек). Модель исполнителя все
   (cursor-agent — его потомок, код возврата через wait).
 """
 import argparse
+import glob
+import json
 import os
 import shutil
 import signal
@@ -39,6 +41,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
+import verdict as verdict_mod  # noqa: E402
 
 REGROUND_LINE = (
     "\n\n---\nСамопроверка курса: в начале каждого подшага перечитай файл задания "
@@ -256,6 +259,183 @@ def pid_alive(pid):
         return False
 
 
+def resolve_run_paths(state, run_id, session=None):
+    """Пути лога и pid: state/cursor-run-<id>.* или sessions/<sid>/runs/<id>/."""
+    if session:
+        run_dir = os.path.join(state, "sessions", session, "runs", run_id)
+        return (os.path.join(run_dir, "run.log"),
+                os.path.join(run_dir, "run.pid"))
+    return (os.path.join(state, "cursor-run-%s.log" % run_id),
+            os.path.join(state, "cursor-run-%s.pid" % run_id))
+
+
+def read_pid_file(pid_path):
+    try:
+        with open(pid_path, "r", encoding="utf-8") as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def last_marker_line(log_path):
+    """Последняя строка EXIT=... или RETRY=... из лога (если есть)."""
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return None
+    marker = None
+    for line in lines:
+        s = line.strip()
+        if s.startswith("EXIT=") or s.startswith("RETRY="):
+            marker = s
+    return marker
+
+
+def collect_run_info(run_id, log_path, pid_path):
+    """Сводка по прогону; отсутствующий лог → None (caller печатает «не найден»)."""
+    if not log_path or not os.path.isfile(log_path):
+        return None
+    try:
+        age_s = int(max(0, time.time() - os.path.getmtime(log_path)))
+    except Exception:
+        age_s = None
+    pid = read_pid_file(pid_path) if pid_path else None
+    alive = bool(pid is not None and pid_alive(pid))
+    analyzed = verdict_mod.analyze(log_path)
+    # exit из EXIT=; если маркера ещё нет — классификация по хвосту (classify_log)
+    exit_code = analyzed.get("exit") or "UNKNOWN"
+    if exit_code == "UNKNOWN" and not alive:
+        exit_code = classify_log(log_path)
+    # report_present: analyze уже использует эвристику assistant/text;
+    # при сомнении — has_assistant_text на хвосте
+    report_present = bool(analyzed.get("report_present"))
+    if not report_present:
+        try:
+            with open(log_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 8000))
+                tail = f.read().decode("utf-8", "replace")
+            report_present = has_assistant_text(tail)
+        except Exception:
+            pass
+    return {
+        "id": run_id,
+        "log": log_path,
+        "pid": pid,
+        "pid_alive": alive,
+        "exit": exit_code,
+        "retries": int(analyzed.get("retries") or 0),
+        "report_present": report_present,
+        "verdict": analyzed.get("verdict") or "NONE",
+        "age_s": age_s,
+        "marker": last_marker_line(log_path),
+    }
+
+
+def cmd_status(state, run_id, session=None):
+    """--status: компактный отчёт + JSON; всегда exit 0."""
+    log_path, pid_path = resolve_run_paths(state, run_id, session)
+    info = collect_run_info(run_id, log_path, pid_path)
+    if info is None:
+        sys.stdout.write("не найден\n")
+        payload = {
+            "id": run_id,
+            "log": None,
+            "pid_alive": False,
+            "exit": None,
+            "retries": 0,
+            "report_present": False,
+            "verdict": None,
+            "age_s": None,
+        }
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False,
+                                    separators=(",", ":")) + "\n")
+        return 0
+    pid_s = "нет" if info["pid"] is None else (
+        "%s (%s)" % (info["pid"], "жив" if info["pid_alive"] else "нет"))
+    marker = info["marker"] or "(нет EXIT/RETRY)"
+    sys.stdout.write("лог: %s\n" % info["log"])
+    sys.stdout.write("pid: %s\n" % pid_s)
+    sys.stdout.write("маркер: %s\n" % marker)
+    sys.stdout.write("возраст: %ss\n" % info["age_s"])
+    sys.stdout.write("отчёт: %s  вердикт: %s  exit: %s  retries: %s\n" % (
+        "да" if info["report_present"] else "нет",
+        info["verdict"], info["exit"], info["retries"]))
+    payload = {
+        "id": info["id"],
+        "log": info["log"],
+        "pid_alive": info["pid_alive"],
+        "exit": info["exit"],
+        "retries": info["retries"],
+        "report_present": info["report_present"],
+        "verdict": info["verdict"],
+        "age_s": info["age_s"],
+    }
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False,
+                                separators=(",", ":")) + "\n")
+    return 0
+
+
+def iter_state_logs(state, session=None):
+    """Список (id, log_path, pid_path, mtime) — state-уровень + runs при --session."""
+    entries = []
+    for log_path in glob.glob(os.path.join(state, "cursor-run-*.log")):
+        base = os.path.basename(log_path)
+        # cursor-run-<id>.log
+        run_id = base[len("cursor-run-"):-len(".log")]
+        if not run_id:
+            continue
+        pid_path = os.path.join(state, "cursor-run-%s.pid" % run_id)
+        try:
+            mtime = os.path.getmtime(log_path)
+        except Exception:
+            continue
+        entries.append((run_id, log_path, pid_path, mtime))
+    if session:
+        runs_root = os.path.join(state, "sessions", session, "runs")
+        for log_path in glob.glob(os.path.join(runs_root, "*", "run.log")):
+            run_id = os.path.basename(os.path.dirname(log_path))
+            pid_path = os.path.join(os.path.dirname(log_path), "run.pid")
+            try:
+                mtime = os.path.getmtime(log_path)
+            except Exception:
+                continue
+            entries.append((run_id, log_path, pid_path, mtime))
+    entries.sort(key=lambda e: e[3], reverse=True)
+    return entries
+
+
+def cmd_list(state, session=None):
+    """--list: таблица + JSON на каждый прогон; свежие сверху; exit 0."""
+    entries = iter_state_logs(state, session)
+    if not entries:
+        sys.stdout.write("не найден\n")
+        return 0
+    sys.stdout.write("id | exit | retries | age_s | verdict\n")
+    for run_id, log_path, pid_path, _mtime in entries:
+        info = collect_run_info(run_id, log_path, pid_path)
+        if info is None:
+            continue
+        sys.stdout.write("%s | %s | %s | %s | %s\n" % (
+            info["id"], info["exit"], info["retries"],
+            info["age_s"], info["verdict"]))
+        payload = {
+            "id": info["id"],
+            "log": info["log"],
+            "pid_alive": info["pid_alive"],
+            "exit": info["exit"],
+            "retries": info["retries"],
+            "report_present": info["report_present"],
+            "verdict": info["verdict"],
+            "age_s": info["age_s"],
+        }
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False,
+                                    separators=(",", ":")) + "\n")
+    return 0
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
         # --__watch pid log_path pid_path timeout_s [run_prompt_file [model]]
@@ -265,21 +445,35 @@ def main():
         watch(argv[2], argv[3], argv[4], int(argv[5]), run_prompt, model)
         return 0
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--id", required=True, help="метка прогона (файлы логов/промтов)")
+    ap.add_argument("--id", default=None, help="метка прогона (файлы логов/промтов)")
     ap.add_argument("--session", default=None,
                     help="id сессии: все файлы прогона лягут в .orchestration/sessions/<id>/runs/<run>/")
     ap.add_argument("--prompt-file", default=None,
                     help="по умолчанию <state>/prompt-<id>.md")
     ap.add_argument("--timeout", type=int, default=None, help="сек; по умолчанию из params")
     ap.add_argument("--detach", action="store_true", help="фон: pid-файл, не ждать")
+    ap.add_argument("--status", action="store_true",
+                    help="статус прогона --id (лог/pid/exit/вердикт); exit 0")
+    ap.add_argument("--list", action="store_true",
+                    help="список прогонов state (и runs при --session); exit 0")
     ap.add_argument("--no-reground-line", action="store_true",
                     help="не доклеивать строку самопроверки в промт")
     ap.add_argument("--model", default="auto", help="всегда auto (доктрина)")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
 
-    params = orchlib.load_params()
     state = orchlib.find_state_dir()
+    if a.list:
+        return cmd_list(state, a.session)
+    if a.status:
+        if not a.id:
+            sys.stderr.write("--status требует --id\n")
+            return 2
+        return cmd_status(state, a.id, a.session)
+    if not a.id:
+        ap.error("--id обязателен (кроме --list)")
+
+    params = orchlib.load_params()
     os.makedirs(state, exist_ok=True)
 
     run_dir = os.path.join(state, "prompt-%s" % a.id)  # совместимость без --session
