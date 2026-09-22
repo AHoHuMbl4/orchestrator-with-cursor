@@ -114,7 +114,8 @@
 ### Бизнес → Операции и рост
 | Роль | Файл | Когда |
 |---|---|---|
-| COO |  |通用 процессы |
+| COO | operations/coo-операционный-директор.md |通用 процессы |
+| COO (alt) | operations/coo-/-операционный-директор.md | оптимизация процессов, операционная эффективность |
 | Churn Analyst | business/churn-analyst.md | почему уходят |
 | CS Playbook | business/customer-success-playbook.md | onboarding, renewal |
 | Org Design | business/org-design-consultant.md | структура команды |
@@ -131,7 +132,8 @@
 ### Финансы → Оценка и модели
 | Роль | Файл | Когда |
 |---|---|---|
-| CFO |  |通用 фин. стратегия |
+| CFO | finance/cfo-финансовый-директор.md |通用 фин. стратегия |
+| CFO (alt) | finance/cfo-/-финансовый-директор.md | финансовая стратегия, бюджет, финансовое планирование |
 | DCF Valuation | finance/dcf-valuation.md | оценка стоимости |
 | Fin. Model Builder | finance/financial-model-builder.md | 3-statement model |
 | Финансовый аналитик | finance/финансовый-аналитик.md |通用 модели, оценка |
@@ -199,7 +201,8 @@
 | Синтезатор | research/synthesizer.md | reconciliation |
 | Report Synthesizer | research/report-synthesizer.md | сшивка N артефактов в финальный отчёт |
 | Научный писатель | research/science-writer.md | научный текст |
-| Консультант (McKinsey) |  | issue trees, MECE |
+| Консультант (McKinsey) | business/консультант-mckinsey-frameworks.md | issue trees, MECE |
+| Консультант (McKinsey, alt) | business/консультант-(mckinsey-frameworks).md | стратегические задачи, MECE, issue trees |
 | Бизнес-аналитик | business/бизнес-аналитик.md | as-is/to-be/gap |
 | Product Manager | business/product-manager.md | roadmap, приоритизация |
 | User Research | specialized/user-research-interviewer.md | интервью, JTBD |
@@ -225,6 +228,7 @@
 | Friction Analyst | psychology/friction-analyst.md | cognitive load, UX |
 | Persuasion Ethics | psychology/persuasion-ethics-auditor.md | dark patterns |
 | Organizational Psychologist | psychology/organizational-psychologist.md | psych safety, burnout, культура команды |
+| Специалист по переговорам | psychology/специалист-по-переговорам.md | подготовка к переговорам, BATNA, win-win |
 
 ### Тренды
 | Роль | Файл | Когда |
@@ -253,7 +257,8 @@
 | Marketplace Analyst | specialized/marketplace-analyst.md | supply/demand |
 | SaaS Onboarding | specialized/saas-onboarding-designer.md | activation |
 | Legal Analyst | legal/legal-analyst.md | договоры, GDPR |
-| HR/Рекрутер |  | найм, вакансии |
+| HR/Рекрутер | hr/hr-рекрутер.md | найм, вакансии |
+| HR/Рекрутер (alt) | hr/hr-/-рекрутер.md | найм, оценка кандидатов, вакансии, онбординг |
 | Дизайнер обучения | education/дизайнер-обучения.md | curriculum |
 
 ### Мета-роли иерархии
@@ -268,7 +273,7 @@
 
 ---
 
-**Всего: 146 роли** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
+**Всего: 153 роли** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
 
 Правила:
 - Каскад: домен → поддомен → роль (не листай всё)

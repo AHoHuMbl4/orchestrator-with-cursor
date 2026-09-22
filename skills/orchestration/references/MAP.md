@@ -13,7 +13,7 @@ State — `.orchestration/` в проекте.
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
-- `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; превышение → exit 2, файл не пишется, pending-флаг; успех → exit 0)
+- `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
@@ -36,9 +36,13 @@ State — `.orchestration/` в проекте.
 - `params.json` — параметры пачки (`execution.*`, `review.*`, `reground.every_min`, …)
 - `compass.md` — ОБЩИЙ шаблон; правится только в панели «Расширенные»
 - `sessions/<sid>/compass.md` — личная копия сессии; авто-сеется; пишет `menu.py --session`
+- лимиты compass: сессионный ≤ **8500** символов; `fronts/**` (фронт / мини-compass полковника) ≤ **4000**
+- `sessions/<sid>/pending_compass_guard.json` — флаг гарда compass сессии (доставка — ближайший UserPromptSubmit)
+- `<state>/pending_compass_guard.json` — общий флаг гарда compass (доставка — ближайший UserPromptSubmit)
 - `sessions/<sid>/runs/<id>/prompt.md` — промт прогона
 - `sessions/<sid>/runs/<id>/run.log` — лог прогона (локальный/обёртка)
 - `sessions/<sid>/runs/<id>/artifact.md` — артефакт приёмки
+- `sessions/<sid>/prosecutor/` — закрытый канал прокурора волны (читает только командующий)
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
 - `<state>/agent-<id>.json` — id агента для follow-up без ре-парсинга лога
@@ -55,7 +59,7 @@ State — `.orchestration/` в проекте.
 
 - `skills/orchestration/SKILL.md` — регламент: исполнители, контроль, компас, вердикт
 - `references/planning.md` — план, волны, DAG, preflight-бюджет
-- `references/engines.md` — исполнители/ключи/движки (local-cursor / cursor-cloud, Claude, Codex, Kimi)
+- `references/engines.md` — исполнители/ключи/движки (local-cursor / cloud-cursor, Claude, Codex, Kimi)
 - `references/traps.md` — ловушки (читать перед пачкой)
 - `references/MAP.md` — эта карта (инструменты и state)
 - `references/roles/_index.md` — КАТАЛОГ РОЛЕЙ; выбор ТОЛЬКО через него
