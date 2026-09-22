@@ -52,6 +52,7 @@ DEFAULTS = {
     "compass": {
         "max_session_chars": 8500,  # лимит сессионного/общего compass (символы)
         "max_front_chars": 4000,    # лимит compass фронта/полковника (fronts/**)
+        "guard_poll_s": 2,          # интервал сторожа панели (сек)
     },
 }
 
@@ -67,6 +68,7 @@ RANGES = {  # (min, max) для целочисленных полей
     "reground.every_n_calls": (5, 500),
     "compass.max_session_chars": (100, 200000),
     "compass.max_front_chars": (100, 200000),
+    "compass.guard_poll_s": (1, 60),
 }
 
 
@@ -458,6 +460,91 @@ def format_compass_overflows(overflows):
             % (o["path"], o["size"], o["limit"])
         )
     return "\n".join(lines)
+
+
+def recent_sessions(max_age_s=86400):
+    """Id сессий, тронутых за последние max_age_s сек (mtime last-seen или каталога)."""
+    now = time.time()
+    out = []
+    try:
+        for s in list_sessions():
+            try:
+                age = now - float(s.get("last_seen") or 0)
+            except (TypeError, ValueError):
+                continue
+            if age <= max_age_s:
+                out.append(s["id"])
+    except Exception:
+        return []
+    return out
+
+
+def emit_pending_compass_guard(sid_or_none, overflows):
+    """Пишет pending_compass_guard.json как reground.cmd_heartbeat.
+
+    Всегда пишет <state>/pending_compass_guard.json; плюс в сессии:
+    sid_or_none задан → в эту сессию; None → во все recent_sessions().
+    Ошибки — stderr, не падать.
+    """
+    try:
+        try:
+            flag_st = state_path("pending_compass_guard.json")
+            with open(flag_st, "w", encoding="utf-8") as f:
+                json.dump({"overflows": overflows}, f, ensure_ascii=False)
+        except Exception as e:
+            sys.stderr.write("compass guard state flag failed: %s\n" % e)
+        if sid_or_none is None:
+            sids = recent_sessions()
+        else:
+            sids = [sid_or_none]
+        for sid in sids:
+            try:
+                flag_g = os.path.join(session_dir(sid), "pending_compass_guard.json")
+                with open(flag_g, "w", encoding="utf-8") as f:
+                    json.dump({"overflows": overflows}, f, ensure_ascii=False)
+            except Exception as e:
+                sys.stderr.write("compass guard flag failed: %s\n" % e)
+    except Exception as e:
+        sys.stderr.write("compass guard emit failed: %s\n" % e)
+
+
+def write_compass_checked(p, path, text):
+    """Атомарная запись compass с проверкой лимита. (ok, info), без исключений наружу.
+
+    size = len(text); limit = compass_limit_for_path(p, path).
+    ok=True → tempfile + os.replace; info={size,limit,path}.
+    ok=False → файл не трогать; info то же + error.
+    """
+    info = {"size": 0, "limit": 0, "path": path}
+    try:
+        if text is None:
+            text = ""
+        size = len(text)
+        limit = compass_limit_for_path(p, path)
+        info = {"size": size, "limit": limit, "path": path}
+        if size > limit:
+            info["error"] = "превышен лимит: %d символов при лимите %d" % (size, limit)
+            return False, info
+        d = os.path.dirname(os.path.abspath(path)) or "."
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".compass-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except Exception:
+            if os.path.exists(tmp):
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+            raise
+        return True, info
+    except Exception as e:
+        info["error"] = str(e)
+        return False, info
 
 
 def is_compass_path(path):

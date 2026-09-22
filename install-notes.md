@@ -32,6 +32,17 @@ python3.6+ stdlib, кроссплатформенно (Linux/macOS/Windows), б�
 
 ## Что нового
 
+- **Воронка записи compass** (`bin/write-compass.py`): канонический путь для
+  агентов — `python3 <kit>/bin/write-compass.py --path <compass>
+  [--text-file <ф>|--stdin] [--session <sid>]`. Exit-коды: 0 — записано;
+  1 — ошибка чтения/записи; 2 — превышение лимита (файл НЕ записан,
+  pending-флаг); 3 — путь не является compass-путём состояния. Прямой
+  Write/Edit в `**/compass.md` запрещён — только воронка или menu/панель.
+- **Сторож панели:** фоновый опрос compass каждые `compass.guard_poll_s`
+  секунд (дефолт **2**); флаг/подсветка превышения без ожидания следующего
+  prompt-submit.
+- **Маркер в логах прогонов:** `run-exec.py` / `run-cloud.py` пишут
+  `COMPASS_OVERFLOW` в лог при обнаружении overflow compass.
 - **Лимиты compass:** сессионный ≤ 8500 символов, фронтовый (и мини-compass
   полковника) ≤ 4000; значения в `.orchestration/params.json` (секция
   compass-лимитов; без секции — те же дефолты в хуках). Настройка — правкой

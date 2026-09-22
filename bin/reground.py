@@ -282,7 +282,7 @@ def cmd_prompt_submit(engine, fmt):
     orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
-    # гард: живое превышение ИЛИ pending-флаг от heartbeat → громкий блок первым
+    # гард: живое превышение ИЛИ pending-флаг (сессия / state) → громкий блок первым
     live_ov = orchlib.compass_overflows(p)
     flag_g = os.path.join(orchlib.session_dir(sid), "pending_compass_guard.json")
     pending_ov = None
@@ -295,10 +295,24 @@ def cmd_prompt_submit(engine, fmt):
             pending_ov = payload
     except Exception:
         pass
+    flag_st = os.path.join(orchlib.find_state_dir(), "pending_compass_guard.json")
+    state_ov = None
+    if not live_ov and pending_ov is None:
+        try:
+            with open(flag_st, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                state_ov = payload.get("overflows")
+            elif isinstance(payload, list):
+                state_ov = payload
+        except Exception:
+            pass
     if live_ov:
         guard = orchlib.format_compass_overflows(live_ov)
     elif pending_ov:
         guard = orchlib.format_compass_overflows(pending_ov)
+    elif state_ov:
+        guard = orchlib.format_compass_overflows(state_ov)
     else:
         guard = ""
     # снять pending-флаг после доставки (как nudge); живое превышение и так
@@ -306,6 +320,11 @@ def cmd_prompt_submit(engine, fmt):
     if pending_ov is not None:
         try:
             os.unlink(flag_g)
+        except Exception:
+            pass
+    if state_ov is not None:
+        try:
+            os.unlink(flag_st)
         except Exception:
             pass
     marks = {}

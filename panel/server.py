@@ -15,6 +15,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -23,6 +25,45 @@ import orchlib  # noqa: E402
 
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+# In-memory снимок сторожа compass (только наблюдение + pending-флаг).
+_guard_lock = threading.Lock()
+_guard_snapshot = {"overflows": [], "poll_s": 2}
+
+
+def _guard_poll_s(p):
+    """Интервал сторожа: из params.compass.guard_poll_s, иначе 2; 0/битое → 2."""
+    try:
+        sec = (p.get("compass") or {}).get("guard_poll_s", 2)
+        n = int(sec)
+    except (TypeError, ValueError, AttributeError):
+        return 2
+    return n if n > 0 else 2
+
+
+def _compass_guard_loop():
+    """Daemon: опрос overflows → emit pending при наличии; снимок для API."""
+    prev = None
+    while True:
+        poll_s = 2
+        try:
+            p = orchlib.load_params()
+            poll_s = _guard_poll_s(p)
+            overflows = orchlib.compass_overflows(p)
+            key = [(o.get("path"), o.get("size"), o.get("limit")) for o in overflows]
+            with _guard_lock:
+                _guard_snapshot["overflows"] = list(overflows)
+                _guard_snapshot["poll_s"] = poll_s
+            # сравнить с prev; при появлении/наличии — pending-флаг (решений нет)
+            if overflows:
+                orchlib.emit_pending_compass_guard(None, overflows)
+            prev = key
+        except Exception as e:
+            sys.stderr.write("compass guard: %s\n" % e)
+        try:
+            time.sleep(poll_s)
+        except Exception:
+            time.sleep(2)
 
 
 def _compass_char_size(text):
@@ -273,6 +314,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"sessions": visible})
         elif u.path == "/api/status":
             self.send_json({"runs": self.runs_status()})
+        elif u.path == "/api/compass-guard":
+            with _guard_lock:
+                overflows = list(_guard_snapshot.get("overflows") or [])
+                poll_s = _guard_snapshot.get("poll_s", 2)
+            self.send_json({"overflows": overflows, "poll_s": poll_s})
         elif u.path == "/api/fronts":
             data = orchlib.load_fronts()
             _sess_lim, front_lim = _compass_limits(orchlib.load_params())
@@ -508,6 +554,8 @@ def main():
     note = orchlib.state_dir_note()
     if note:
         print(note)
+    t = threading.Thread(target=_compass_guard_loop, name="compass-guard", daemon=True)
+    t.start()
     print("остановка: Ctrl+C")
     try:
         httpd.serve_forever()

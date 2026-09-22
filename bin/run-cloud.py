@@ -203,6 +203,83 @@ def log_write(lf, text):
     lf.flush()
 
 
+def _log_trailing_incomplete(log_path):
+    """Хвост файла после последнего \\n, либо None если файл пуст/кончается на \\n."""
+    try:
+        with open(log_path, "rb") as f:
+            data = f.read()
+        if not data:
+            return None
+        if data.endswith(b"\n"):
+            return None
+        idx = data.rfind(b"\n")
+        chunk = data if idx < 0 else data[idx + 1:]
+        return chunk.decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+def check_compass_overflow(log_path, session, noted, allow_log_write=True):
+    """Скан compass: COMPASS_OVERFLOW= + pending-флаг. Ошибки глотаем.
+
+    noted — set (path, size) уже отмеченных в этом прогоне; мутируется.
+    allow_log_write=False: скан overflows + emit_pending; в лог не пишем;
+      noted не трогаем (параллельная запись poll-строк в lf).
+    allow_log_write=True: финальная запись недостающих маркеров + pending
+      при записи. В present — только полные строки (с \\n).
+    """
+    try:
+        p = orchlib.load_params()
+        overflows = orchlib.compass_overflows(p)
+        if not allow_log_write:
+            if overflows:
+                orchlib.emit_pending_compass_guard(session, overflows)
+            return
+        present = set()
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    # обрывок без \\n — не считать совпадением маркера
+                    if not line.endswith("\n"):
+                        continue
+                    s = line.rstrip("\n").rstrip("\r").strip()
+                    if s.startswith("COMPASS_OVERFLOW="):
+                        present.add(s)
+        except Exception:
+            pass
+        trailing = _log_trailing_incomplete(log_path)
+        wrote = False
+        for o in overflows:
+            marker = "COMPASS_OVERFLOW=%s:%s/%s\n" % (
+                o["path"], o["size"], o["limit"])
+            marker_s = marker.rstrip("\n")
+            key = (o.get("path"), o.get("size"))
+            if key in noted:
+                continue
+            if marker_s in present:
+                noted.add(key)
+                continue
+            noted.add(key)
+            present.add(marker_s)
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    if trailing is not None and trailing.strip() == marker_s:
+                        f.write("\n")
+                        trailing = None
+                    else:
+                        if trailing is not None:
+                            f.write("\n")
+                            trailing = None
+                        f.write(marker)
+            except Exception:
+                pass
+            wrote = True
+        if wrote:
+            orchlib.emit_pending_compass_guard(session, overflows)
+    except Exception:
+        pass
+
+
 def result_json_path(state, run_id_label):
     """Путь <state>/cloud-<id>.result.json (run_id_label = a.id из --id)."""
     return os.path.join(state, "cloud-%s.result.json" % run_id_label)
@@ -435,6 +512,8 @@ def cmd_run(a):
                 sys.stderr.write("create timeout/network error, recovery failed: %s\n"
                                  % out["_network_error"])
                 print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
+                check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                                       None, set())
                 return 1
             out = recovered
             ids = recovered_ids
@@ -450,6 +529,8 @@ def cmd_run(a):
 
     if report_http_error(out):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
+        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                               None, set())
         return 1
 
     agent = a.agent_id or ids.get("agent_id")
@@ -464,7 +545,12 @@ def cmd_run(a):
         if agent and run:
             return wait_and_report(agent, run, key, state, a)
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
+        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                               None, set())
         return 0
+    # без --wait: пост-проверка после create/follow-up
+    check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                           None, set())
     return 0
 
 
@@ -481,6 +567,8 @@ def wait_and_report(agent, run, key, state, a):
     status = {}
     lf = logf(state, a)
     http_timeout = getattr(a, "http_timeout", 300.0)
+    log_path = os.path.join(state, "cloud-%s.log" % a.id)
+    noted = set()
     write_result_json(state, a, agent, run, status_obj={"status": "POLLING"})
     while time.time() < deadline:
         status = call("GET", "/v1/agents/%s/runs/%s" % (agent, run), key,
@@ -488,8 +576,11 @@ def wait_and_report(agent, run, key, state, a):
         log_write(lf, "poll: %s\n" % json.dumps(status, ensure_ascii=False))
         write_result_json(state, a, agent, run, status_obj=status
                           if isinstance(status, dict) else None)
+        # пока lf открыт и идут poll-строки — только pending, без маркера в лог
+        check_compass_overflow(log_path, None, noted, allow_log_write=False)
         if report_http_error(status):
             lf.close()
+            check_compass_overflow(log_path, None, noted, allow_log_write=True)
             print(json.dumps(status, ensure_ascii=False, indent=2))
             return 1
         if run_status_terminal(status):
@@ -499,6 +590,8 @@ def wait_and_report(agent, run, key, state, a):
     write_result_json(state, a, agent, run,
                       status_obj=status if isinstance(status, dict) else None)
     lf.close()
+    # маркер в лог — строго после flush/close lf (вне окна параллельной записи)
+    check_compass_overflow(log_path, None, noted, allow_log_write=True)
     print(json.dumps(status, ensure_ascii=False, indent=2))
     return 0
 
@@ -514,11 +607,16 @@ def cmd_status(a):
                       status_obj=out if isinstance(out, dict) else None)
     if report_http_error(out):
         print(json.dumps(out, ensure_ascii=False, indent=2))
+        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                               None, set())
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))
     with logf(state, a) as lf:
         log_write(lf, "status %s/%s: %s\n" % (a.agent_id, a.run_id,
                                               json.dumps(out, ensure_ascii=False)))
+    # пост-проверка после получения статуса без --wait
+    check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                           None, set())
     return 0
 
 

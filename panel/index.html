@@ -62,6 +62,11 @@
 <div class="hint">Единственный источник правды — <code>.orchestration/params.json</code> и compass.
 Эта панель и меню в чате — только редакторы этих файлов; решает и запускает — оркестратор.</div>
 
+<details id="compassGuardBox" style="margin-top:12px">
+  <summary id="compassGuardSummary" class="ok">compass ок</summary>
+  <div id="compassGuardPaths" class="hint"></div>
+</details>
+
 <h2>1. Задача (compass)</h2>
 <div class="row" style="align-items:center;gap:10px">
   <label style="margin:0">Чей compass:</label>
@@ -242,6 +247,31 @@ async function loadAll(){
   await loadSessions();
   await loadTemplate();
   await loadFronts();
+  loadCompassGuard();
+}
+let _guardPollTimer = null;
+async function loadCompassGuard(){
+  if (_guardPollTimer) { clearTimeout(_guardPollTimer); _guardPollTimer = null; }
+  let poll = 2;
+  try{
+    const j = await (await fetch("/api/compass-guard")).json();
+    const ov = j.overflows || [];
+    poll = (j.poll_s > 0) ? Number(j.poll_s) : 2;
+    const sum = document.getElementById("compassGuardSummary");
+    const paths = document.getElementById("compassGuardPaths");
+    if (!ov.length) {
+      sum.textContent = "compass ок";
+      sum.className = "ok";
+      paths.textContent = "";
+    } else {
+      sum.textContent = "⛔ " + ov.length + " превышений";
+      sum.className = "err";
+      paths.innerHTML = ov.map(function(o){
+        return esc(o.path) + " — " + o.size + " / " + o.limit;
+      }).join("<br>");
+    }
+  }catch(e){ /* тишина при ошибке опроса */ }
+  _guardPollTimer = setTimeout(loadCompassGuard, poll * 1000);
 }
 function frontsMsg(t,cls){ const m=document.getElementById("frontsMsg"); m.textContent=t; m.className=cls||""; }
 function statusClass(st){

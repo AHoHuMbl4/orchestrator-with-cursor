@@ -32,6 +32,7 @@
   },
   "compass": {
     "max_session_chars": 8500,
-    "max_front_chars": 4000
+    "max_front_chars": 4000,
+    "guard_poll_s": 2
   }
 }

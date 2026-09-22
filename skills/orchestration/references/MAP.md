@@ -8,17 +8,18 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта)
-- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`)
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
+- `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; превышение → exit 2, файл не пишется, pending-флаг; успех → exit 0)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
 - `bin/reground.py` — хук-движок: `session-start` / `prompt-submit` / `post-tool` / `heartbeat`
 - `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); не лаунчер
-- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`
+- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
 - `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
 - `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel

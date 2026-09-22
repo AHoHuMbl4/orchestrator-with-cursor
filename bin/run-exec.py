@@ -138,6 +138,85 @@ def append_log(log_path, line):
         pass
 
 
+def _log_trailing_incomplete(log_path):
+    """Хвост файла после последнего \\n, либо None если файл пуст/кончается на \\n."""
+    try:
+        with open(log_path, "rb") as f:
+            data = f.read()
+        if not data:
+            return None
+        if data.endswith(b"\n"):
+            return None
+        # текст после последнего \\n
+        idx = data.rfind(b"\n")
+        chunk = data if idx < 0 else data[idx + 1:]
+        return chunk.decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+def check_compass_overflow(log_path, session, noted, allow_log_write=True):
+    """Скан compass: COMPASS_OVERFLOW= + pending-флаг. Ошибки глотаем.
+
+    noted — set (path, size) уже отмеченных в этом прогоне; мутируется.
+    allow_log_write=False: скан overflows + emit_pending; в лог не пишем;
+      noted не трогаем (живой агент пишет в тот же файл).
+    allow_log_write=True: финальная запись недостающих маркеров + pending
+      при записи. В present — только полные строки (с \\n).
+    """
+    try:
+        p = orchlib.load_params()
+        overflows = orchlib.compass_overflows(p)
+        if not allow_log_write:
+            if overflows:
+                orchlib.emit_pending_compass_guard(session, overflows)
+            return
+        present = set()
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    # обрывок без \\n — не считать совпадением маркера
+                    if not line.endswith("\n"):
+                        continue
+                    s = line.rstrip("\n").rstrip("\r").strip()
+                    if s.startswith("COMPASS_OVERFLOW="):
+                        present.add(s)
+        except Exception:
+            pass
+        trailing = _log_trailing_incomplete(log_path)
+        wrote = False
+        for o in overflows:
+            marker = "COMPASS_OVERFLOW=%s:%s/%s" % (
+                o["path"], o["size"], o["limit"])
+            key = (o.get("path"), o.get("size"))
+            if key in noted:
+                continue
+            if marker in present:
+                noted.add(key)
+                continue
+            noted.add(key)
+            present.add(marker)
+            # обрывок == полный маркер → только \\n; иначе при грязном хвосте
+            # сначала \\n, затем полная строка-маркер
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    if trailing is not None and trailing.strip() == marker:
+                        f.write("\n")
+                        trailing = None
+                    else:
+                        if trailing is not None:
+                            f.write("\n")
+                            trailing = None
+                        f.write(marker if marker.endswith("\n") else marker + "\n")
+            except Exception:
+                pass
+            wrote = True
+        if wrote:
+            orchlib.emit_pending_compass_guard(session, overflows)
+    except Exception:
+        pass
+
+
 def build_agent_cmd(exe, prompt, model, extra):
     return [exe, "-p", prompt, "--force", "--model", model,
             "--output-format", "stream-json"] + list(extra or [])
@@ -174,11 +253,12 @@ def wait_child(proc, log_fh, log_path, timeout_s, yield_after=0):
     return classify_after_wait(log_path, rc)
 
 
-def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model):
+def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
+                  session=None):
     """Запуск detached --__watch (общий для --detach и авто-уступки)."""
     watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
                  str(pid), log_path, pid_path, str(timeout_s),
-                 run_prompt_file, model]
+                 run_prompt_file or "", model, session or ""]
     subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, **detach_popen_kwargs())
 
@@ -218,12 +298,15 @@ def apply_retries(code, log_path, pid_path, timeout_s, run_prompt_file,
     return code
 
 
-def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"):
+def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto",
+          session=None):
     """Detach-watcher: ждёт pid / таймаут, EXIT= по контракту, рестарт при 4/124."""
     deadline = time.time() + timeout_s
     timed_out = False
+    noted = set()
     while time.time() < deadline:
         time.sleep(2)
+        check_compass_overflow(log_path, session, noted, allow_log_write=False)
         if not pid_alive(int(pid)):
             break
     else:
@@ -235,6 +318,9 @@ def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"
                 time.sleep(0.4)
                 if not pid_alive(int(pid)):
                     break
+
+    # финальная проверка — агент уже не пишет; дописываем маркеры в лог
+    check_compass_overflow(log_path, session, noted, allow_log_write=True)
 
     if timed_out:
         code = "124"
@@ -461,12 +547,17 @@ def cmd_list(state, session=None):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
-        # --__watch pid log_path pid_path timeout_s [run_prompt_file [model]]
+        # --__watch pid log_path pid_path timeout_s [run_prompt_file [model [session]]]
         argv = sys.argv
         run_prompt = argv[6] if len(argv) > 6 else None
+        if run_prompt == "":
+            run_prompt = None
         model = argv[7] if len(argv) > 7 else "auto"
-        watch(argv[2], argv[3], argv[4], int(argv[5]), run_prompt, model)
+        session = argv[8] if len(argv) > 8 and argv[8] else None
+        watch(argv[2], argv[3], argv[4], int(argv[5]), run_prompt, model,
+              session)
         return 0
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--id", default=None, help="метка прогона (файлы логов/промтов)")
     ap.add_argument("--session", default=None,
@@ -553,7 +644,7 @@ def main():
     if a.detach:
         # watcher допишет EXIT= и при 4/124 рестартнет агента как своего потомка
         start_watcher(proc.pid, log_path, pid_path, timeout_s,
-                      run_prompt_file, a.model)
+                      run_prompt_file, a.model, a.session)
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
         return 0
 
@@ -562,7 +653,7 @@ def main():
                       yield_after=a.yield_after)
     if code == "YIELDED":
         start_watcher(proc.pid, log_path, pid_path, timeout_s,
-                      run_prompt_file, a.model)
+                      run_prompt_file, a.model, a.session)
         sys.stdout.write(
             "yield: ожидание >%ss — прогон продолжается в фоне "
             "(переживает смерть этой сессии). pid=%s лог=%s. "
@@ -572,6 +663,9 @@ def main():
 
     code = apply_retries(code, log_path, pid_path, timeout_s,
                          run_prompt_file, retry_on_fail, a.model, a.extra)
+
+    # foreground: маркер до EXIT= (агент уже завершён)
+    check_compass_overflow(log_path, a.session, set(), allow_log_write=True)
 
     with open(log_path, "a", encoding="utf-8") as f:
         f.write("\nEXIT=%s\n" % code)
