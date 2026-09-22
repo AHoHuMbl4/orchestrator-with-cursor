@@ -20,7 +20,7 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 dfa7fcb58c3155211d58fe76ec3f344f38bb819618475fd9df26ecc8a200ac3b  ./panel/index.html
 ac4e9d6c84410784c205306917e7ddebe1ac113ba1623488030d14e8008fcfd2  ./panel/server.py
 9f11d7f7f134e2c6e8df80946fce4f90f0766afbd7b70d004fd2eb11dcbedec0  ./params.json
-9d1361a8cf50d36e71a74e84a412b356f1c6f9b7533e9f92e02ddca3d14fa1f2  ./skills/orchestration/SKILL.md
+f549d7dfbb41dde4ef4f7cd2a4f2cc32495b5505da960fa8d1703311424b6689  ./skills/orchestration/SKILL.md
 1d7dbf23c964950eec3faca3301865fc8ffec6d371ea5f271d36a757d4ea4252  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
 67fe3cf7ae0a26c7f073f3f53089a5c8b440c31ff01ed214fdb8e32583342df5  ./skills/orchestration/references/planning.md
@@ -119,7 +119,7 @@ a05d1b7c8ab07863312aef4fea88392281909494849f0368b0c12cd4aae1950a  ./skills/orche
 44801bb51d097556b4b2e6af99b88bf453c465673de2ec4998fed61bca853fc0  ./skills/orchestration/references/roles/marketing/seo.md
 65eac1ccb4b81e7408dc444f2d479d89aa5c3c4e1c74520ee85f29a54e5d38ff  ./skills/orchestration/references/roles/marketing/smm-специалист.md
 495911a465d6ec1515a29c5f56322ed89eebf90a08207ad28161db1efb6e1099  ./skills/orchestration/references/roles/marketing/video-script-writer.md
-24302db530975e23a4a11d9741429311867d47522de098178114c643812e22d2  ./skills/orchestration/references/roles/meta/front-general.md
+ff78bca3b79a442260b355c8bb409eb98c7a4e7ef1de63bea55fb50489a96092  ./skills/orchestration/references/roles/meta/front-general.md
 b10b5e02182b1415ed973f8c031a0405e5525c41f575371d99f6a90f40240200  ./skills/orchestration/references/roles/meta/front-observer.md
 cec9c8383851a963f926921e8c7749ef3166e7cbbe17dc9a69caab95feb2ae8a  ./skills/orchestration/references/roles/meta/opportunity-advisor.md
 b6401561d85f741a1d073118bf14e5d4786ffe5866e0145c3c316df0fd0fec2e  ./skills/orchestration/references/roles/operations/coo-/-операционный-директор.md
@@ -176,6 +176,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-305bb9dad8cff2264589457b6b84f33ff83228075ecc7a0ac5a259ce59dba2aa  ./skills/orchestration/references/traps.md
+5c4963a5f2978210335335b014276b1aaeaa65ce019f12591a4420cac305a76e  ./skills/orchestration/references/traps.md
 b9e3fdf52a26b2f39dd4e3ad045d58d3a9e6da8223d5e2ddf2ad75e87423205a  ./uninstall.ps1
 d52d438b298b94a62ec70e08865924c61c951284db0ac3ef0354a3ecc738e35f  ./uninstall.sh
