@@ -63,6 +63,7 @@ State — `.orchestration/` в проекте.
 - `references/roles/meta/` — meta-роли иерархии; выбор через `_index.md`
 - `references/roles/meta/front-general.md` — генерал фронта: умная модель, узкий фронт, критики плана, выжимка вверх
 - `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
+- `references/roles/meta/front-prosecutor.md` — прокурор: внутриволновой надзор, власть ноль
 
 ## D. Быстрые ответы
 
