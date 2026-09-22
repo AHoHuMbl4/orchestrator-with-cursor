@@ -105,12 +105,15 @@ def compass_of(p, sid):
 
 
 def cmd_session_start(engine, fmt):
+    """reground.compact_reground=false — не вклеивать (тихо выйти)."""
     ev = read_stdin_json()
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
     p = orchlib.load_params()
     seeded = orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
+        return
+    if p.get("reground", {}).get("compact_reground", True) == False:
         return
     cpath = compass_of(p, sid)
     try:
