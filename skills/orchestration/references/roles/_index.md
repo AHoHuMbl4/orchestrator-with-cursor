@@ -115,7 +115,7 @@
 | Роль | Файл | Когда |
 |---|---|---|
 | COO | operations/coo-операционный-директор.md |通用 процессы |
-| COO (alt) | operations/coo-/-операционный-директор.md | оптимизация процессов, операционная эффективность |
+| COO (опер. эффективность) | operations/coo-/-операционный-директор.md | оптимизация процессов, операционная эффективность |
 | Churn Analyst | business/churn-analyst.md | почему уходят |
 | CS Playbook | business/customer-success-playbook.md | onboarding, renewal |
 | Org Design | business/org-design-consultant.md | структура команды |
@@ -133,7 +133,7 @@
 | Роль | Файл | Когда |
 |---|---|---|
 | CFO | finance/cfo-финансовый-директор.md |通用 фин. стратегия |
-| CFO (alt) | finance/cfo-/-финансовый-директор.md | финансовая стратегия, бюджет, финансовое планирование |
+| CFO (бюджет и планирование) | finance/cfo-/-финансовый-директор.md | финансовая стратегия, бюджет, финансовое планирование |
 | DCF Valuation | finance/dcf-valuation.md | оценка стоимости |
 | Fin. Model Builder | finance/financial-model-builder.md | 3-statement model |
 | Финансовый аналитик | finance/финансовый-аналитик.md |通用 модели, оценка |
@@ -202,7 +202,7 @@
 | Report Synthesizer | research/report-synthesizer.md | сшивка N артефактов в финальный отчёт |
 | Научный писатель | research/science-writer.md | научный текст |
 | Консультант (McKinsey) | business/консультант-mckinsey-frameworks.md | issue trees, MECE |
-| Консультант (McKinsey, alt) | business/консультант-(mckinsey-frameworks).md | стратегические задачи, MECE, issue trees |
+| Консультант (McKinsey frameworks) | business/консультант-(mckinsey-frameworks).md | стратегические задачи, MECE, issue trees |
 | Бизнес-аналитик | business/бизнес-аналитик.md | as-is/to-be/gap |
 | Product Manager | business/product-manager.md | roadmap, приоритизация |
 | User Research | specialized/user-research-interviewer.md | интервью, JTBD |
@@ -258,7 +258,7 @@
 | SaaS Onboarding | specialized/saas-onboarding-designer.md | activation |
 | Legal Analyst | legal/legal-analyst.md | договоры, GDPR |
 | HR/Рекрутер | hr/hr-рекрутер.md | найм, вакансии |
-| HR/Рекрутер (alt) | hr/hr-/-рекрутер.md | найм, оценка кандидатов, вакансии, онбординг |
+| HR/Рекрутер (оценка и онбординг) | hr/hr-/-рекрутер.md | найм, оценка кандидатов, вакансии, онбординг |
 | Дизайнер обучения | education/дизайнер-обучения.md | curriculum |
 
 ### Мета-роли иерархии
@@ -269,11 +269,12 @@
 | Наблюдатель фронтов | meta/front-observer.md | контрольная точка между волнами; власть 0; курс/швы/правда докладов/цель владельца |
 | Военный прокурор | meta/front-prosecutor.md | внутри волны графа непрерывно; власть 0; перекрёстный доступ / прямая координация / дубли; только командующему |
 | Советник командира (генерал/полковник) | meta/opportunity-advisor.md | облачный скаут вариантов для командира (генерал/полковник) |
+| Разведчик (web-scout) | meta/web-scout.md | облачный поиск фактов с источниками для советника |
 | Читатель сырья | meta/raw-brief-synthesizer.md | сырьё волны → выжимка ≤15 строк командиру (генерал/полковник) |
 
 ---
 
-**Всего: 153 роли** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
+**Всего: 154 роли** (каскадный выбор: домен → поддомен → роль) (+ фабрика ролей для нестандартных)
 
 Правила:
 - Каскад: домен → поддомен → роль (не листай всё)
