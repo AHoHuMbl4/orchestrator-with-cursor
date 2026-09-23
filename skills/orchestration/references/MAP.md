@@ -72,6 +72,13 @@ State — `.orchestration/` в проекте.
 - `references/roles/meta/raw-brief-synthesizer.md` — читатель сырья волны → выжимка ≤15 строк командиру
 - `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
 - `references/roles/meta/front-prosecutor.md` — прокурор: внутриволновой надзор, власть ноль
+- `references/roles/code/coder.md` — базовый исполнитель кода
+- `references/roles/code/code-reviewer.md` — критик кода
+- `references/roles/research/fact-checker.md` — критик-скептик
+- `references/roles/research/synthesizer.md` — синтез (reconciliation критиков)
+- `references/roles/research/report-synthesizer.md` — финальная сшивка отчёта / читатель
+- `references/roles/code/simplicity-warden.md` — ворота простоты
+- `references/roles/meta/web-scout.md` — разведчик: облачный поиск для советника (создаётся параллельной задачей)
 
 ## D. Быстрые ответы
 
@@ -82,7 +89,7 @@ State — `.orchestration/` в проекте.
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`) |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
-| генералу нужны варианты? | meta/opportunity-advisor (облако) |
+| генералу нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
 | Compass фронта? | `<state>/fronts/<id>/compass.md` (≤ 4000 символов) |
 | Мини-compass полковника? | `<state>/fronts/<id>/colonels/<cid>/compass.md` (лимит как у фронтового) |
 | Правки кода: гит до/после волны? | чекпоинт git до волны, ревизия после — `code/git-warden` |
