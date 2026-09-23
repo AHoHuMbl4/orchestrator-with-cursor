@@ -168,6 +168,7 @@ local-cursor): веб копают разведчики (`meta/web-scout`, cloud
 | Финальная сшивка отчёта | research/report-synthesizer.md |
 | Код-волна (до/после) | code/git-warden.md |
 | Значимая волна (доки) | code/docs-keeper.md |
+| Значимая код-волна | code/simplicity-warden.md (не усложнили ли) |
 
 **Правило ролей:** роли только из каталога `roles/_index.md`; роли нет →
 фабрика по правилам кита (каскад `_index.md` → `_template.md`, «Вдохновлено:

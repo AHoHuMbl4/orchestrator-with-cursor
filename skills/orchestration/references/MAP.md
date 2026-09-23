@@ -78,7 +78,7 @@ State — `.orchestration/` в проекте.
 - `references/roles/research/synthesizer.md` — синтез (reconciliation критиков)
 - `references/roles/research/report-synthesizer.md` — финальная сшивка отчёта / читатель
 - `references/roles/code/simplicity-warden.md` — ворота простоты
-- `references/roles/meta/web-scout.md` — разведчик: облачный поиск для советника (создаётся параллельной задачей)
+- `references/roles/meta/web-scout.md` — разведчик: облачный поиск для советника
 
 ## D. Быстрые ответы
 
