@@ -48,35 +48,8 @@ if [ -f "$CLAUDE_DIR/commands/orch-menu.md" ]; then
   echo "  удалена команда: orch-menu.md"
 fi
 # Хуки из settings.json (аккуратно: мержим только наши)
+# Наши = reground.py ИЛИ orchestration-kit (в т.ч. без маркеров)
 if [ -f "$CLAUDE_DIR/settings.json" ] && command -v python3 >/dev/null 2>&1; then
-  python3 - <<'PYEOF' || true
-import json, os, sys
-path = os.environ.get("ORCH_CLAUDE_SETTINGS", "")
-if not path:
-    sys.exit(0)
-try:
-    d = json.load(open(path))
-except Exception:
-    sys.exit(0)
-hooks = d.get("hooks", {})
-changed = False
-for event in ("SessionStart", "UserPromptSubmit", "PostToolUse"):
-    if event in hooks:
-        filtered = [e for e in hooks[event]
-                    if "reground.py" not in json.dumps(e)]
-        if len(filtered) < len(hooks[event]):
-            hooks[event] = filtered
-            changed = True
-        if not filtered:
-            del hooks[event]
-            changed = True
-if changed:
-    json.dump(d, open(path, "w"), indent=2, ensure_ascii=False)
-    open(path, "a").write("\n")
-    print("  хуки orchestration удалены из settings.json")
-else:
-    print("  хуки orchestration не найдены в settings.json")
-PYEOF
   ORCH_CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json" python3 - <<'PYEOF' 2>/dev/null || true
 import json, os, sys
 path = os.environ["ORCH_CLAUDE_SETTINGS"]
@@ -84,12 +57,16 @@ try:
     d = json.load(open(path))
 except Exception:
     sys.exit(0)
+
+def is_ours(entry):
+    s = json.dumps(entry)
+    return ("reground.py" in s) or ("orchestration-kit" in s)
+
 hooks = d.get("hooks", {})
 changed = False
 for event in ("SessionStart", "UserPromptSubmit", "PostToolUse"):
     if event in hooks:
-        filtered = [e for e in hooks[event]
-                    if "reground.py" not in json.dumps(e)]
+        filtered = [e for e in hooks[event] if not is_ours(e)]
         if len(filtered) < len(hooks[event]):
             hooks[event] = filtered
             changed = True
@@ -109,23 +86,32 @@ echo ""
 echo "== 2/5 Codex =="
 if [ -f "$CODEX_HOOKS" ]; then
   # Если hooks.json содержит ТОЛЬКО наши хуки — удалить файл целиком
-  # Иначе — удалить только наши события
+  # Иначе — удалить только наши события (reground.py / orchestration-kit)
   python3 - <<PYEOF 2>/dev/null || true
-import json, os
+import json, os, sys
 path = "$CODEX_HOOKS"
 try:
     d = json.load(open(path))
 except Exception:
     sys.exit(0)
+
+def is_ours(entry):
+    s = json.dumps(entry)
+    return ("reground.py" in s) or ("orchestration-kit" in s)
+
 hooks = d.get("hooks", {})
-ours = all("reground.py" in json.dumps(v) for v in hooks.values()) if hooks else False
+# unlink только если КАЖДАЯ запись в КАЖДОМ event — наша
+ours = (
+    all(all(is_ours(e) for e in v) for v in hooks.values())
+    if hooks else False
+)
 if ours and len(hooks) <= 3:
     os.unlink(path)
     print("  удалён файл: $CODEX_HOOKS (содержал только наши хуки)")
 else:
     changed = False
     for event in list(hooks.keys()):
-        filtered = [e for e in hooks[event] if "reground.py" not in json.dumps(e)]
+        filtered = [e for e in hooks[event] if not is_ours(e)]
         if len(filtered) < len(hooks[event]):
             hooks[event] = filtered
             changed = True
@@ -153,15 +139,115 @@ if [ -d "$KIMI_DIR/skills/orchestration" ]; then
   rm -rf "$KIMI_DIR/skills/orchestration"
   echo "  удалён скилл: $KIMI_DIR/skills/orchestration/"
 fi
-# Блок хуков из config.toml
-KIMI_CFG="$KIMI_DIR/config.toml"
-if [ -f "$KIMI_CFG" ] && grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
-  cp "$KIMI_CFG" "$KIMI_CFG.bak-uninstall"
-  sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
+
+# Снять маркированный блок + все [[hooks]] с reground.py в command (в т.ч. без маркеров)
+clean_kimi_config_toml() {
+  local KIMI_CFG="$1"
+  [ -f "$KIMI_CFG" ] || return 0
+  if ! grep -qE 'orchestration-kit hooks|reground\.py' "$KIMI_CFG" 2>/dev/null; then
+    return 0
+  fi
+  if [ ! -f "$KIMI_CFG.bak-uninstall" ]; then
+    cp "$KIMI_CFG" "$KIMI_CFG.bak-uninstall"
+  fi
+  if grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
+    sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
+  fi
+  local py_ok=1
+  if grep -q 'reground\.py' "$KIMI_CFG" 2>/dev/null; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "  предупреждение: нет python3 — unmarked [[hooks]] с reground.py не зачищены в $KIMI_CFG" >&2
+      py_ok=0
+    else
+      if ! ORCH_KIMI_CFG="$KIMI_CFG" python3 - <<'PYEOF'
+import os, re, sys
+path = os.environ["ORCH_KIMI_CFG"]
+try:
+    with open(path) as f:
+        lines = f.readlines()
+except Exception as exc:
+    sys.stderr.write("kimi config read failed: %s\n" % exc)
+    sys.exit(1)
+
+def cmd_has_reground(block):
+    for ln in block:
+        # без якоря EOL: допускаем хвост / # comment после кавычек
+        m = re.match(r'\s*command\s*=\s*"([^"]*)"', ln)
+        if m is None:
+            m = re.match(r"\s*command\s*=\s*'([^']*)'", ln)
+        if m is not None and "reground.py" in m.group(1):
+            return True
+    return False
+
+out = []
+i = 0
+n = len(lines)
+changed = False
+while i < n:
+    stripped = lines[i].strip()
+    if stripped == "[[hooks]]" or stripped.startswith("[[hooks]]"):
+        block = [lines[i]]
+        i += 1
+        while i < n and not lines[i].lstrip().startswith("[["):
+            block.append(lines[i])
+            i += 1
+        if cmd_has_reground(block):
+            changed = True
+            continue
+        out.extend(block)
+    else:
+        out.append(lines[i])
+        i += 1
+
+cleaned = []
+for ln in out:
+    if ln.strip() in (
+        "# >>> orchestration-kit hooks >>>",
+        "# <<< orchestration-kit hooks <<<",
+    ):
+        changed = True
+        continue
+    cleaned.append(ln)
+while cleaned and cleaned[-1].strip() == "":
+    cleaned.pop()
+    changed = True
+
+if changed:
+    try:
+        with open(path, "w") as f:
+            f.writelines(cleaned)
+            if cleaned and not cleaned[-1].endswith("\n"):
+                f.write("\n")
+    except Exception as exc:
+        sys.stderr.write("kimi config write failed: %s\n" % exc)
+        sys.exit(1)
+PYEOF
+      then
+        echo "  предупреждение: python3 не смог зачистить unmarked [[hooks]] в $KIMI_CFG" >&2
+        py_ok=0
+      fi
+    fi
+  fi
   # Убрать пустые строки в конце, если образовались
   sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$KIMI_CFG" 2>/dev/null || true
-  echo "  блок хуков удалён из config.toml (бэкап: .bak-uninstall)"
+  if grep -q 'reground\.py' "$KIMI_CFG" 2>/dev/null; then
+    echo "  предупреждение: в $KIMI_CFG ещё есть reground.py — зачистка неполная" >&2
+    return 0
+  fi
+  if [ "$py_ok" = "1" ]; then
+    echo "  хуки reground зачищены в $KIMI_CFG (бэкап: .bak-uninstall)"
+  fi
+}
+
+clean_kimi_config_toml "$KIMI_DIR/config.toml"
+# Доп. путь: CLAUDE_CONFIG_DIR/.kimi-code/config.toml (если задан и отличается)
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  _extra_kimi="$CLAUDE_CONFIG_DIR/.kimi-code/config.toml"
+  if [ "$_extra_kimi" != "$KIMI_DIR/config.toml" ]; then
+    clean_kimi_config_toml "$_extra_kimi"
+  fi
 fi
+unset -f clean_kimi_config_toml 2>/dev/null || true
 
 echo ""
 echo "== 4/5 Папки .agents/skills =="

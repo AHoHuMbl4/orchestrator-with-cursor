@@ -118,11 +118,12 @@ function Remove-FileSafe {
 }
 
 function Remove-KimiHooksBlock {
+    # Снять маркированный блок + все [[hooks]] с reground.py в command
     param([string]$ConfigPath)
     $startMarker = "# >>> orchestration-kit hooks >>>"
     $endMarker = "# <<< orchestration-kit hooks <<<"
-    $raw = Get-Content -LiteralPath $ConfigPath -Encoding UTF8
-    $newLines = New-Object System.Collections.Generic.List[string]
+    $raw = @(Get-Content -LiteralPath $ConfigPath -Encoding UTF8)
+    $afterMarkers = New-Object System.Collections.Generic.List[string]
     $inBlock = $false
     foreach ($line in $raw) {
         if (-not $inBlock) {
@@ -130,12 +131,52 @@ function Remove-KimiHooksBlock {
                 $inBlock = $true
                 continue
             }
-            $newLines.Add($line) | Out-Null
+            $afterMarkers.Add($line) | Out-Null
         } else {
             if ($line -eq $endMarker) {
                 $inBlock = $false
             }
             continue
+        }
+    }
+    # Удалить [[hooks]]-блоки, у которых command содержит reground.py
+    $newLines = New-Object System.Collections.Generic.List[string]
+    $i = 0
+    $arr = $afterMarkers.ToArray()
+    while ($i -lt $arr.Length) {
+        $stripped = $arr[$i].Trim()
+        if ($stripped -eq "[[hooks]]" -or $stripped.StartsWith("[[hooks]]")) {
+            $block = New-Object System.Collections.Generic.List[string]
+            $block.Add($arr[$i]) | Out-Null
+            $i++
+            while ($i -lt $arr.Length -and -not $arr[$i].TrimStart().StartsWith("[[")) {
+                $block.Add($arr[$i]) | Out-Null
+                $i++
+            }
+            $hasReground = $false
+            foreach ($bl in $block) {
+                $cmdVal = $null
+                # без якоря EOL: допускаем хвост / # comment после кавычек
+                if ($bl -match '^\s*command\s*=\s*"([^"]*)"') {
+                    $cmdVal = $Matches[1]
+                } elseif ($bl -match "^\s*command\s*=\s*'([^']*)'") {
+                    $cmdVal = $Matches[1]
+                }
+                if (($null -ne $cmdVal) -and ($cmdVal -like "*reground.py*")) {
+                    $hasReground = $true
+                    break
+                }
+            }
+            if (-not $hasReground) {
+                foreach ($bl in $block) {
+                    $newLines.Add($bl) | Out-Null
+                }
+            }
+        } else {
+            if ($arr[$i] -ne $startMarker -and $arr[$i] -ne $endMarker) {
+                $newLines.Add($arr[$i]) | Out-Null
+            }
+            $i++
         }
     }
     # Убрать хвостовые пустые строки
@@ -156,6 +197,35 @@ function Remove-KimiHooksBlock {
     } else {
         $nl = [Environment]::NewLine
         Write-Utf8NoBom -Path $ConfigPath -Text ([string]::Join($nl, $newLines.ToArray()) + $nl)
+    }
+}
+
+function Clear-KimiConfigToml {
+    param([string]$ConfigPath)
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return
+    }
+    $cfgText = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8
+    if ($null -eq $cfgText) {
+        $cfgText = ""
+    }
+    if (($cfgText -notmatch "orchestration-kit hooks") -and ($cfgText -notmatch "reground\.py")) {
+        return
+    }
+    $bak = $ConfigPath + ".bak-uninstall"
+    if (-not (Test-Path -LiteralPath $bak)) {
+        Copy-Item -LiteralPath $ConfigPath -Destination $bak -Force
+    }
+    Remove-KimiHooksBlock -ConfigPath $ConfigPath
+    # Паритет с bash: success только если reground.py больше нет
+    $after = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8
+    if ($null -eq $after) {
+        $after = ""
+    }
+    if ($after -match "reground\.py") {
+        Write-Warning "  в $ConfigPath ещё есть reground.py — зачистка неполная"
+    } else {
+        Write-Host "  хуки reground зачищены в $ConfigPath (бэкап: .bak-uninstall)"
     }
 }
 
@@ -253,12 +323,16 @@ try:
     d = json.load(open(path, encoding="utf-8"))
 except Exception:
     sys.exit(0)
+
+def is_ours(entry):
+    s = json.dumps(entry)
+    return ("reground.py" in s) or ("orchestration-kit" in s)
+
 hooks = d.get("hooks", {})
 changed = False
 for event in ("SessionStart", "UserPromptSubmit", "PostToolUse"):
     if event in hooks:
-        filtered = [e for e in hooks[event]
-                    if "reground.py" not in json.dumps(e)]
+        filtered = [e for e in hooks[event] if not is_ours(e)]
         if len(filtered) < len(hooks[event]):
             hooks[event] = filtered
             changed = True
@@ -306,15 +380,24 @@ try:
     d = json.load(open(path, encoding="utf-8"))
 except Exception:
     sys.exit(0)
+
+def is_ours(entry):
+    s = json.dumps(entry)
+    return ("reground.py" in s) or ("orchestration-kit" in s)
+
 hooks = d.get("hooks", {})
-ours = all("reground.py" in json.dumps(v) for v in hooks.values()) if hooks else False
+# unlink только если КАЖДАЯ запись в КАЖДОМ event — наша
+ours = (
+    all(all(is_ours(e) for e in v) for v in hooks.values())
+    if hooks else False
+)
 if ours and len(hooks) <= 3:
     os.unlink(path)
     print("  удалён файл: " + path + " (содержал только наши хуки)")
 else:
     changed = False
     for event in list(hooks.keys()):
-        filtered = [e for e in hooks[event] if "reground.py" not in json.dumps(e)]
+        filtered = [e for e in hooks[event] if not is_ours(e)]
         if len(filtered) < len(hooks[event]):
             hooks[event] = filtered
             changed = True
@@ -369,13 +452,13 @@ try {
 }
 
 try {
-    $KimiCfg = Join-Path $KimiDir "config.toml"
-    if (Test-Path -LiteralPath $KimiCfg) {
-        $cfgText = Get-Content -LiteralPath $KimiCfg -Raw -Encoding UTF8
-        if ($cfgText -match "orchestration-kit hooks") {
-            Copy-Item -LiteralPath $KimiCfg -Destination ($KimiCfg + ".bak-uninstall") -Force
-            Remove-KimiHooksBlock -ConfigPath $KimiCfg
-            Write-Host "  блок хуков удалён из config.toml (бэкап: .bak-uninstall)"
+    Clear-KimiConfigToml -ConfigPath (Join-Path $KimiDir "config.toml")
+    # Доп. путь: CLAUDE_CONFIG_DIR/.kimi-code/config.toml (если задан и отличается)
+    if ($env:CLAUDE_CONFIG_DIR -and $env:CLAUDE_CONFIG_DIR.Trim() -ne "") {
+        $extraKimi = Join-Path (Join-Path $env:CLAUDE_CONFIG_DIR ".kimi-code") "config.toml"
+        $primary = Join-Path $KimiDir "config.toml"
+        if ($extraKimi -ne $primary) {
+            Clear-KimiConfigToml -ConfigPath $extraKimi
         }
     }
 } catch {
