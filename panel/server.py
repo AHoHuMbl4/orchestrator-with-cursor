@@ -30,6 +30,121 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _guard_lock = threading.Lock()
 _guard_snapshot = {"overflows": [], "poll_s": 2}
 
+# Статусы фронта (контракт панели; orchlib может отставать — мягкая деградация).
+PANEL_FRONT_STATUSES = (
+    "proposed", "active", "stalled", "cancelled", "rejected", "done",
+)
+DEFAULT_MAX_RUNS_PER_FRONT = 60
+
+
+def _kit_version_safe():
+    """Версия кита из orchlib.kit_version(); нет функции — None."""
+    fn = getattr(orchlib, "kit_version", None)
+    if not callable(fn):
+        return None
+    try:
+        v = fn()
+        return v if v is not None else None
+    except Exception:
+        return None
+
+
+def _front_status_of(fid, fr):
+    """status фронта: orchlib.front_status или поле из fronts.json; иначе None."""
+    fn = getattr(orchlib, "front_status", None)
+    if callable(fn) and fid:
+        try:
+            st = fn(fid)
+            if st is not None:
+                return st
+        except Exception:
+            pass
+    if isinstance(fr, dict):
+        st = fr.get("status")
+        return st if isinstance(st, str) else None
+    return None
+
+
+def _front_runs_used(fid):
+    """Счётчик counters/front-runs-<fid>.json → used или None."""
+    if not fid:
+        return None
+    try:
+        safe = orchlib.safe_name(fid)
+    except Exception:
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(fid))[:80] or "x"
+    path = os.path.join(orchlib.find_state_dir(), "counters", "front-runs-%s.json" % safe)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "used" in data:
+            return int(data["used"])
+    except Exception:
+        return None
+    return None
+
+
+def _runs_limit():
+    """Лимит прогонов на фронт: params.budgets.max_runs_per_front или 60."""
+    try:
+        p = orchlib.load_params()
+        bud = p.get("budgets") if isinstance(p, dict) else None
+        if isinstance(bud, dict) and "max_runs_per_front" in bud:
+            n = int(bud["max_runs_per_front"])
+            if n > 0:
+                return n
+    except Exception:
+        pass
+    return DEFAULT_MAX_RUNS_PER_FRONT
+
+
+def _observer_age_s(fid):
+    """Возраст mtime fronts/<fid>/observer-heartbeat.txt в секундах; нет файла — None."""
+    if not fid:
+        return None
+    try:
+        safe = orchlib.safe_name(fid)
+    except Exception:
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(fid))[:80] or "x"
+    path = os.path.join(orchlib.find_state_dir(), "fronts", safe, "observer-heartbeat.txt")
+    if not os.path.isfile(path):
+        return None
+    try:
+        return max(0, int(time.time() - os.path.getmtime(path)))
+    except Exception:
+        return None
+
+
+def _persist_fronts_data(data):
+    """Атомарная запись fronts.json без валидации orchlib (панель пишет status)."""
+    import tempfile
+    out = {
+        "goal": data.get("goal", "") if isinstance(data.get("goal"), str) else "",
+        "fronts": data.get("fronts") if isinstance(data.get("fronts"), list) else [],
+        "notes": data.get("notes", "") if isinstance(data.get("notes"), str) else "",
+    }
+    pf = orchlib.fronts_path()
+    d = os.path.dirname(pf)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, pf)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
+    return out
+
 
 def _guard_poll_s(p):
     """Интервал сторожа: из params.compass.guard_poll_s, иначе 2; 0/битое → 2."""
@@ -322,6 +437,7 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/fronts":
             data = orchlib.load_fronts()
             _sess_lim, front_lim = _compass_limits(orchlib.load_params())
+            runs_lim = _runs_limit()
             fronts_out = []
             for fr in data.get("fronts") or []:
                 if not isinstance(fr, dict):
@@ -334,6 +450,10 @@ class Handler(BaseHTTPRequestHandler):
                 item["compass_path"] = cp
                 item["compass_size"] = _compass_file_size(cp) if item["compass_exists"] else 0
                 item["compass_limit"] = front_lim  # None → UI: «лимит не задан»
+                item["status"] = _front_status_of(fid, fr)
+                item["runs_used"] = _front_runs_used(fid)
+                item["runs_limit"] = runs_lim
+                item["observer_age_s"] = _observer_age_s(fid)
                 fronts_out.append(item)
             try:
                 waves = orchlib.front_waves({"goal": data.get("goal", ""),
@@ -347,6 +467,8 @@ class Handler(BaseHTTPRequestHandler):
                 "notes": data.get("notes", ""),
                 "waves": waves,
                 "compass_limit": front_lim,
+                "kit_version": _kit_version_safe(),
+                "runs_limit": runs_lim,
             })
         elif u.path == "/api/logs":
             name = (q.get("name") or [""])[0]
@@ -411,6 +533,51 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/api/fronts":
             self._save_fronts_request()
+            return
+        if u.path == "/api/fronts/status":
+            body, err = self.read_body_json()
+            if err:
+                self.send_json({"error": err}, 400)
+                return
+            if not isinstance(body, dict):
+                self.send_json({"error": "ожидается объект {id, status}"}, 400)
+                return
+            fid = body.get("id")
+            status = body.get("status")
+            if not isinstance(fid, str) or not fid.strip():
+                self.send_json({"error": "id: ожидается непустая строка"}, 400)
+                return
+            if status not in PANEL_FRONT_STATUSES:
+                self.send_json({
+                    "error": "status: ожидается %s" % "|".join(PANEL_FRONT_STATUSES),
+                }, 400)
+                return
+            data = orchlib.load_fronts()
+            fronts = data.get("fronts") if isinstance(data.get("fronts"), list) else []
+            found = None
+            for fr in fronts:
+                if isinstance(fr, dict) and fr.get("id") == fid:
+                    found = fr
+                    break
+            if found is None:
+                self.send_json({"error": "фронт не найден: %s" % fid}, 404)
+                return
+            found["status"] = status
+            try:
+                # save_fronts может отвергнуть новые статусы, пока orchlib отстаёт —
+                # пишем напрямую (владелец панели / ручная отмена).
+                try:
+                    orchlib.save_fronts(data)
+                except ValueError:
+                    _persist_fronts_data(data)
+                self.send_json({
+                    "ok": True,
+                    "id": fid,
+                    "status": status,
+                    "kit_version": _kit_version_safe(),
+                })
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
             return
         if u.path == "/api/params":
             body, err = self.read_body_json()

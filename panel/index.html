@@ -32,6 +32,19 @@
   .run { color: #b07a00; } .done { color: #1e8e4e; } .fail { color: #c62828; }
   .st-planned { color: #6f7b88; } .st-running { color: #2c6bed; }
   .st-blocked { color: #c62828; } .st-done { color: #1e8e4e; } .st-failed { color: #c62828; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px;
+          font-weight: 600; }
+  .chip-active { background: #e6f6ec; color: #1e8e4e; }
+  .chip-stalled { background: #fff6db; color: #9a7400; }
+  .chip-cancelled, .chip-rejected { background: #eef0f3; color: #6f7b88;
+    text-decoration: line-through; }
+  .chip-proposed, .chip-done, .chip-other { background: #eef2f8; color: #445060; }
+  .obs-ok { color: #5a6572; font-size: 12px; }
+  .obs-stale { color: #c62828; font-size: 12px; font-weight: 600; }
+  .kit-ver { font-size: 13px; color: #5a6572; margin-left: auto; }
+  button.danger { background: #c62828; }
+  button.danger:hover { background: #a01f1f; }
+  button.sm { padding: 4px 10px; margin-top: 0; font-size: 12px; }
   .wave-block { margin: 10px 0; padding: 8px 12px; background: #fff;
     border: 1px solid #e3e8ee; border-radius: 6px; }
   .wave-block h3 { font-size: 13px; margin: 0 0 6px; color: #5a6572; font-weight: 600; }
