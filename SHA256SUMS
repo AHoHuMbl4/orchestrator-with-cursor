@@ -20,15 +20,6 @@ b34aa5b66f4ee8e99574ed75125315219e89fe3643ece7d20fd3f871bfe98dad  ./install-loca
 ffcc082975b9891e898472214b7a38b32eeee02bde10bde6790485a8a22ac1af  ./install-local.sh
 c63be90779c4691e390317aa6d8b06f2a8b8fe0e63027a559e5a4e560733b072  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./orchlib.py/discover.py
-32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./orchlib.py/menu.py
-e3a7456870b1c714daf0124e44bb0c113b28010b8241eeba866b44ced809cab8  ./orchlib.py/orchlib.py
-731faa37c3e40c09ac3af443d6e0180468158826fb22e66ff709d22dfcaeab29  ./orchlib.py/reground.py
-a04d47e7aa9c84d0b9ba71577b616283deb5dd7d1b8a1edfdfc1d20d836d9b6d  ./orchlib.py/run-cloud.py
-f9e3f759e9e6c703e5812a8df4375a6b7815db4028adaaf0c2ce21daed94a4a5  ./orchlib.py/run-exec.py
-432fe2895a72bd0f78482ac1887f98290f48fa74db6ea42fa52babafa5cd9664  ./orchlib.py/session-entry.py
-4d4188f9d5fc8396e9dcb896538cca98c131c95b8f68157d3be7faa94b19d112  ./orchlib.py/verdict.py
-e4353a31089baa3f167c6588cc80fe3875aeae2594fa94a30d43fd8dae95e699  ./orchlib.py/write-compass.py
 c595a52eb539114b1007c9af761822861160e987a107e590fa14cdd127ce95e2  ./panel/index.html
 51f2dff57dd09ba7a517d858a2aa9142aecc80716ebba8a61c2091f13f328cc5  ./panel/server.py
 b2738a6da4e6b62fc0bdf5cd4719f78e454e26b7ed6f7faee3e7f858276f3d12  ./params.json
