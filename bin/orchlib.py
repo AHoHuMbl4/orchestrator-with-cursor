@@ -5,6 +5,7 @@
 Кроссплатформенно (Linux/macOS/Windows), python3.6+, только stdlib.
 Единственный источник правды — .orchestration/params.json (+ compass.md).
 """
+import hashlib
 import json
 import os
 import sys
@@ -785,3 +786,122 @@ def front_waves(f):
         done.update(wave)
         remaining -= set(wave)
     return waves
+
+
+# --- версия кита, статусы фронтов, счётчики ---
+
+def _write_json_atomic(path, obj):
+    """Атомарная запись JSON (tempfile + os.replace), как save_params/save_fronts."""
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".orch-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+        raise
+
+
+def kit_version():
+    """Первые 10 hex-символов sha256 от содержимого KIT_DIR/SHA256SUMS; иначе unknown."""
+    path = os.path.join(KIT_DIR, "SHA256SUMS")
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return hashlib.sha256(data).hexdigest()[:10]
+    except Exception:
+        return "unknown"
+
+
+def front_status(fid):
+    """status фронта с id==fid из fronts.json; нет файла/фронта/поля → None."""
+    pf = fronts_path()
+    if not os.path.exists(pf):
+        return None
+    try:
+        with open(pf, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    fronts = data.get("fronts")
+    if not isinstance(fronts, list):
+        return None
+    for fr in fronts:
+        if not isinstance(fr, dict):
+            continue
+        if fr.get("id") == fid:
+            if "status" not in fr:
+                return None
+            st = fr.get("status")
+            return st if isinstance(st, str) else None
+    return None
+
+
+def bump_front_runs(fid, limit):
+    """Инкремент used в counters/front-runs-<safe_fid>.json → (used, limit)."""
+    counters = os.path.join(find_state_dir(), "counters")
+    os.makedirs(counters, exist_ok=True)
+    path = os.path.join(counters, "front-runs-%s.json" % safe_name(fid))
+    used = 0
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "used" in data:
+                used = int(data["used"])
+        except Exception:
+            used = 0
+    used += 1
+    _write_json_atomic(path, {"used": used})
+    return (used, limit)
+
+
+def active_fronts():
+    """id фронтов со status in (active, proposed), порядок как в fronts.json."""
+    data = load_fronts()
+    out = []
+    for fr in data.get("fronts") or []:
+        if not isinstance(fr, dict):
+            continue
+        if fr.get("status") in ("active", "proposed"):
+            fid = fr.get("id")
+            if isinstance(fid, str) and fid:
+                out.append(fid)
+    return out
+
+
+def _kit_version_counter_path(sid):
+    return os.path.join(
+        find_state_dir(), "counters",
+        "kit-version-%s.json" % safe_name(sid))
+
+
+def last_seen_kit_version(sid):
+    """version из counters/kit-version-<safe_sid>.json; нет файла/поля → None."""
+    path = _kit_version_counter_path(sid)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "version" not in data:
+            return None
+        v = data.get("version")
+        return v if isinstance(v, str) else None
+    except Exception:
+        return None
+
+
+def mark_kit_version(sid, v):
+    """Записать {"version": v} в counters/kit-version-<safe_sid>.json атомарно."""
+    path = _kit_version_counter_path(sid)
+    _write_json_atomic(path, {"version": v})
