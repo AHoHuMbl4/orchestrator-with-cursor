@@ -125,6 +125,10 @@ _ROLE_RE = re.compile(
 _GATE_MARKERS = (
     "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED")
 _COMPASS_GATE_RE = re.compile(r"COMPASS_OVERFLOW[A-Z0-9_]*")
+# осмысленный вердикт без JSON-хвоста (OK | PROBLEMS:… | BLOCKED:…)
+_VERDICT_RE = re.compile(
+    r"Вердикт:\s*(?:(OK)\b|(PROBLEMS|BLOCKED)\b(:[^\n\\\"\r]*)?)")
+_VERDICT_MAX_LEN = 200
 
 
 def journal_path():
@@ -196,8 +200,74 @@ def resolve_run_role(role_flag, prompt_text):
     return extract_prompt_role(prompt_text)
 
 
+def _verdict_matches(text):
+    """Все осмысленные «Вердикт: …» в тексте (в порядке появления)."""
+    out = []
+    for m in _VERDICT_RE.finditer(text or ""):
+        if m.group(1):
+            v = "Вердикт: OK"
+        else:
+            kind = m.group(2) or ""
+            rest = m.group(3) or ""
+            v = ("Вердикт: %s%s" % (kind, rest)).rstrip()
+        if len(v) > _VERDICT_MAX_LEN:
+            v = v[:_VERDICT_MAX_LEN]
+        out.append(v)
+    return out
+
+
+def _stream_assistant_result_texts(obj):
+    """Тексты из NDJSON type=assistant (text) и type=result."""
+    texts = []
+    if not isinstance(obj, dict):
+        return texts
+    kind = obj.get("type")
+    if kind == "assistant":
+        msg = obj.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    t = part.get("text")
+                    if isinstance(t, str) and t:
+                        texts.append(t)
+        # редкий плоский delta
+        t = obj.get("text")
+        if isinstance(t, str) and t:
+            texts.append(t)
+    elif kind == "result":
+        r = obj.get("result")
+        if isinstance(r, str) and r:
+            texts.append(r)
+    return texts
+
+
+def _gate_token_from_wrapper_line(line):
+    """Маркер эмиссии обёртки или None. JSON tool_call-строки — skip."""
+    s = line.strip()
+    if not s or s.startswith("{"):
+        return None
+    if s.startswith("COMPASS_OVERFLOW"):
+        m = _COMPASS_GATE_RE.match(s)
+        if not m:
+            return None
+        tok = m.group(0)
+        rest = s[len(tok):]
+        if rest == "" or rest.startswith("=") or rest[0].isspace():
+            return tok
+        return None
+    for name in _GATE_MARKERS:
+        if s == name or s.startswith(name + "="):
+            return name
+    return None
+
+
 def journal_log_meta(log_path, n=80):
-    """Из хвоста лога: (verdict|None, gates:list). Ошибки чтения → (None, [])."""
+    """Из хвоста лога: (verdict|None, gates:list). Ошибки чтения → (None, []).
+
+    verdict — последнее осмысленное «Вердикт: …» из assistant/result NDJSON
+    (fallback: regex по хвосту). gates — только plain-эмиссии обёртки, не JSON.
+    """
     verdict = None
     gates = []
     seen = set()
@@ -207,26 +277,33 @@ def journal_log_meta(log_path, n=80):
     except Exception:
         return None, []
     tail = lines[-n:] if len(lines) > n else lines
+
+    stream_verdicts = []
     for line in tail:
-        if verdict is None:
-            idx = line.find("Вердикт:")
-            if idx >= 0:
-                chunk = line[idx:]
-                # обрезать JSON/escape-хвост stream-json
-                for stop in ("\\n", '\\"', '"', "\r", "\n"):
-                    p = chunk.find(stop)
-                    if p > 0:
-                        chunk = chunk[:p]
-                verdict = chunk.strip() or None
-        for name in _GATE_MARKERS:
-            if name in line and name not in seen:
-                seen.add(name)
-                gates.append(name)
-        for m in _COMPASS_GATE_RE.finditer(line):
-            tok = m.group(0)
-            if tok not in seen:
-                seen.add(tok)
-                gates.append(tok)
+        s = line.strip()
+        # gates: только эмиссия раннера, не содержимое tool_call/Read
+        gtok = _gate_token_from_wrapper_line(line)
+        if gtok and gtok not in seen:
+            seen.add(gtok)
+            gates.append(gtok)
+        # NDJSON stream → тексты assistant/result
+        if s.startswith("{"):
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            for text in _stream_assistant_result_texts(obj):
+                stream_verdicts.extend(_verdict_matches(text))
+
+    if stream_verdicts:
+        verdict = stream_verdicts[-1]
+    else:
+        # fallback: последнее совпадение строгого паттерна в хвосте
+        blob = "".join(tail)
+        found = _verdict_matches(blob)
+        if found:
+            verdict = found[-1]
+
     return verdict, gates
 
 
