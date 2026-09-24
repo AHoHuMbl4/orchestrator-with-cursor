@@ -23,6 +23,9 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   1       — result-событие с неуспехом (агент отчитался о фейле)
   3       — умер без result, но в логе есть финальный текст ассистента
   4       — умер без result и без текста отчёта (работа потеряна)
+  5       — секрет в промте (SECRETS_IN_PROMPT); процесс не стартовал
+  6       — фронт закрыт (cancelled/rejected); FRONT_CLOSED
+  7       — бюджет фронта исчерпан; BUDGET_EXCEEDED
   124     — таймаут
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
@@ -36,6 +39,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -53,6 +57,71 @@ REGROUND_LINE = (
 )
 
 RETRYABLE = frozenset(("4", "124"))
+
+# Паттерны секретов в промте — до старта cursor-agent.
+SECRET_PATTERNS = (
+    re.compile(r"crsr_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
+    re.compile(r"ghp_[A-Za-z0-9]{30,}"),
+)
+
+
+def scan_secrets(text):
+    """Первый совпавший паттерн (pattern.pattern) или None."""
+    for rx in SECRET_PATTERNS:
+        if rx.search(text or ""):
+            return rx.pattern
+    return None
+
+
+def apply_launch_gates(prompt, prompt_file, front_id, log_path):
+    """Гейты до Popen: секреты → 5; фронт closed → 6; бюджет → 7.
+
+    Возвращает (exit_code|None, log_lines). При отказе пишет log_lines в log_path
+    и возвращает код; при успехе log_lines (напр. FRONT_RUNS) — для записи
+    в начало лога до старта агента (open 'w' не затрёт).
+    """
+    lines = []
+    hit = scan_secrets(prompt)
+    if hit:
+        lines.append("SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file))
+        for line in lines:
+            append_log(log_path, line)
+        sys.stderr.write(
+            "секрет в промте: вынеси в .orchestration/cursor.key / ENV; "
+            "промт без секрета\n")
+        return 5, lines
+    if not front_id:
+        return None, lines
+    front_status = getattr(orchlib, "front_status", None)
+    if callable(front_status):
+        status = front_status(front_id)
+        if status in ("cancelled", "rejected"):
+            lines.append("FRONT_CLOSED=%s" % front_id)
+            for line in lines:
+                append_log(log_path, line)
+            return 6, lines
+    bump = getattr(orchlib, "bump_front_runs", None)
+    if callable(bump):
+        params = orchlib.load_params()
+        limit = 60
+        try:
+            bud = params.get("budgets") or {}
+            if isinstance(bud, dict) and "max_runs_per_front" in bud:
+                limit = int(bud["max_runs_per_front"])
+        except Exception:
+            limit = 60
+        used, limit = bump(front_id, limit)
+        if used > limit:
+            lines.append("BUDGET_EXCEEDED=%s %s/%s" % (front_id, used, limit))
+            for line in lines:
+                append_log(log_path, line)
+            return 7, lines
+        lines.append("FRONT_RUNS=%s %s/%s" % (front_id, used, limit))
+    return None, lines
 
 
 def find_cursor_agent():
@@ -560,6 +629,8 @@ def main():
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--id", default=None, help="метка прогона (файлы логов/промтов)")
+    ap.add_argument("--front", default=None,
+                    help="id фронта: статус cancelled/rejected и бюджет max_runs_per_front")
     ap.add_argument("--session", default=None,
                     help="id сессии: все файлы прогона лягут в .orchestration/sessions/<id>/runs/<run>/")
     ap.add_argument("--prompt-file", default=None,
@@ -616,6 +687,14 @@ def main():
         pid_path = os.path.join(run_dir, "run.pid")
     else:
         run_prompt_file = os.path.join(state, "prompt-%s.run.md" % a.id)
+        log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
+        pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
+
+    # Гейты до Popen: секрет-сканер; при --front — статус/бюджет (мягкая деградация).
+    gate_rc, gate_lines = apply_launch_gates(prompt, prompt_file, a.front, log_path)
+    if gate_rc is not None:
+        return gate_rc
+
     if not a.no_reground_line:
         prompt += REGROUND_LINE.format(path=os.path.abspath(prompt_file))
     with open(run_prompt_file, "w", encoding="utf-8") as f:
@@ -630,14 +709,13 @@ def main():
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
     cmd = build_agent_cmd(exe, prompt, a.model, a.extra)
 
-    if not a.session:
-        log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
     log_fh = open(log_path, "w", encoding="utf-8")
+    for line in gate_lines:
+        log_fh.write(line if line.endswith("\n") else line + "\n")
+    log_fh.flush()
     kwargs = detach_popen_kwargs()
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
 
-    if not a.session:
-        pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
     with open(pid_path, "w", encoding="utf-8") as f:
         f.write(str(proc.pid))
 

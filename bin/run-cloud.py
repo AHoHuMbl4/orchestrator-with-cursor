@@ -58,6 +58,7 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -71,11 +72,75 @@ BASE = "https://api.cursor.com"
 TERMINAL_RUN_STATUSES = frozenset(("FINISHED", "ERROR", "CANCELLED", "EXPIRED"))
 RECOVERY_WINDOW_SEC = 300
 
+# Паттерны секретов в промте — до HTTP create.
+SECRET_PATTERNS = (
+    re.compile(r"crsr_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
+    re.compile(r"ghp_[A-Za-z0-9]{30,}"),
+)
+
+
+def scan_secrets(text):
+    """Первый совпавший паттерн (pattern.pattern) или None."""
+    for rx in SECRET_PATTERNS:
+        if rx.search(text or ""):
+            return rx.pattern
+    return None
+
+
+def _append_gate_log(log_path, line):
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line if line.endswith("\n") else line + "\n")
+    except Exception:
+        pass
+
+
+def apply_launch_gates(prompt, prompt_file, front_id, log_path):
+    """Гейты до HTTP create: секреты → 5; фронт closed → 6; бюджет → 7; иначе None."""
+    hit = scan_secrets(prompt)
+    if hit:
+        _append_gate_log(log_path, "SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file))
+        sys.stderr.write(
+            "секрет в промте: вынеси в .orchestration/cursor.key / ENV; "
+            "промт без секрета\n")
+        return 5
+    if not front_id:
+        return None
+    front_status = getattr(orchlib, "front_status", None)
+    if callable(front_status):
+        status = front_status(front_id)
+        if status in ("cancelled", "rejected"):
+            _append_gate_log(log_path, "FRONT_CLOSED=%s" % front_id)
+            return 6
+    bump = getattr(orchlib, "bump_front_runs", None)
+    if callable(bump):
+        params = orchlib.load_params()
+        limit = 60
+        try:
+            bud = params.get("budgets") or {}
+            if isinstance(bud, dict) and "max_runs_per_front" in bud:
+                limit = int(bud["max_runs_per_front"])
+        except Exception:
+            limit = 60
+        used, limit = bump(front_id, limit)
+        if used > limit:
+            _append_gate_log(log_path, "BUDGET_EXCEEDED=%s %s/%s" % (
+                front_id, used, limit))
+            return 7
+        _append_gate_log(log_path, "FRONT_RUNS=%s %s/%s" % (front_id, used, limit))
+    return None
+
 
 def _add_common_args(parser):
     """Общие флаги на main и на субпарсерах (default=SUPPRESS → оба порядка)."""
     parser.add_argument("--api-key", default=argparse.SUPPRESS)
     parser.add_argument("--id", default=argparse.SUPPRESS)
+    parser.add_argument("--front", default=argparse.SUPPRESS,
+                        help="id фронта: статус cancelled/rejected и бюджет max_runs_per_front")
     parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
                         help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
 
@@ -119,6 +184,8 @@ def normalize_args(a):
         a.api_key = None
     if not hasattr(a, "id"):
         a.id = "C1"
+    if not hasattr(a, "front"):
+        a.front = None
     if not hasattr(a, "http_timeout"):
         a.http_timeout = 300.0
     return a
@@ -473,7 +540,6 @@ def recover_create_after_timeout(key, body, prompt_text, http_timeout, lf):
 
 
 def cmd_run(a):
-    key = api_key(a)
     state = orchlib.find_state_dir()
     os.makedirs(state, exist_ok=True)
     prompt_file = a.prompt_file or os.path.join(state, "prompt-%s.md" % a.id)
@@ -482,6 +548,15 @@ def cmd_run(a):
     if not prompt.strip():
         sys.stderr.write("промт пуст: %s\n" % prompt_file)
         return 2
+
+    log_path = os.path.join(state, "cloud-%s.log" % a.id)
+    # Гейты до HTTP create / api_key: секрет-сканер; при --front — статус/бюджет.
+    gate_rc = apply_launch_gates(prompt, prompt_file, getattr(a, "front", None),
+                                 log_path)
+    if gate_rc is not None:
+        return gate_rc
+
+    key = api_key(a)
 
     extra = {}
     if a.body_file:
