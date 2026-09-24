@@ -22,10 +22,10 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 4a2a5434d307c83881a5980ebffeed7a6f4db5c4625d48b92eff71a7b484b862  ./panel/index.html
 1768232130bcce90e3316f1d0fd560a6e0e3ca40f7a93c788a1c00bd882ff091  ./panel/server.py
 0b96e7cf5251ae6d92e9631510d087cc3c9f6c5c1bd362c375f74a8a37f27f26  ./params.json
-a52156e5c2ea5ce0a52b999ef60d37d2bc70a10578e1a0f49c550f5f4135395f  ./skills/orchestration/SKILL.md
-80b9d8e5d48b4c60eb5abe081dc662785dce7f2d1e43821d48bde53526477bb4  ./skills/orchestration/references/MAP.md
+f49eef8e25d249a8b70ae326c8c27d97f7aa9dc51c04eaafffb332d99131a57a  ./skills/orchestration/SKILL.md
+33bb554241a25cf5b2240236ec690b628aacdf4f677ff5843931b34c9f0dfcac  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
-40f1e2eba0865b5250ce54656e38790a52e527c7a7ae3a78a7597b27886826a2  ./skills/orchestration/references/planning.md
+c605513387850e679111f722acad743a73b2f68c5837c5e2e3f31048e700efa3  ./skills/orchestration/references/planning.md
 2d5886866a196b77e88f7f5e824de1f5c5b892cd27e5dda0c69ab9ca9e234802  ./skills/orchestration/references/roles/_index.md
 fa20ccabe8bd59108f1cd5bfeff28e613e67a789b07477ce7340d110c75bb782  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
@@ -56,7 +56,7 @@ df9173b426a4ac5b61ed2ab110a48cac2855bc2b478031fc24d6a045543e276e  ./skills/orche
 f690fb3d549d29582af1ee22d65a113808f7ffa2f874f2568d2a1dd3c5ca9043  ./skills/orchestration/references/roles/code/dependency-upgrade-specialist.md
 12d6fa410937af040b8aa638e5376ae199b0f57f03c0563ec44242cf1bd136c5  ./skills/orchestration/references/roles/code/deployment-strategy-designer.md
 632ae5e20ebe7623e7ec027f304e80386f7acb6e2fe8da2a571784555fb7404d  ./skills/orchestration/references/roles/code/devops.md
-a946ecd85346911915df9459611679988d53483da7db812878a60b844fb72710  ./skills/orchestration/references/roles/code/docs-keeper.md
+7b1cbe690a413b14d808feaee2216966b7b620855c8cd2b36c3fae83326913f0  ./skills/orchestration/references/roles/code/docs-keeper.md
 bbaef957e675dadf51e9acd2750c349c19d28d228dcd9e3eef56935af70223b2  ./skills/orchestration/references/roles/code/error-handling-designer.md
 b3ea5f4f135672500df215fb3d327c2a77372de4c404cb36ccd62f56ab7cf0ae  ./skills/orchestration/references/roles/code/git-warden.md
 1fe8cddd0c777af88e831bb81bb64eab225fa9fd8d53f2d37987001bf8edc4a5  ./skills/orchestration/references/roles/code/git-workflow-specialist.md
@@ -182,6 +182,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-2500a4fcbc39b0be100bba9a0a5be07fd7f2f45ca41fb250902e90c4f54527e9  ./skills/orchestration/references/traps.md
+f01ff859a1310580a6c461810f3df1ddaf4a3c4e8653783e17a3c6ecb563d0ee  ./skills/orchestration/references/traps.md
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh
