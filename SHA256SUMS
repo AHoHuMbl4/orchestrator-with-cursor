@@ -6,8 +6,8 @@ cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
 8bc48984a1b563bd3eac77a7544e27ed4c93ff24eecc1d779949bbb7154b9f0c  ./bin/orchlib.py
 731faa37c3e40c09ac3af443d6e0180468158826fb22e66ff709d22dfcaeab29  ./bin/reground.py
-a04d47e7aa9c84d0b9ba71577b616283deb5dd7d1b8a1edfdfc1d20d836d9b6d  ./bin/run-cloud.py
-f9e3f759e9e6c703e5812a8df4375a6b7815db4028adaaf0c2ce21daed94a4a5  ./bin/run-exec.py
+4be215919ecbdfd8dd3457bbd6d417bc72a3c97deb241c18f08ebf52d791ae79  ./bin/run-cloud.py
+7e4ff707eeb5ae4348e9a25cffcb24ec937b49c3080d8a19df8c9f7d52bc0b44  ./bin/run-exec.py
 432fe2895a72bd0f78482ac1887f98290f48fa74db6ea42fa52babafa5cd9664  ./bin/session-entry.py
 4d4188f9d5fc8396e9dcb896538cca98c131c95b8f68157d3be7faa94b19d112  ./bin/verdict.py
 e4353a31089baa3f167c6588cc80fe3875aeae2594fa94a30d43fd8dae95e699  ./bin/write-compass.py

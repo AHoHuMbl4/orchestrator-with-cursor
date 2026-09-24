@@ -102,7 +102,7 @@ def _append_gate_log(log_path, line):
 def apply_launch_gates(prompt, prompt_file, front_id, log_path):
     """Гейты до HTTP create: секреты → 5; фронт closed → 6; hard-бюджет → 7.
 
-    Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>warn →
+    Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>=warn →
     FRONT_BUDGET_WARN + pending_budget_warn, запуск продолжается. Иначе None.
     """
     hit = scan_secrets(prompt)
@@ -129,7 +129,7 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
             _append_gate_log(log_path, "BUDGET_HARD=%s %s/%s" % (
                 front_id, used, hard))
             return 7
-        if used > warn:
+        if used >= warn:
             _append_gate_log(log_path, "FRONT_BUDGET_WARN=%s %s/%s" % (
                 front_id, used, warn))
             emit = getattr(orchlib, "emit_pending_budget_warn", None)

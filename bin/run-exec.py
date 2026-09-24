@@ -96,7 +96,7 @@ def apply_secret_gate(prompt, prompt_file, log_path):
 def apply_front_gates(front_id, log_path):
     """Статус/бюджет после exe: closed → 6; hard-бюджет → 7; успех → FRONT_RUNS.
 
-    Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>warn →
+    Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>=warn →
     FRONT_BUDGET_WARN + pending_budget_warn, запуск продолжается.
 
     Возвращает (exit_code|None, log_lines). Отказы и FRONT_RUNS — сразу через
@@ -124,7 +124,7 @@ def apply_front_gates(front_id, log_path):
             lines.append(hline)
             append_log(log_path, hline)
             return 7, lines
-        if used > warn:
+        if used >= warn:
             wline = "FRONT_BUDGET_WARN=%s %s/%s" % (front_id, used, warn)
             lines.append(wline)
             append_log(log_path, wline)
