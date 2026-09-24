@@ -282,7 +282,7 @@ def _journal_read_safe(limit):
             entries = []
         return entries, True
     except Exception:
-        return [], True
+        return [], False
 
 
 def _build_journal_tree(entries):
@@ -349,6 +349,7 @@ def _build_journal_tree(entries):
         if p is not None and p in nodes and p != nid:
             nodes[p]["children"].append(node)
         else:
+            node["parent"] = None
             roots.append(node)
     return roots
 
