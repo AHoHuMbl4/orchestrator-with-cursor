@@ -52,8 +52,10 @@ State — `.orchestration/` в проекте.
 - `discovered.json` — снимок `bin/discover.py`
 - `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
 - статусы фронта: `proposed` / `active` / `stalled` / `cancelled` / `rejected` / `done` (legacy-алиасы при чтении: planned→proposed, running→active, blocked→stalled, failed→rejected)
-- `<state>/fronts/<id>/compass.md` — compass каждого фронта (`orchlib.front_compass_path`)
-- `<state>/fronts/<id>/colonels/<cid>/compass.md` — мини-compass полковника (лимит как у фронтового)
+- `<state>/fronts/<id>/order.md` — приказ командующего фронту (цель/границы/критерий/CANON); read-only для генерала
+- `<state>/fronts/<id>/compass.md` — курс фронта только (состояние/TODO/следующий шаг + ссылка на order.md; без текста приказа) (`orchlib.front_compass_path`)
+- `<state>/fronts/<id>/colonels/<cid>/order.md` — приказ генерала полковнику; read-only для полковника
+- `<state>/fronts/<id>/colonels/<cid>/compass.md` — мини-курс полковника только (ссылка на order.md; без текста приказа; лимит как у фронтового)
 - Правило: запускай всё из одной папки проекта (или задай `ORCHESTRATION_DIR`)
 
 ## C. Скилл и роли (как выбирать)
@@ -92,8 +94,10 @@ State — `.orchestration/` в проекте.
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
 | генералу нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
-| Compass фронта? | `<state>/fronts/<id>/compass.md` (≤ 4000 символов) |
-| Мини-compass полковника? | `<state>/fronts/<id>/colonels/<cid>/compass.md` (лимит как у фронтового) |
+| Приказ фронту? | `<state>/fronts/<id>/order.md` (read-only для генерала) |
+| Compass фронта? | `<state>/fronts/<id>/compass.md` (≤ 4000; только курс + ссылка на order.md) |
+| Приказ полковнику? | `<state>/fronts/<id>/colonels/<cid>/order.md` (read-only для полковника) |
+| Мини-compass полковника? | `<state>/fronts/<id>/colonels/<cid>/compass.md` (только курс + ссылка на order.md; лимит как у фронтового) |
 | Правки кода: гит до/после волны? | чекпоинт git до волны, ревизия после — `code/git-warden` |
 | Доки протухли/обновить после волны? | `code/docs-keeper` |
 | PROJECT.md? | главный документ, ≤1 стр, корень проекта; разделы Цель/Архитектура (до 5 строк)/Карта/Ключевые решения (решение+дата, 5–7)/Ссылки; перезаписью (не дописыванием); создаёт командующий при старте иерархии (новый и существующий при первом появлении нормы); ведёт `docs-keeper`: значимая волна → сверка разделов, ≠ → PROBLEMS |
