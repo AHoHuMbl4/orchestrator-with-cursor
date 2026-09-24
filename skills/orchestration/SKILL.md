@@ -406,11 +406,15 @@ Reject. TTL: нет ответа N мин в интерактиве → лест
 `on_cursor_fail: ask`); в авто-режиме — безопасная ветка + доклад.
 
 **Бюджеты и статусы фронтов.** Прогоны (`run-exec` / `run-cloud`) несут
-`--front <fid>`. Лимит `params.budgets.max_runs_per_front` (дефолт **60**);
-`BUDGET_EXCEEDED` = стоп и эскалация владельцу (не обходить молча).
-Статусы фронтов: `proposed` / `active` / `stalled` / `cancelled` /
-`rejected` / `done`. Статусы `cancelled` / `rejected` — запуски закрыты;
-отмена — решение командующего по эскалации / владельцу.
+`--front <fid>`. Бюджет фронта — датчик заноса, не жёсткий стоп по умолчанию:
+`params.budgets.warn_runs_per_front` (дефолт **60**) — churn-датчик:
+`used > warn` → лог `FRONT_BUDGET_WARN` + флаг `pending_budget_warn.json`
+(командующий/владелец), запуск продолжается; `params.budgets.hard_runs_per_front`
+(дефолт **0** = выключен) — только при `hard > 0` и `used > hard` отказ
+`BUDGET_HARD` / exit 7. Качество > токены: не режь осознанную сложность
+ради экономии. Статусы фронтов: `proposed` / `active` / `stalled` /
+`cancelled` / `rejected` / `done`. Статусы `cancelled` / `rejected` —
+запуски закрыты; отмена — решение командующего по эскалации / владельцу.
 
 ## Параметры пачки («меню»)
 
@@ -428,7 +432,8 @@ Reject. TTL: нет ответа N мин в интерактиве → лест
 | review.max_rounds | 3 | кругов ревью до доклада |
 | execution.timeout_s | 1800 | потолок прогона исполнителя, сек |
 | reground.every_min | 10 | интервал сверки курса, мин |
-| budgets.max_runs_per_front | 60 | лимит прогонов на фронт; превышение → BUDGET_EXCEEDED, стоп + эскалация владельцу |
+| budgets.warn_runs_per_front | 60 | churn-датчик: used>warn → FRONT_BUDGET_WARN + pending, запуск продолжается (командующий/владелец) |
+| budgets.hard_runs_per_front | 0 | жёсткий стоп: used>hard при hard>0 → BUDGET_HARD/exit 7; 0 = выключен; качество > токены |
 
 По слову «меню» — покажи текущие и спроси, что поменять. Изменил — подтверди
 одной строкой и работай по новым.

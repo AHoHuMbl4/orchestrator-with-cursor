@@ -34,5 +34,9 @@
     "max_session_chars": 8500,
     "max_front_chars": 4000,
     "guard_poll_s": 2
+  },
+  "budgets": {
+    "warn_runs_per_front": 60,
+    "hard_runs_per_front": 0
   }
 }

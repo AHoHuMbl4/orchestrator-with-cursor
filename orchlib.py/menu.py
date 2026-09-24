@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Детерминированное меню параметров: скрипт пишет params.json/compass.md сам.
+
+Зачем скрипт, а не «попросить агента словами»: модель может «не согласиться» и
+не применить. Здесь применение — это запись файла с валидацией; агент только
+запускает скрипт и показывает вывод. Дальше хук сам доносит новые значения.
+
+  python3 menu.py --show [--session <id>]
+  python3 menu.py --set review.reviewers_per_diff=5 execution.parallel_per_task=2
+  python3 menu.py --task "текст задачи" --session <id>
+  python3 menu.py --task-file файл --session <id>
+  python3 menu.py --reset-template                   # аварийно: восстановить шаблон из kit
+  python3 menu.py --interactive                      # терминальный опрос (локально)
+
+Сессия: --session <id> либо env ORCH_SESSION_ID (id из хук-вклейки «Сессия: <id>»).
+Глобальный .orchestration/compass.md — ЧИСТЫЙ ШАБЛОН; править только в панели
+(«Расширенные»). Рабочая задача сессии — только в
+.orchestration/sessions/<id>/compass.md.
+
+Ключи --set: любые из схемы (см. orchlib.DEFAULTS/RANGES). Кроссплатформенно,
+python3.6+, stdlib. Выход: 0 — применено, 2 — ошибка валидации.
+
+execution.executor: auto | local-cursor | cursor-cloud | subagents.
+  auto         — КОД (роль из code/) → локальный CLI если бинарник есть;
+                 не-код → cloud если ключ; нет нужного → стоп-вопрос/лестница;
+  local-cursor — локальный cursor-agent CLI;
+  cursor-cloud — только удалённый API Cursor;
+  subagents    — субагенты движка (по явному «да» владельца).
+
+execution.parallel_per_task: N слепых исполнителей для READ-ONLY задач
+  (поиск/аудит); пишущая задача — 1 исполнитель + волна критиков;
+  spike — отдельное решение.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orchlib  # noqa: E402
+
+TASK_NEEDS_SESSION_MSG = (
+    "задача сессии требует --session <id> (или env ORCH_SESSION_ID). "
+    "Глобальный compass — шаблон; редактирование — только панель, раздел «Расширенные». "
+    "Не знаю сессию? Смотри .orchestration/sessions/ или хук-вклейку (Сессия: <id>)"
+)
+
+GLOBAL_TEMPLATE_REFUSED_MSG = (
+    "Редактирование общего шаблона — только панель, раздел „Расширенные“. "
+    "Задача пишется в compass сессии (--session <id> или env ORCH_SESSION_ID)"
+)
+
+
+def validate_compass_content(text):
+    """Простые проверки сессионного compass: задвоенные заголовки и пустые секции.
+
+    Возвращает список строк-предупреждений (без префикса «ПРЕДУПРЕЖДЕНИЕ:»).
+    Не блокирует запись/показ — оркестратор чинит сам.
+    """
+    warnings = []
+    if text is None:
+        return warnings
+    lines = text.splitlines()
+    # заголовки: # … ###### (уровень = число #)
+    headers = []  # (level, title, raw, line_idx)
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s.startswith("#"):
+            continue
+        n = 0
+        while n < len(s) and s[n] == "#":
+            n += 1
+        if n < 1 or n > 6:
+            continue
+        if n < len(s) and s[n] not in (" ", "\t"):
+            # не markdown-заголовок (#tag и т.п.)
+            continue
+        title = s[n:].strip()
+        raw = ("#" * n) + (" " + title if title else "")
+        headers.append((n, title, raw, i))
+
+    seen = {}  # (level, title) -> first raw
+    for level, title, raw, _idx in headers:
+        key = (level, title)
+        if key in seen:
+            warnings.append("задвоен заголовок '%s'" % raw)
+        else:
+            seen[key] = raw
+
+    # пустые секции: между заголовком и следующим того же/меньшего уровня нет тела
+    for hi, (level, title, raw, idx) in enumerate(headers):
+        end = len(lines)
+        if hi + 1 < len(headers):
+            end = headers[hi + 1][3]
+        body_lines = lines[idx + 1:end]
+        body = "\n".join(body_lines).strip()
+        if not body:
+            warnings.append("пустая секция '%s'" % raw)
+
+    return warnings
+
+
+def emit_compass_warnings(warnings):
+    """Печать предупреждений в stderr (не блокирует)."""
+    for w in warnings:
+        sys.stderr.write("ПРЕДУПРЕЖДЕНИЕ: %s\n" % w)
+
+
+def parse_set(pairs):
+    out = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise ValueError("непонятный аргумент (нужно key=value): %r" % pair)
+        key, _, val = pair.partition("=")
+        sec, _, field = key.partition(".")
+        if sec not in orchlib.DEFAULTS or field not in orchlib.DEFAULTS[sec]:
+            raise ValueError("неизвестный ключ: %s (допустимы: %s)" % (
+                key, ", ".join(sorted("%s.%s" % (s, f)
+                                      for s in orchlib.DEFAULTS
+                                      for f in orchlib.DEFAULTS[s]))))
+        default = orchlib.DEFAULTS[sec][field]
+        if isinstance(default, bool):
+            val = val.strip().lower() in ("true", "1", "yes", "да")
+        elif isinstance(default, int):
+            try:
+                val = int(val)
+            except ValueError:
+                raise ValueError("%s: ожидается целое, получено %r" % (key, val))
+        out.setdefault(sec, {})[field] = val
+    return out
+
+
+def extract_opts(args):
+    """Вытащить --session <id> и устаревший --global-template; вернуть (rest, session, global_template).
+
+    --global-template распознаётся (без unknown-флага), но запись по нему всегда отказ.
+    """
+    rest = []
+    session = None
+    global_template = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--session":
+            if i + 1 >= len(args):
+                raise ValueError("--session требует <id>")
+            session = args[i + 1]
+            i += 2
+        elif a == "--global-template":
+            global_template = True
+            i += 1
+        else:
+            rest.append(a)
+            i += 1
+    return rest, session, global_template
+
+
+def resolve_session_id(session_cli):
+    """--session <sid> > env ORCH_SESSION_ID."""
+    if session_cli:
+        return session_cli
+    env = os.environ.get("ORCH_SESSION_ID")
+    if env and env.strip():
+        return env.strip()
+    return None
+
+
+def show(session_cli=None):
+    p = orchlib.load_params()
+    sid = resolve_session_id(session_cli)
+    if sid:
+        path = orchlib.session_compass_path(p, sid)
+        print("Показан compass сессии %s" % sid)
+    else:
+        path = orchlib.compass_path(p)
+        print("Общий стартовый шаблон (редактирование — панель, Расширенные)")
+    print(orchlib.params_summary(p))
+    print("compass: %s" % path)
+    content = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        head = "".join(content.splitlines(True)[:12])
+        print("--- compass (первые строки) ---")
+        print(head.rstrip())
+    except Exception:
+        print("(compass не найден)")
+    if content is not None:
+        limit = orchlib.compass_limit_for_path(p, path)
+        if len(content) > limit:
+            sys.stderr.write(
+                "ПРЕДУПРЕЖДЕНИЕ: compass превышает лимит: %d символов при лимите %d "
+                "(%s). Ужми файл: историю — в артефакты.\n"
+                % (len(content), limit, path)
+            )
+    if sid and content is not None:
+        emit_compass_warnings(validate_compass_content(content))
+    return 0
+
+
+def apply_sets(pairs):
+    p = orchlib.load_params()
+    patch = parse_set(pairs)
+    for sec, fields in patch.items():
+        p.setdefault(sec, {}).update(fields)
+    orchlib.save_params(p)  # валидация внутри; ValueError = выход 2
+    print("ПРИМЕНЕНО:")
+    for sec, fields in patch.items():
+        for k, v in fields.items():
+            print("  %s.%s = %r" % (sec, k, v))
+    print("Хук сверки донесёт значения при следующем сообщении/тике.")
+    return 0
+
+
+def set_task(text, task_file, session_cli=None, global_template=False):
+    p = orchlib.load_params()
+    if task_file:
+        with open(task_file, "r", encoding="utf-8") as f:
+            text = f.read()
+    if not text or not text.strip():
+        print("ошибка: задача пустая", file=sys.stderr)
+        return 2
+    if global_template:
+        print(GLOBAL_TEMPLATE_REFUSED_MSG, file=sys.stderr)
+        return 2
+    sid = resolve_session_id(session_cli)
+    if sid:
+        path = orchlib.session_compass_path(p, sid)
+        limit = orchlib.compass_session_limit(p)
+        if len(text) > limit:
+            print(
+                "ошибка: compass превышает лимит сессии: %d символов при лимите %d. "
+                "Файл не записан. Ужми: историю — в артефакты, не в compass."
+                % (len(text), limit),
+                file=sys.stderr,
+            )
+            return 2
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("ЗАДАЧА записана: %s (%d символов)" % (path, len(text)))
+        emit_compass_warnings(validate_compass_content(text))
+        return 0
+    print(TASK_NEEDS_SESSION_MSG, file=sys.stderr)
+    return 2
+
+
+def reset_template():
+    p = orchlib.load_params()
+    src = os.path.join(orchlib.KIT_DIR, "compass.md")
+    dst = orchlib.compass_path(p)
+    if not os.path.isfile(src):
+        print("ошибка: нет kit-шаблона: %s" % src, file=sys.stderr)
+        return 2
+    with open(src, "r", encoding="utf-8") as f:
+        content = f.read()
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8") as f:
+        f.write(content)
+    print("Глобальный шаблон-compass восстановлен из %s" % src)
+    print("Старое содержимое %s перезаписано." % dst)
+    return 0
+
+
+QUESTIONS = [
+    ("execution.parallel_per_task",
+     "N слепых исполнителей для READ-ONLY задач (поиск/аудит); "
+     "пишущая — 1 + критики; spike — отдельно"),
+    ("review.reviewers_per_diff", "Критиков на каждый дифф"),
+    ("review.max_rounds", "Круги ревью до схождения"),
+    ("execution.timeout_s", "Таймаут прогона, сек"),
+    ("reground.every_min", "Сверка курса, каждые N мин"),
+]
+
+
+def interactive():
+    p = orchlib.load_params()
+    patch = {}
+    for key, title in QUESTIONS:
+        sec, _, field = key.partition(".")
+        cur = p.get(sec, {}).get(field)
+        raw = input("%s [%s]: " % (title, cur)).strip()
+        if not raw or raw == str(cur):
+            continue
+        try:
+            patch.setdefault(sec, {})[field] = int(raw)
+        except ValueError:
+            print("  (пропущено: не число)")
+    if not patch:
+        print("без изменений")
+        return 0
+    for sec, fields in patch.items():
+        p.setdefault(sec, {}).update(fields)
+    try:
+        orchlib.save_params(p)
+    except ValueError as e:
+        print("ошибка: %s" % e, file=sys.stderr)
+        return 2
+    print("ПРИМЕНЕНО: %s" % patch)
+    return 0
+
+
+def main():
+    orchlib.utf8_stdio()
+    note = orchlib.state_dir_note()
+    if note:
+        sys.stderr.write(note + "\n")
+    raw = sys.argv[1:]
+    if not raw or raw[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__ + "\n")
+        return 0
+    try:
+        args, session_cli, global_template = extract_opts(raw)
+    except ValueError as e:
+        print("ошибка: %s" % e, file=sys.stderr)
+        return 2
+    if not args:
+        sys.stdout.write(__doc__ + "\n")
+        return 0
+    cmd = args[0]
+    try:
+        if cmd == "--show":
+            return show(session_cli=session_cli)
+        if cmd == "--set":
+            if len(args) < 2:
+                raise ValueError("--set требует key=value ...")
+            return apply_sets(args[1:])
+        if cmd == "--task":
+            if len(args) < 2:
+                raise ValueError("--task требует текст в кавычках")
+            return set_task(" ".join(args[1:]), None,
+                            session_cli=session_cli,
+                            global_template=global_template)
+        if cmd == "--task-file":
+            if len(args) < 2:
+                raise ValueError("--task-file требует путь")
+            return set_task(None, args[1],
+                            session_cli=session_cli,
+                            global_template=global_template)
+        if cmd == "--reset-template":
+            return reset_template()
+        if cmd == "--interactive":
+            return interactive()
+        raise ValueError("неизвестная подкоманда: %s" % cmd)
+    except ValueError as e:
+        print("ошибка: %s" % e, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
