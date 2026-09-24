@@ -80,9 +80,9 @@ def scan_secrets(text):
 def apply_launch_gates(prompt, prompt_file, front_id, log_path):
     """Гейты до Popen: секреты → 5; фронт closed → 6; бюджет → 7.
 
-    Возвращает (exit_code|None, log_lines). При отказе пишет log_lines в log_path
-    и возвращает код; при успехе log_lines (напр. FRONT_RUNS) — для записи
-    в начало лога до старта агента (open 'w' не затрёт).
+    Возвращает (exit_code|None, log_lines). Отказы и FRONT_RUNS пишутся сразу
+    через append_log (как run-cloud._append_gate_log). log_lines дублируются
+    после open(log_path,'w') перед Popen, чтобы truncate не стёр маркеры.
     """
     lines = []
     hit = scan_secrets(prompt)
@@ -120,7 +120,9 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
             for line in lines:
                 append_log(log_path, line)
             return 7, lines
-        lines.append("FRONT_RUNS=%s %s/%s" % (front_id, used, limit))
+        line = "FRONT_RUNS=%s %s/%s" % (front_id, used, limit)
+        lines.append(line)
+        append_log(log_path, line)
     return None, lines
 
 
@@ -690,6 +692,12 @@ def main():
         log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
         pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
 
+    # exe до гейтов/bump: нет агента → exit 3 без сжигания бюджета фронта.
+    exe = find_cursor_agent()
+    if not exe:
+        sys.stderr.write("cursor-agent не найден в PATH\n")
+        return 3
+
     # Гейты до Popen: секрет-сканер; при --front — статус/бюджет (мягкая деградация).
     gate_rc, gate_lines = apply_launch_gates(prompt, prompt_file, a.front, log_path)
     if gate_rc is not None:
@@ -700,15 +708,12 @@ def main():
     with open(run_prompt_file, "w", encoding="utf-8") as f:
         f.write(prompt)
 
-    exe = find_cursor_agent()
-    if not exe:
-        sys.stderr.write("cursor-agent не найден в PATH\n")
-        return 3
-
     timeout_s = a.timeout or int(params.get("execution", {}).get("timeout_s", 1800))
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
     cmd = build_agent_cmd(exe, prompt, a.model, a.extra)
 
+    # Truncate: переносим gate success markers в начало лога (FRONT_RUNS уже
+    # был append'нут в apply_launch_gates — без rewrite open('w') стёр бы его).
     log_fh = open(log_path, "w", encoding="utf-8")
     for line in gate_lines:
         log_fh.write(line if line.endswith("\n") else line + "\n")
