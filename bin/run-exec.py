@@ -77,23 +77,26 @@ def scan_secrets(text):
     return None
 
 
-def apply_launch_gates(prompt, prompt_file, front_id, log_path):
-    """Гейты до Popen: секреты → 5; фронт closed → 6; бюджет → 7.
+def apply_secret_gate(prompt, prompt_file, log_path):
+    """Секрет-сканер до exe/bump. → (5, lines) | (None, [])."""
+    hit = scan_secrets(prompt)
+    if not hit:
+        return None, []
+    line = "SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file)
+    append_log(log_path, line)
+    sys.stderr.write(
+        "секрет в промте: вынеси в .orchestration/cursor.key / ENV; "
+        "промт без секрета\n")
+    return 5, [line]
 
-    Возвращает (exit_code|None, log_lines). Отказы и FRONT_RUNS пишутся сразу
-    через append_log (как run-cloud._append_gate_log). log_lines дублируются
-    после open(log_path,'w') перед Popen, чтобы truncate не стёр маркеры.
+
+def apply_front_gates(front_id, log_path):
+    """Статус/бюджет после exe: closed → 6; бюджет → 7; успех → FRONT_RUNS.
+
+    Возвращает (exit_code|None, log_lines). Отказы и FRONT_RUNS — сразу через
+    append_log; log_lines дублируются после open(log_path,'w') перед Popen.
     """
     lines = []
-    hit = scan_secrets(prompt)
-    if hit:
-        lines.append("SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file))
-        for line in lines:
-            append_log(log_path, line)
-        sys.stderr.write(
-            "секрет в промте: вынеси в .orchestration/cursor.key / ENV; "
-            "промт без секрета\n")
-        return 5, lines
     if not front_id:
         return None, lines
     front_status = getattr(orchlib, "front_status", None)
@@ -124,6 +127,18 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
         lines.append(line)
         append_log(log_path, line)
     return None, lines
+
+
+def apply_launch_gates(prompt, prompt_file, front_id, log_path):
+    """Гейты: секреты → 5; затем фронт closed → 6; бюджет → 7.
+
+    Сохранена для совместимости; main вызывает секрет и фронт по отдельности,
+    чтобы вставить find_cursor_agent между ними.
+    """
+    sec_rc, sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
+    if sec_rc is not None:
+        return sec_rc, sec_lines
+    return apply_front_gates(front_id, log_path)
 
 
 def find_cursor_agent():
@@ -692,14 +707,18 @@ def main():
         log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
         pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
 
-    # exe до гейтов/bump: нет агента → exit 3 без сжигания бюджета фронта.
+    # Порядок: (а) секрет → 5; (б) exe → 3; (в) front/bump → 6/7/FRONT_RUNS.
+    # Секрет до exe (критерий 1 при отсутствии агента); exe до bump (бюджет не жечь).
+    sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
+    if sec_rc is not None:
+        return sec_rc
+
     exe = find_cursor_agent()
     if not exe:
         sys.stderr.write("cursor-agent не найден в PATH\n")
         return 3
 
-    # Гейты до Popen: секрет-сканер; при --front — статус/бюджет (мягкая деградация).
-    gate_rc, gate_lines = apply_launch_gates(prompt, prompt_file, a.front, log_path)
+    gate_rc, gate_lines = apply_front_gates(a.front, log_path)
     if gate_rc is not None:
         return gate_rc
 
