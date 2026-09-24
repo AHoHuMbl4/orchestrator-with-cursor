@@ -264,6 +264,95 @@ def _compass_file_size(path):
         return 0
 
 
+def _journal_parent(val):
+    """Нормализация parent: None / отсутствует / пустая строка → None."""
+    if val is None or val == "":
+        return None
+    return val
+
+
+def _journal_read_safe(limit):
+    """journal_read(limit) через getattr; нет функции → ( [], False)."""
+    fn = getattr(orchlib, "journal_read", None)
+    if not callable(fn):
+        return [], False
+    try:
+        entries = fn(limit)
+        if not isinstance(entries, list):
+            entries = []
+        return entries, True
+    except Exception:
+        return [], True
+
+
+def _build_journal_tree(entries):
+    """Склейка start+end по id → дерево корневых узлов с children."""
+    nodes = {}
+    order = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        eid = e.get("id")
+        if eid is None or eid == "":
+            continue
+        kind = e.get("kind")
+        parent = _journal_parent(e.get("parent"))
+        if eid not in nodes:
+            nodes[eid] = {
+                "id": eid,
+                "parent": parent,
+                "role": e.get("role"),
+                "engine": e.get("engine"),
+                "front": e.get("front"),
+                "status": None,
+                "verdict": e.get("verdict"),
+                "gates": e.get("gates"),
+                "children": [],
+            }
+            order.append(eid)
+        node = nodes[eid]
+        if kind == "start":
+            node["parent"] = parent
+            if "role" in e:
+                node["role"] = e.get("role")
+            if "engine" in e:
+                node["engine"] = e.get("engine")
+            if "front" in e:
+                node["front"] = e.get("front")
+            if "verdict" in e:
+                node["verdict"] = e.get("verdict")
+            if "gates" in e:
+                node["gates"] = e.get("gates")
+        elif kind == "end":
+            node["status"] = e.get("exit")
+            if "verdict" in e:
+                node["verdict"] = e.get("verdict")
+            if "gates" in e:
+                node["gates"] = e.get("gates")
+        else:
+            # неизвестный kind — мягко дописать непустые поля
+            if parent is not None or "parent" in e:
+                node["parent"] = parent
+            for k in ("role", "engine", "front", "verdict", "gates"):
+                if k in e and e.get(k) is not None:
+                    node[k] = e.get(k)
+            if "exit" in e:
+                node["status"] = e.get("exit")
+
+    for nid in order:
+        nodes[nid]["children"] = []
+    roots = []
+    for nid in order:
+        node = nodes[nid]
+        p = _journal_parent(node.get("parent"))
+        node["parent"] = p
+        if p is not None and p in nodes and p != nid:
+            nodes[p]["children"].append(node)
+        else:
+            roots.append(node)
+    return roots
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "orch-panel/1.0"
 
@@ -499,6 +588,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "not found"}, 404)
                 return
             self.send_json({"name": name, "tail": self.tail_file(path, min(tail, 2000))})
+        elif u.path == "/api/journal":
+            try:
+                limit = int((q.get("limit") or ["300"])[0])
+            except (ValueError, TypeError):
+                limit = 300
+            if limit < 1:
+                limit = 1
+            if limit > 5000:
+                limit = 5000
+            entries, available = _journal_read_safe(limit)
+            tree = _build_journal_tree(entries) if available else []
+            self.send_json({
+                "entries": entries,
+                "tree": tree,
+                "available": available,
+            })
         else:
             self.send_json({"error": "not found"}, 404)
 

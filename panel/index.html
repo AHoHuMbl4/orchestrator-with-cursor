@@ -206,6 +206,29 @@
 <table id="sessions"><thead><tr><th>сессия</th><th>активность</th><th>свой compass</th><th>оркестрация</th></tr></thead><tbody></tbody></table>
 <div class="hint">Режим: «как общий» = наследует глобальный тумблер; «вкл/выкл» = перекрывает для этой сессии. «свой compass» — у сессии отдельное задание; редактируется селектором «Чей compass» сверху. Сессии появляются, когда их хуки хоть раз сработали.</div>
 
+<details id="journalTreeBox">
+  <summary>Дерево вызовов</summary>
+  <div class="hint">Журнал летописца — дерево вложенных запусков (parent→id). Обновляется, пока секция открыта.</div>
+  <div class="row">
+    <div style="min-width:140px;flex:0 1 180px"><label>Фронт</label>
+      <select id="journalFrontFilter" onchange="renderJournalTree()">
+        <option value="">все</option>
+      </select></div>
+    <div style="min-width:100px;flex:0 1 120px"><label>Лимит</label>
+      <select id="journalLimit" onchange="loadJournal()">
+        <option value="100">100</option>
+        <option value="300" selected>300</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+      </select></div>
+    <div style="align-self:end"><button class="sec" type="button" onclick="loadJournal()">Обновить</button></div>
+  </div>
+  <div id="journalHint" class="hint" style="margin-top:8px"></div>
+  <table id="journalTree"><thead><tr>
+    <th>id</th><th>роль</th><th>движок</th><th>фронт</th><th>статус</th><th>время</th><th></th>
+  </tr></thead><tbody></tbody></table>
+</details>
+
 <h2>Прогоны</h2>
 <div><button class="sec" onclick="loadStatus()">Обновить</button></div>
 <table id="runs"><thead><tr><th>лог</th><th>статус</th><th>exit</th><th>изм.</th><th></th></tr></thead><tbody></tbody></table>
@@ -613,6 +636,133 @@ async function showTail(name){
   const pre=document.getElementById("tail"); pre.style.display="block";
   pre.textContent="# "+name+"\n"+(j.tail||"");
 }
+let _journalData = {entries:[], tree:[], available:false};
+let _journalTimer = null;
+function fmtJournalTs(ts){
+  if(ts==null||ts==="") return "—";
+  try{
+    let d;
+    if(typeof ts==="number"){
+      d = new Date(ts < 1e12 ? ts*1000 : ts);
+    } else {
+      d = new Date(ts);
+    }
+    if(isNaN(d.getTime())) return "—";
+    const hh = String(d.getHours()).padStart(2,"0");
+    const mm = String(d.getMinutes()).padStart(2,"0");
+    return hh+":"+mm;
+  }catch(e){ return "—"; }
+}
+function journalTsById(entries){
+  const m = {};
+  (entries||[]).forEach(e=>{
+    if(!e||e.id==null||e.id==="") return;
+    if(e.kind==="start" || m[e.id]==null) m[e.id]=e.ts;
+  });
+  return m;
+}
+function gatesNonEmpty(g){
+  if(g==null) return false;
+  if(Array.isArray(g)) return g.length>0;
+  if(typeof g==="object") return Object.keys(g).length>0;
+  if(typeof g==="string") return g.length>0;
+  return !!g;
+}
+function collectFronts(nodes, set){
+  (nodes||[]).forEach(n=>{
+    if(n.front!=null && n.front!=="") set[n.front]=true;
+    collectFronts(n.children, set);
+  });
+}
+function updateJournalFrontFilter(tree){
+  const sel = document.getElementById("journalFrontFilter");
+  if(!sel) return;
+  const cur = sel.value;
+  const set = {};
+  collectFronts(tree, set);
+  const fronts = Object.keys(set).sort();
+  sel.innerHTML = '<option value="">все</option>';
+  fronts.forEach(f=>{
+    const o=document.createElement("option"); o.value=f; o.textContent=f; sel.appendChild(o);
+  });
+  if(fronts.indexOf(cur)>=0) sel.value=cur;
+}
+function journalRowHtml(n, depth, tsMap, frontFilter){
+  if(frontFilter && n.front!==frontFilter){
+    let html="";
+    (n.children||[]).forEach(ch=>{ html+=journalRowHtml(ch, depth, tsMap, frontFilter); });
+    return html;
+  }
+  const pad = depth>0 ? ("&nbsp;".repeat(Math.min(depth,8)*2)+"└─ ") : "";
+  const role = (n.role!=null && n.role!=="") ? esc(n.role) : "—";
+  const st = (n.status!=null && n.status!=="") ? esc(String(n.status)) : "—";
+  const gate = gatesNonEmpty(n.gates) ? "⚠️" : "";
+  const tm = fmtJournalTs(tsMap[n.id]);
+  let html = "<tr><td>"+pad+esc(n.id)+"</td><td>"+role+"</td><td>"+esc(n.engine||"—")+
+    "</td><td>"+esc(n.front||"—")+"</td><td>"+st+"</td><td>"+tm+"</td><td>"+gate+"</td></tr>";
+  (n.children||[]).forEach(ch=>{ html+=journalRowHtml(ch, depth+1, tsMap, frontFilter); });
+  return html;
+}
+function renderJournalTree(){
+  const hint = document.getElementById("journalHint");
+  const tb = document.querySelector("#journalTree tbody");
+  if(!hint||!tb) return;
+  const j = _journalData;
+  if(!j.available){
+    hint.textContent = "журнал недоступен";
+    hint.className = "hint err";
+    tb.innerHTML = "";
+    return;
+  }
+  const tree = j.tree||[];
+  const entries = j.entries||[];
+  if(!tree.length && !entries.length){
+    hint.textContent = "журнал пуст (летописец пишет при запусках через обёртки)";
+    hint.className = "hint";
+    tb.innerHTML = "";
+    return;
+  }
+  hint.textContent = "";
+  hint.className = "hint";
+  const frontFilter = document.getElementById("journalFrontFilter").value;
+  const tsMap = journalTsById(entries);
+  let html="";
+  tree.forEach(n=>{ html+=journalRowHtml(n, 0, tsMap, frontFilter); });
+  if(!html && frontFilter){
+    hint.textContent = "нет записей для выбранного фронта";
+  }
+  tb.innerHTML = html;
+}
+async function loadJournal(){
+  const box = document.getElementById("journalTreeBox");
+  if(!box || !box.open) return;
+  try{
+    const lim = document.getElementById("journalLimit").value || "300";
+    const j = await (await fetch("/api/journal?limit="+encodeURIComponent(lim))).json();
+    _journalData = j;
+    updateJournalFrontFilter(j.tree||[]);
+    renderJournalTree();
+  }catch(e){
+    const hint = document.getElementById("journalHint");
+    if(hint){ hint.textContent="журнал недоступен"; hint.className="hint err"; }
+  }
+}
+function scheduleJournalRefresh(){
+  if(_journalTimer) clearTimeout(_journalTimer);
+  _journalTimer = setTimeout(function(){
+    const box = document.getElementById("journalTreeBox");
+    if(box && box.open) loadJournal();
+    scheduleJournalRefresh();
+  }, 10000);
+}
+(function initJournalTree(){
+  const box = document.getElementById("journalTreeBox");
+  if(!box) return;
+  box.addEventListener("toggle", function(){
+    if(box.open) loadJournal();
+  });
+  scheduleJournalRefresh();
+})();
 loadAll();
 </script>
 </body>
