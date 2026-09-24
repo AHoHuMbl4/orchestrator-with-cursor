@@ -34,7 +34,7 @@ _guard_snapshot = {"overflows": [], "poll_s": 2}
 PANEL_FRONT_STATUSES = (
     "proposed", "active", "stalled", "cancelled", "rejected", "done",
 )
-DEFAULT_MAX_RUNS_PER_FRONT = 60
+DEFAULT_WARN_RUNS_PER_FRONT = 60
 
 
 def _kit_version_safe():
@@ -87,17 +87,29 @@ def _front_runs_used(fid):
 
 
 def _runs_limit():
-    """Лимит прогонов на фронт: params.budgets.max_runs_per_front или 60."""
+    """Warn-порог прогонов на фронт: params.budgets.warn_runs_per_front или 60."""
     try:
         p = orchlib.load_params()
         bud = p.get("budgets") if isinstance(p, dict) else None
-        if isinstance(bud, dict) and "max_runs_per_front" in bud:
-            n = int(bud["max_runs_per_front"])
+        if isinstance(bud, dict) and "warn_runs_per_front" in bud:
+            n = int(bud["warn_runs_per_front"])
             if n > 0:
                 return n
     except Exception:
         pass
-    return DEFAULT_MAX_RUNS_PER_FRONT
+    return DEFAULT_WARN_RUNS_PER_FRONT
+
+
+def _hard_runs_limit():
+    """Жёсткий лимит: params.budgets.hard_runs_per_front; 0 = выключен."""
+    try:
+        p = orchlib.load_params()
+        bud = p.get("budgets") if isinstance(p, dict) else None
+        if isinstance(bud, dict) and "hard_runs_per_front" in bud:
+            return max(0, int(bud["hard_runs_per_front"]))
+    except Exception:
+        pass
+    return 0
 
 
 def _observer_age_s(fid):
@@ -438,6 +450,7 @@ class Handler(BaseHTTPRequestHandler):
             data = orchlib.load_fronts()
             _sess_lim, front_lim = _compass_limits(orchlib.load_params())
             runs_lim = _runs_limit()
+            hard_lim = _hard_runs_limit()
             fronts_out = []
             for fr in data.get("fronts") or []:
                 if not isinstance(fr, dict):
@@ -453,6 +466,7 @@ class Handler(BaseHTTPRequestHandler):
                 item["status"] = _front_status_of(fid, fr)
                 item["runs_used"] = _front_runs_used(fid)
                 item["runs_limit"] = runs_lim
+                item["hard_runs_per_front"] = hard_lim
                 item["observer_age_s"] = _observer_age_s(fid)
                 fronts_out.append(item)
             try:
@@ -469,6 +483,7 @@ class Handler(BaseHTTPRequestHandler):
                 "compass_limit": front_lim,
                 "kit_version": _kit_version_safe(),
                 "runs_limit": runs_lim,
+                "hard_runs_per_front": hard_lim,
             })
         elif u.path == "/api/logs":
             name = (q.get("name") or [""])[0]

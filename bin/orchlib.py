@@ -55,6 +55,10 @@ DEFAULTS = {
         "max_front_chars": 4000,    # лимит compass фронта/полковника (fronts/**)
         "guard_poll_s": 2,          # интервал сторожа панели (сек)
     },
+    "budgets": {
+        "warn_runs_per_front": 60,  # churn-датчик: used>warn → лог+pending, запуск продолжается
+        "hard_runs_per_front": 0,   # жёсткий стоп: used>hard при hard>0 → exit 7; 0 = выключен
+    },
 }
 
 RANGES = {  # (min, max) для целочисленных полей
@@ -509,6 +513,32 @@ def emit_pending_compass_guard(sid_or_none, overflows):
         sys.stderr.write("compass guard emit failed: %s\n" % e)
 
 
+def emit_pending_budget_warn(fid, used, warn):
+    """Пишет <state>/pending_budget_warn.json (датчик заноса фронта).
+
+    Ключи: fid, used, warn + additionalContext/message — самодостаточный
+    текст для вклейки в additionalContext. Доставку вклейки делает reground
+    (отдельный фикс). Ошибки — stderr, не падать.
+    """
+    msg = (
+        "⚠️ Фронт %s съел %s прогонов без закрытия — проверь, не застрял ли; "
+        "если это осознанная сложность — игнорируй" % (fid, used)
+    )
+    payload = {
+        "fid": fid,
+        "used": used,
+        "warn": warn,
+        "additionalContext": msg,
+        "message": msg,
+    }
+    try:
+        flag_st = state_path("pending_budget_warn.json")
+        with open(flag_st, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception as e:
+        sys.stderr.write("budget warn flag failed: %s\n" % e)
+
+
 def write_compass_checked(p, path, text):
     """Атомарная запись compass с проверкой лимита. (ok, info), без исключений наружу.
 
@@ -599,8 +629,36 @@ def params_summary(p):
 
 # --- граф фронтов большого проекта (<state>/fronts.json) ---
 
-FRONT_STATUSES = ("planned", "running", "blocked", "done", "failed")
+FRONT_STATUSES = (
+    "proposed", "active", "stalled", "cancelled", "rejected", "done",
+)
+# Legacy-алиасы: принимаются при чтении/валидации, хранятся как канон.
+FRONT_STATUS_LEGACY = {
+    "planned": "proposed",
+    "running": "active",
+    "blocked": "stalled",
+    "failed": "rejected",
+}
 EMPTY_FRONTS = {"goal": "", "fronts": [], "notes": ""}
+
+
+def normalize_front_status(st):
+    """Канонический статус: legacy-алиас → новый; иначе st как есть."""
+    if isinstance(st, str) and st in FRONT_STATUS_LEGACY:
+        return FRONT_STATUS_LEGACY[st]
+    return st
+
+
+def _migrate_fronts_list(fronts):
+    """In-place: legacy status → канон в списке фронтов."""
+    if not isinstance(fronts, list):
+        return
+    for fr in fronts:
+        if not isinstance(fr, dict):
+            continue
+        st = fr.get("status")
+        if isinstance(st, str) and st in FRONT_STATUS_LEGACY:
+            fr["status"] = FRONT_STATUS_LEGACY[st]
 
 
 def fronts_path():
@@ -608,7 +666,11 @@ def fronts_path():
 
 
 def load_fronts():
-    """Читает fronts.json; если файла нет — пустая структура."""
+    """Читает fronts.json; если файла нет — пустая структура.
+
+    Legacy-статусы (planned/running/blocked/failed) мигрируются в канон
+    при чтении (in-memory; файл не переписывается).
+    """
     pf = fronts_path()
     if not os.path.exists(pf):
         return {"goal": "", "fronts": [], "notes": ""}
@@ -619,9 +681,11 @@ def load_fronts():
         return {"goal": "", "fronts": [], "notes": ""}
     if not isinstance(data, dict):
         return {"goal": "", "fronts": [], "notes": ""}
+    fronts = data.get("fronts") if isinstance(data.get("fronts"), list) else []
+    _migrate_fronts_list(fronts)
     return {
         "goal": data.get("goal", "") if isinstance(data.get("goal"), str) else "",
-        "fronts": data.get("fronts") if isinstance(data.get("fronts"), list) else [],
+        "fronts": fronts,
         "notes": data.get("notes", "") if isinstance(data.get("notes"), str) else "",
     }
 
@@ -701,8 +765,10 @@ def validate_fronts(f):
                     errs.append("fronts[%d].deps: элементы — строки" % i)
                     break
         st = fr.get("status")
-        if st not in FRONT_STATUSES:
-            errs.append("fronts[%d].status: ожидается %s, получено %r" % (
+        canon = normalize_front_status(st)
+        # Принимаем канон и legacy-алиасы; после миграции хранятся канонические.
+        if canon not in FRONT_STATUSES:
+            errs.append("fronts[%d].status: ожидается %s (или legacy planned|running|blocked|failed), получено %r" % (
                 i, "|".join(FRONT_STATUSES), st))
     id_set = set(ids)
     deps_map = {}
@@ -723,13 +789,18 @@ def validate_fronts(f):
 
 
 def save_fronts(f):
-    """Атомарная запись fronts.json после валидации."""
-    errs = validate_fronts(f)
+    """Атомарная запись fronts.json после валидации.
+
+    Legacy-статусы принимаются и перед записью нормализуются в канон.
+    """
+    fronts = f.get("fronts") if isinstance(f.get("fronts"), list) else []
+    _migrate_fronts_list(fronts)
+    errs = validate_fronts(f if isinstance(f, dict) else {"fronts": fronts})
     if errs:
         raise ValueError(errs)
     out = {
         "goal": f.get("goal", "") if isinstance(f.get("goal"), str) else "",
-        "fronts": f.get("fronts") if isinstance(f.get("fronts"), list) else [],
+        "fronts": fronts,
         "notes": f.get("notes", "") if isinstance(f.get("notes"), str) else "",
     }
     pf = fronts_path()
@@ -823,21 +894,12 @@ def kit_version():
 
 
 def front_status(fid):
-    """status фронта с id==fid из fronts.json; нет файла/фронта/поля → None."""
-    pf = fronts_path()
-    if not os.path.exists(pf):
-        return None
-    try:
-        with open(pf, "r", encoding="utf-8-sig") as f:
-            data = json.load(f)
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    fronts = data.get("fronts")
-    if not isinstance(fronts, list):
-        return None
-    for fr in fronts:
+    """status фронта с id==fid из fronts.json; нет файла/фронта/поля → None.
+
+    Legacy-алиасы возвращаются уже нормализованными в канон.
+    """
+    data = load_fronts()
+    for fr in data.get("fronts") or []:
         if not isinstance(fr, dict):
             continue
         if fr.get("id") == fid:
@@ -848,8 +910,22 @@ def front_status(fid):
     return None
 
 
-def bump_front_runs(fid, limit):
-    """Инкремент used в counters/front-runs-<safe_fid>.json → (used, limit)."""
+def bump_front_runs(fid):
+    """Инкремент used в counters/front-runs-<safe_fid>.json → (used, warn, hard).
+
+    Пороги из params.budgets: warn_runs_per_front (дефолт 60),
+    hard_runs_per_front (дефолт 0 = выключен).
+    """
+    warn, hard = 60, 0
+    try:
+        bud = load_params().get("budgets") or {}
+        if isinstance(bud, dict):
+            if "warn_runs_per_front" in bud:
+                warn = int(bud["warn_runs_per_front"])
+            if "hard_runs_per_front" in bud:
+                hard = int(bud["hard_runs_per_front"])
+    except Exception:
+        warn, hard = 60, 0
     counters = os.path.join(find_state_dir(), "counters")
     os.makedirs(counters, exist_ok=True)
     path = os.path.join(counters, "front-runs-%s.json" % safe_name(fid))
@@ -864,17 +940,22 @@ def bump_front_runs(fid, limit):
             used = 0
     used += 1
     _write_json_atomic(path, {"used": used})
-    return (used, limit)
+    return (used, warn, hard)
 
 
 def active_fronts():
-    """id фронтов со status in (active, proposed), порядок как в fronts.json."""
+    """id фронтов со status proposed|active (+legacy running|planned).
+
+    load_fronts уже мигрирует legacy → канон; дополнительно принимаем
+    сырые legacy на случай прямого вызова без миграции.
+    """
+    active = ("proposed", "active", "running", "planned")
     data = load_fronts()
     out = []
     for fr in data.get("fronts") or []:
         if not isinstance(fr, dict):
             continue
-        if fr.get("status") in ("active", "proposed"):
+        if fr.get("status") in active:
             fid = fr.get("id")
             if isinstance(fid, str) and fid:
                 out.append(fid)

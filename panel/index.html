@@ -299,10 +299,13 @@ function statusChip(st){
   const cls=known[st]||"chip-other";
   return '<span class="chip '+cls+'">'+esc(st)+'</span>';
 }
-function runsLabel(used, lim){
+function runsLabel(used, warn, hard){
   const u=(used==null||used==="")?"—":String(used);
-  const l=(lim==null||lim==="")?"—":String(lim);
-  return esc(u)+"/"+esc(l);
+  const w=(warn==null||warn==="")?"—":String(warn);
+  let s=esc(u)+"/"+esc(w);
+  const h=Number(hard);
+  if(h>0) s+=' <span class="hint">hard вкл</span>';
+  return s;
 }
 function observerLabel(ageS){
   if(ageS==null||ageS==="") return '<span class="hint">наблюдатель: —</span>';
@@ -347,14 +350,15 @@ function renderFrontsWaves(j){
         ? '<span class="compass-size over" style="margin:0">⛔ '+esc(formatCompassSize(size, lim))+'</span>'
         : '<span class="compass-size" style="margin:0">'+esc(formatCompassSize(size, lim))+'</span>';
       const st=f.status;
-      const canCancel=(st==="active"||st==="stalled");
+      const canCancel=(st==="active"||st==="stalled"||st==="running"||st==="blocked");
       const cancelBtn=canCancel
         ? '<button type="button" class="danger sm" data-fid="'+esc(id)+'" onclick="cancelFront(this.getAttribute(\'data-fid\'))">отменить фронт</button>'
         : '';
       const runsLim=(f.runs_limit!=null)?f.runs_limit:j.runs_limit;
+      const hardLim=(f.hard_runs_per_front!=null)?f.hard_runs_per_front:j.hard_runs_per_front;
       return '<tr><td>'+esc(f.title||id)+'</td><td>'+esc(f.role||"")+'</td>'+
         '<td>'+statusChip(st)+'</td>'+
-        '<td>'+runsLabel(f.runs_used, runsLim)+'</td>'+
+        '<td>'+runsLabel(f.runs_used, runsLim, hardLim)+'</td>'+
         '<td>'+observerLabel(f.observer_age_s)+'</td>'+
         '<td class="hint" style="margin:0">'+esc(cp)+exists+'</td>'+
         '<td>'+sizeHtml+'</td>'+

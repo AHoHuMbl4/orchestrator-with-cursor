@@ -50,7 +50,7 @@ State — `.orchestration/` в проекте.
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
 - `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
-- статусы фронта: `planned` / `running` / `blocked` / `done` / `failed`
+- статусы фронта: `proposed` / `active` / `stalled` / `cancelled` / `rejected` / `done` (legacy-алиасы при чтении: planned→proposed, running→active, blocked→stalled, failed→rejected)
 - `<state>/fronts/<id>/compass.md` — compass каждого фронта (`orchlib.front_compass_path`)
 - `<state>/fronts/<id>/colonels/<cid>/compass.md` — мини-compass полковника (лимит как у фронтового)
 - Правило: запускай всё из одной папки проекта (или задай `ORCHESTRATION_DIR`)
