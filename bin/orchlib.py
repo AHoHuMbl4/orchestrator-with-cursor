@@ -8,6 +8,7 @@
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -115,6 +116,118 @@ def state_path(name):
     d = find_state_dir()
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, name)
+
+
+# --- летописец вызовов (journal.jsonl) ---------------------------------
+
+_ROLE_RE = re.compile(
+    r"(?:роль=|Роль:\s*|role=|roles/)([A-Za-z0-9_/.-]+\.md)")
+_GATE_MARKERS = (
+    "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED")
+_COMPASS_GATE_RE = re.compile(r"COMPASS_OVERFLOW[A-Z0-9_]*")
+
+
+def journal_path():
+    """Путь к <state>/journal.jsonl (каталог state создаётся при необходимости)."""
+    return state_path("journal.jsonl")
+
+
+def journal_append(entry):
+    """Дописать одну JSON-строку в journal.jsonl. Ошибки — stderr, без raise."""
+    try:
+        path = journal_path()
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        try:
+            sys.stderr.write("journal_append failed: %s\n" % e)
+        except Exception:
+            pass
+
+
+def journal_read(limit=500):
+    """Последние N валидных JSON-объектов из journal.jsonl; битые строки — skip."""
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 500
+    if limit < 0:
+        limit = 0
+    path = journal_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        try:
+            sys.stderr.write("journal_read failed: %s\n" % e)
+        except Exception:
+            pass
+        return []
+    out = []
+    for raw in reversed(lines):
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+        if len(out) >= limit:
+            break
+    out.reverse()
+    return out
+
+
+def extract_prompt_role(text):
+    """Первое вхождение роли в тексте промта или None."""
+    m = _ROLE_RE.search(text or "")
+    return m.group(1) if m else None
+
+
+def resolve_run_role(role_flag, prompt_text):
+    """--role если передан, иначе extract_prompt_role; иначе None."""
+    if role_flag:
+        return role_flag
+    return extract_prompt_role(prompt_text)
+
+
+def journal_log_meta(log_path, n=80):
+    """Из хвоста лога: (verdict|None, gates:list). Ошибки чтения → (None, [])."""
+    verdict = None
+    gates = []
+    seen = set()
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return None, []
+    tail = lines[-n:] if len(lines) > n else lines
+    for line in tail:
+        if verdict is None:
+            idx = line.find("Вердикт:")
+            if idx >= 0:
+                chunk = line[idx:]
+                # обрезать JSON/escape-хвост stream-json
+                for stop in ("\\n", '\\"', '"', "\r", "\n"):
+                    p = chunk.find(stop)
+                    if p > 0:
+                        chunk = chunk[:p]
+                verdict = chunk.strip() or None
+        for name in _GATE_MARKERS:
+            if name in line and name not in seen:
+                seen.add(name)
+                gates.append(name)
+        for m in _COMPASS_GATE_RE.finditer(line):
+            tok = m.group(0)
+            if tok not in seen:
+                seen.add(tok)
+                gates.append(tok)
+    return verdict, gates
 
 
 def utf8_stdio():

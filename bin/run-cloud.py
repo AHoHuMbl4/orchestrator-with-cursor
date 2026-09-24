@@ -145,6 +145,8 @@ def _add_common_args(parser):
     parser.add_argument("--front", default=argparse.SUPPRESS,
                         help="id фронта: статус cancelled/rejected; бюджет warn/hard "
                              "(warn=датчик, hard=стоп при hard>0)")
+    parser.add_argument("--role", default=argparse.SUPPRESS,
+                        help="имя роли (иначе из промт-файла: роль=/role=/Роль:/roles/)")
     parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
                         help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
 
@@ -190,9 +192,26 @@ def normalize_args(a):
         a.id = "C1"
     if not hasattr(a, "front"):
         a.front = None
+    if not hasattr(a, "role"):
+        a.role = None
     if not hasattr(a, "http_timeout"):
         a.http_timeout = 300.0
     return a
+
+
+def journal_end(run_id, log_path, exit_code):
+    """Запись kind=end в journal (ошибки глотает orchlib)."""
+    if not run_id:
+        return
+    verdict, gates = orchlib.journal_log_meta(log_path)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "end",
+        "id": run_id,
+        "exit": exit_code,
+        "verdict": verdict,
+        "gates": gates,
+    })
 
 
 def api_key(a):
@@ -560,6 +579,21 @@ def cmd_run(a):
     if gate_rc is not None:
         return gate_rc
 
+    # летописец start (parent из OUR env; cloud-агент env не наследует)
+    parent = os.environ.get("ORCH_RUN_ID") or None
+    role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
+    prompt_abs = os.path.abspath(prompt_file)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "start",
+        "id": a.id,
+        "parent": parent,
+        "engine": "cloud",
+        "prompt_file": prompt_abs,
+        "front": getattr(a, "front", None),
+        "role": role,
+    })
+
     key = api_key(a)
 
     extra = {}
@@ -593,6 +627,7 @@ def cmd_run(a):
                 print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
                 check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                        None, set())
+                journal_end(a.id, log_path, 1)
                 return 1
             out = recovered
             ids = recovered_ids
@@ -610,6 +645,7 @@ def cmd_run(a):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
         check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                None, set())
+        journal_end(a.id, log_path, 1)
         return 1
 
     agent = a.agent_id or ids.get("agent_id")
@@ -622,14 +658,29 @@ def cmd_run(a):
 
     if a.wait:
         if agent and run:
-            return wait_and_report(agent, run, key, state, a)
+            rc = wait_and_report(agent, run, key, state, a)
+            # exit: статус терминала из result.json если есть, иначе rc
+            exit_val = rc
+            try:
+                rpath = os.path.join(state, "cloud-%s.result.json" % a.id)
+                with open(rpath, "r", encoding="utf-8") as rf:
+                    rdata = json.load(rf)
+                st = rdata.get("status") if isinstance(rdata, dict) else None
+                if isinstance(st, str) and st:
+                    exit_val = st
+            except Exception:
+                pass
+            journal_end(a.id, log_path, exit_val)
+            return rc
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
         check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                None, set())
+        journal_end(a.id, log_path, 0)
         return 0
     # без --wait: пост-проверка после create/follow-up
     check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                            None, set())
+    journal_end(a.id, log_path, 0)
     return 0
 
 

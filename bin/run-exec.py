@@ -344,14 +344,43 @@ def wait_child(proc, log_fh, log_path, timeout_s, yield_after=0):
     return classify_after_wait(log_path, rc)
 
 
+def agent_popen_kwargs(run_id=None):
+    """detach_popen_kwargs + env с ORCH_RUN_ID для дочернего cursor-agent."""
+    kwargs = detach_popen_kwargs()
+    env = dict(os.environ)
+    rid = run_id or env.get("ORCH_RUN_ID")
+    if rid:
+        env["ORCH_RUN_ID"] = str(rid)
+    kwargs["env"] = env
+    return kwargs
+
+
+def journal_end(run_id, log_path, exit_code):
+    """Запись kind=end в journal (ошибки глотает orchlib)."""
+    if not run_id:
+        return
+    verdict, gates = orchlib.journal_log_meta(log_path)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "end",
+        "id": run_id,
+        "exit": exit_code,
+        "verdict": verdict,
+        "gates": gates,
+    })
+
+
 def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
                   session=None):
     """Запуск detached --__watch (общий для --detach и авто-уступки)."""
     watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
                  str(pid), log_path, pid_path, str(timeout_s),
                  run_prompt_file or "", model, session or ""]
+    # наследует ORCH_RUN_ID из os.environ (выставлен родителем до вызова)
+    wkwargs = detach_popen_kwargs()
+    wkwargs["env"] = dict(os.environ)
     subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, **detach_popen_kwargs())
+                     stderr=subprocess.DEVNULL, **wkwargs)
 
 
 def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra):
@@ -367,7 +396,7 @@ def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra
     log_fh = open(log_path, "a", encoding="utf-8")
     cmd = build_agent_cmd(exe, prompt, model, extra)
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT,
-                            **detach_popen_kwargs())
+                            **agent_popen_kwargs())
     try:
         with open(pid_path, "w", encoding="utf-8") as f:
             f.write(str(proc.pid))
@@ -430,6 +459,7 @@ def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"
         os.unlink(pid_path)
     except Exception:
         pass
+    journal_end(os.environ.get("ORCH_RUN_ID"), log_path, code)
 
 
 def detach_popen_kwargs():
@@ -669,6 +699,8 @@ def main():
                     help="список прогонов state (и runs при --session); exit 0")
     ap.add_argument("--no-reground-line", action="store_true",
                     help="не доклеивать строку самопроверки в промт")
+    ap.add_argument("--role", default=None,
+                    help="имя роли (иначе из промт-файла: роль=/role=/Роль:/roles/)")
     ap.add_argument("--model", default="auto", help="всегда auto (доктрина)")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
@@ -728,8 +760,24 @@ def main():
     if gate_rc is not None:
         return gate_rc
 
+    # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
+    parent = os.environ.get("ORCH_RUN_ID") or None
+    role = orchlib.resolve_run_role(a.role, prompt)
+    prompt_abs = os.path.abspath(prompt_file)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "start",
+        "id": a.id,
+        "parent": parent,
+        "engine": "local",
+        "prompt_file": prompt_abs,
+        "front": a.front,
+        "role": role,
+    })
+    os.environ["ORCH_RUN_ID"] = a.id
+
     if not a.no_reground_line:
-        prompt += REGROUND_LINE.format(path=os.path.abspath(prompt_file))
+        prompt += REGROUND_LINE.format(path=prompt_abs)
     with open(run_prompt_file, "w", encoding="utf-8") as f:
         f.write(prompt)
 
@@ -743,7 +791,7 @@ def main():
     for line in gate_lines:
         log_fh.write(line if line.endswith("\n") else line + "\n")
     log_fh.flush()
-    kwargs = detach_popen_kwargs()
+    kwargs = agent_popen_kwargs(a.id)
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
 
     with open(pid_path, "w", encoding="utf-8") as f:
@@ -781,6 +829,7 @@ def main():
         os.unlink(pid_path)
     except OSError:
         pass
+    journal_end(a.id, log_path, code)
     try:
         out_code = int(code)
     except ValueError:
