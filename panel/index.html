@@ -64,6 +64,7 @@
 </head>
 <body>
 <h1>Оркестрация — параметры пачки</h1>
+<div class="hint" id="kitVersion">Kit: —</div>
 <div class="row" style="align-items:center; gap:10px;">
   <label style="margin:0">Оркестрация:</label>
   <select id="orchestration.enabled" style="width:auto">
@@ -291,21 +292,52 @@ function statusClass(st){
   const m={planned:"st-planned",running:"st-running",blocked:"st-blocked",done:"st-done",failed:"st-failed"};
   return m[st]||"st-planned";
 }
+function statusChip(st){
+  if(st==null||st==="") return '<span class="hint">—</span>';
+  const known={active:"chip-active",stalled:"chip-stalled",cancelled:"chip-cancelled",
+    rejected:"chip-rejected",proposed:"chip-proposed",done:"chip-done"};
+  const cls=known[st]||"chip-other";
+  return '<span class="chip '+cls+'">'+esc(st)+'</span>';
+}
+function runsLabel(used, lim){
+  const u=(used==null||used==="")?"—":String(used);
+  const l=(lim==null||lim==="")?"—":String(lim);
+  return esc(u)+"/"+esc(l);
+}
+function observerLabel(ageS){
+  if(ageS==null||ageS==="") return '<span class="hint">наблюдатель: —</span>';
+  const mins=Math.floor(Number(ageS)/60);
+  const cls=(Number(ageS)>1800)?"obs-stale":"obs-ok";
+  return '<span class="'+cls+'">наблюдатель: '+mins+' мин назад</span>';
+}
+function setKitVersion(v){
+  const el=document.getElementById("kitVersion");
+  if(!el) return;
+  el.textContent="Kit: "+((v==null||v==="")?"—":v);
+}
+async function cancelFront(fid){
+  if(!fid) return;
+  if(!confirm("Отменить фронт «"+fid+"»? Статус станет cancelled.")) return;
+  const r=await fetch("/api/fronts/status",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id:fid,status:"cancelled"})});
+  const j=await r.json().catch(()=>({}));
+  if(r.ok){ frontsMsg("фронт "+fid+" отменён","ok"); await loadFronts(); }
+  else frontsMsg(j.error||"ошибка отмены","err");
+}
 function renderFrontsWaves(j){
   const box=document.getElementById("frontsWaves");
+  setKitVersion(j.kit_version);
   const byId={};
   (j.fronts||[]).forEach(f=>{ if(f&&f.id) byId[f.id]=f; });
   const waves=j.waves||[];
-  if(!waves.length){
+  const allIds=waves.length?waves.reduce((a,w)=>a.concat(w),[]):(j.fronts||[]).map(f=>f&&f.id).filter(Boolean);
+  if(!allIds.length){
     box.innerHTML='<div class="hint">фронтов нет — задайте JSON ниже</div>';
     return;
   }
   let html="";
-  waves.forEach((wave,i)=>{
-    html+='<div class="wave-block"><h3>Волна '+(i+1)+'</h3><table><thead><tr>'+
-      '<th>title</th><th>роль</th><th>статус</th><th>compass</th><th>размер</th></tr></thead><tbody>';
-    wave.forEach(id=>{
-      const f=byId[id]||{id:id,title:id,role:"",status:"planned",compass:""};
+  const renderRow=(id)=>{
+      const f=byId[id]||{id:id,title:id,role:"",status:null,compass:""};
       const cp=f.compass_path||f.compass||"";
       const exists=f.compass_exists?' ✓':'';
       const lim=(f.compass_limit!=null)?f.compass_limit:j.compass_limit;
@@ -314,13 +346,33 @@ function renderFrontsWaves(j){
       const sizeHtml=over
         ? '<span class="compass-size over" style="margin:0">⛔ '+esc(formatCompassSize(size, lim))+'</span>'
         : '<span class="compass-size" style="margin:0">'+esc(formatCompassSize(size, lim))+'</span>';
-      html+='<tr><td>'+esc(f.title||id)+'</td><td>'+esc(f.role||"")+'</td>'+
-        '<td><span class="'+statusClass(f.status)+'">'+esc(f.status||"")+'</span></td>'+
+      const st=f.status;
+      const canCancel=(st==="active"||st==="stalled");
+      const cancelBtn=canCancel
+        ? '<button type="button" class="danger sm" data-fid="'+esc(id)+'" onclick="cancelFront(this.getAttribute(\'data-fid\'))">отменить фронт</button>'
+        : '';
+      const runsLim=(f.runs_limit!=null)?f.runs_limit:j.runs_limit;
+      return '<tr><td>'+esc(f.title||id)+'</td><td>'+esc(f.role||"")+'</td>'+
+        '<td>'+statusChip(st)+'</td>'+
+        '<td>'+runsLabel(f.runs_used, runsLim)+'</td>'+
+        '<td>'+observerLabel(f.observer_age_s)+'</td>'+
         '<td class="hint" style="margin:0">'+esc(cp)+exists+'</td>'+
-        '<td>'+sizeHtml+'</td></tr>';
+        '<td>'+sizeHtml+'</td>'+
+        '<td>'+cancelBtn+'</td></tr>';
+  };
+  if(waves.length){
+    waves.forEach((wave,i)=>{
+      html+='<div class="wave-block"><h3>Волна '+(i+1)+'</h3><table><thead><tr>'+
+        '<th>title</th><th>роль</th><th>статус</th><th>прогоны</th><th>наблюдатель</th><th>compass</th><th>размер</th><th></th></tr></thead><tbody>';
+      wave.forEach(id=>{ html+=renderRow(id); });
+      html+='</tbody></table></div>';
     });
+  } else {
+    html+='<div class="wave-block"><table><thead><tr>'+
+      '<th>title</th><th>роль</th><th>статус</th><th>прогоны</th><th>наблюдатель</th><th>compass</th><th>размер</th><th></th></tr></thead><tbody>';
+    allIds.forEach(id=>{ html+=renderRow(id); });
     html+='</tbody></table></div>';
-  });
+  }
   if(j.goal) html='<div class="hint" style="margin-bottom:8px">цель: <b>'+esc(j.goal)+'</b></div>'+html;
   box.innerHTML=html;
 }

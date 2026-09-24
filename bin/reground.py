@@ -104,6 +104,53 @@ def compass_of(p, sid):
     return orchlib.session_compass_path(p, sid)
 
 
+KIT_UPDATE_MSG = (
+    "🔔 СИСТЕМА ОБНОВЛЕНА (было {old} → стало {new}). "
+    "Перечитай С ДИСКА SKILL.md и MAP.md; всё в истории чата, им противоречащее, "
+    "ОТМЕНЕНО. Работай по новой доктрине."
+)
+KIT_LIVE_FRONTS_MSG = (
+    "⚠️ Живые фронты: обновление применять на ГРАНИЦЕ волны "
+    "(после приёмки и OK наблюдателя), не посреди"
+)
+
+
+def _orch_soft(name, *args):
+    """Вызов orchlib.<name>; нет функции / ошибка → (None, False), не падать."""
+    fn = getattr(orchlib, name, None)
+    if not callable(fn):
+        return None, False
+    try:
+        return fn(*args), True
+    except Exception as e:
+        sys.stderr.write("orchlib.%s failed: %s\n" % (name, e))
+        return None, False
+
+
+def kit_paste_for_session(sid):
+    """Версия кита для вклейки + префикс громкого обновления (или пусто).
+
+    Деградация: нет kit_version → ('?', ''); нет last_seen/mark → версия без
+    громкого блока (проверку смены пропускаем).
+    """
+    ver, vok = _orch_soft("kit_version")
+    if not vok or ver is None or ver == "":
+        return "?", ""
+    ver = str(ver)
+    last, lok = _orch_soft("last_seen_kit_version", sid)
+    if not lok:
+        return ver, ""
+    if last == ver:
+        return ver, ""
+    old = last if last is not None else "нет"
+    parts = [KIT_UPDATE_MSG.format(old=old, new=ver)]
+    fronts, fok = _orch_soft("active_fronts")
+    if fok and fronts:
+        parts.append(KIT_LIVE_FRONTS_MSG)
+    _orch_soft("mark_kit_version", sid, ver)
+    return ver, "\n".join(parts) + "\n"
+
+
 def cmd_session_start(engine, fmt):
     """reground.compact_reground=false — не вклеивать (тихо выйти)."""
     ev = read_stdin_json()
@@ -274,7 +321,8 @@ def cmd_heartbeat(engine, fmt):
 def cmd_prompt_submit(engine, fmt):
     """UserPromptSubmit: вклеить параметры при первом сообщении и при ИЗМЕНЕНИИ
     params/compass (mtime+размер). Гарантия: сообщение владельца обрабатывается
-    вместе с актуальными значениями, даже если агент «не согласен»."""
+    вместе с актуальными значениями, даже если агент «не согласен».
+    Всегда — строка Kit; при смене версии кита — громкий блок первым."""
     ev = read_stdin_json()
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
@@ -282,7 +330,10 @@ def cmd_prompt_submit(engine, fmt):
     orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
-    # гард: живое превышение ИЛИ pending-флаг (сессия / state) → громкий блок первым
+    kit_ver, kit_update = kit_paste_for_session(sid)
+    kit_line = "Kit: %s" % kit_ver
+    # гард: живое превышение ИЛИ pending-флаг (сессия / state) → громкий блок
+    # (после блока обновления кита, если он есть)
     live_ov = orchlib.compass_overflows(p)
     flag_g = os.path.join(orchlib.session_dir(sid), "pending_compass_guard.json")
     pending_ov = None
@@ -358,11 +409,18 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    if not guard and not nudge and prev == marks:
-        return  # не менялось, нуджа нет, превышений нет — молчим
-    if not nudge and prev == marks:
-        # только превышения — громкий блок без сводки params
-        emit(fmt, "UserPromptSubmit", guard[:9500])
+    # префикс: сперва обновление кита, затем compass-guard
+    kit_prefix = kit_update if kit_update else ""
+    guard_prefix = (guard + "\n") if guard else ""
+    head = kit_prefix + guard_prefix
+
+    if not guard and not nudge and prev == marks and not kit_update:
+        # params/compass не менялись — всё равно вклеиваем Kit (всегда)
+        emit(fmt, "UserPromptSubmit", (head + kit_line)[:9500] if head else kit_line[:9500])
+        return
+    if not nudge and prev == marks and not kit_update:
+        # только превышения — громкий блок + Kit без сводки params
+        emit(fmt, "UserPromptSubmit", (head + kit_line)[:9500])
         return
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
@@ -376,13 +434,13 @@ def cmd_prompt_submit(engine, fmt):
         "Сессия: {sid}. Compass этой сессии: {compass}\n"
         "{map_orient}\n"
         "Актуальные параметры пачки{what}:\n{summary}\n"
+        "{kit_line}\n"
         "Задание: {compass}\n"
         "Эти значения — из файла; следующее сообщение владельца обрабатывается "
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
-             compass=compass_hint, map_orient=_MAP_ORIENT)
-    prefix = (guard + "\n") if guard else ""
-    emit(fmt, "UserPromptSubmit", (prefix + nudge + text)[:9500])
+             compass=compass_hint, map_orient=_MAP_ORIENT, kit_line=kit_line)
+    emit(fmt, "UserPromptSubmit", (head + nudge + text)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:
             json.dump(marks, f)
