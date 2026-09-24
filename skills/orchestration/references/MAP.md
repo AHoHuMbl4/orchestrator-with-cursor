@@ -8,7 +8,7 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent)
 - `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
@@ -46,6 +46,7 @@ State — `.orchestration/` в проекте.
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
 - `<state>/agent-<id>.json` — id агента для follow-up без ре-парсинга лога
+- `<state>/journal.jsonl` — летописец вызовов (start/end от `run-exec` / `run-cloud`)
 - `cursor.key` — API-ключ Cursor (gitignore; панель сохраняет сюда)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
@@ -72,6 +73,7 @@ State — `.orchestration/` в проекте.
 - `references/roles/meta/raw-brief-synthesizer.md` — читатель сырья волны → выжимка ≤15 строк командиру
 - `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
 - `references/roles/meta/front-prosecutor.md` — прокурор: внутриволновой надзор, власть ноль
+- `references/roles/meta/invocation-inspector.md` — инспектор вызовов: аудит дерева по journal.jsonl
 - `references/roles/code/coder.md` — базовый исполнитель кода
 - `references/roles/code/code-reviewer.md` — критик кода
 - `references/roles/research/fact-checker.md` — критик-скептик

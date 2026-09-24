@@ -199,6 +199,23 @@ def normalize_args(a):
     return a
 
 
+def journal_start(run_id, prompt_file, front, role, engine="cloud"):
+    """Запись kind=start в journal (ошибки глотает orchlib)."""
+    if not run_id:
+        return
+    parent = os.environ.get("ORCH_RUN_ID") or None
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "start",
+        "id": run_id,
+        "parent": parent,
+        "engine": engine,
+        "prompt_file": os.path.abspath(prompt_file) if prompt_file else None,
+        "front": front,
+        "role": role,
+    })
+
+
 def journal_end(run_id, log_path, exit_code):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
@@ -212,6 +229,13 @@ def journal_end(run_id, log_path, exit_code):
         "verdict": verdict,
         "gates": gates,
     })
+
+
+def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
+                        engine="cloud"):
+    """start+end при отказе гейта (exit 5/6/7) — без дыры в journal."""
+    journal_start(run_id, prompt_file, front, role, engine=engine)
+    journal_end(run_id, log_path, exit_code)
 
 
 def api_key(a):
@@ -573,28 +597,20 @@ def cmd_run(a):
         return 2
 
     log_path = os.path.join(state, "cloud-%s.log" % a.id)
+    role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
+    front = getattr(a, "front", None)
     # Гейты до HTTP create / api_key: секрет-сканер; при --front — статус/бюджет.
-    gate_rc = apply_launch_gates(prompt, prompt_file, getattr(a, "front", None),
-                                 log_path)
+    # Гейт-отказы: journal start+end до return (дыры нет).
+    gate_rc = apply_launch_gates(prompt, prompt_file, front, log_path)
     if gate_rc is not None:
+        journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc)
         return gate_rc
 
-    # летописец start (parent из OUR env; cloud-агент env не наследует)
-    parent = os.environ.get("ORCH_RUN_ID") or None
-    role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
-    prompt_abs = os.path.abspath(prompt_file)
-    orchlib.journal_append({
-        "ts": time.time(),
-        "kind": "start",
-        "id": a.id,
-        "parent": parent,
-        "engine": "cloud",
-        "prompt_file": prompt_abs,
-        "front": getattr(a, "front", None),
-        "role": role,
-    })
-
+    # api_key до journal start — иначе sys.exit(2) оставляет orphan-start
     key = api_key(a)
+
+    # летописец start (parent из OUR env; cloud-агент env не наследует)
+    journal_start(a.id, prompt_file, front, role, engine="cloud")
 
     extra = {}
     if a.body_file:

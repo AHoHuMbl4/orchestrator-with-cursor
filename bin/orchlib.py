@@ -262,11 +262,13 @@ def _gate_token_from_wrapper_line(line):
     return None
 
 
-def journal_log_meta(log_path, n=80):
-    """Из хвоста лога: (verdict|None, gates:list). Ошибки чтения → (None, []).
+def journal_log_meta(log_path, n=400):
+    """Из лога: (verdict|None, gates:list). Ошибки чтения → (None, []).
 
-    verdict — последнее осмысленное «Вердикт: …» из assistant/result NDJSON
-    (fallback: regex по хвосту). gates — только plain-эмиссии обёртки, не JSON.
+    gates — по всему файлу (plain-эмиссии обёртки, не JSON); иначе маркеры
+    у начала лога (SECRETS_IN_PROMPT и т.п.) терялись при длинных прогонах.
+    verdict — последнее осмысленное «Вердикт: …» из хвоста n строк
+    (assistant/result NDJSON; fallback: regex по хвосту).
     """
     verdict = None
     gates = []
@@ -276,16 +278,18 @@ def journal_log_meta(log_path, n=80):
             lines = f.readlines()
     except Exception:
         return None, []
-    tail = lines[-n:] if len(lines) > n else lines
 
-    stream_verdicts = []
-    for line in tail:
-        s = line.strip()
-        # gates: только эмиссия раннера, не содержимое tool_call/Read
+    # gates: весь файл — маркеры гейтов пишутся в начале до тела прогона
+    for line in lines:
         gtok = _gate_token_from_wrapper_line(line)
         if gtok and gtok not in seen:
             seen.add(gtok)
             gates.append(gtok)
+
+    tail = lines[-n:] if len(lines) > n else lines
+    stream_verdicts = []
+    for line in tail:
+        s = line.strip()
         # NDJSON stream → тексты assistant/result
         if s.startswith("{"):
             try:

@@ -355,6 +355,23 @@ def agent_popen_kwargs(run_id=None):
     return kwargs
 
 
+def journal_start(run_id, prompt_file, front, role, engine="local"):
+    """Запись kind=start в journal (ошибки глотает orchlib)."""
+    if not run_id:
+        return
+    parent = os.environ.get("ORCH_RUN_ID") or None
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "start",
+        "id": run_id,
+        "parent": parent,
+        "engine": engine,
+        "prompt_file": os.path.abspath(prompt_file) if prompt_file else None,
+        "front": front,
+        "role": role,
+    })
+
+
 def journal_end(run_id, log_path, exit_code):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
@@ -368,6 +385,13 @@ def journal_end(run_id, log_path, exit_code):
         "verdict": verdict,
         "gates": gates,
     })
+
+
+def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
+                        engine="local"):
+    """start+end при отказе гейта (exit 5/6/7) — без дыры в journal."""
+    journal_start(run_id, prompt_file, front, role, engine=engine)
+    journal_end(run_id, log_path, exit_code)
 
 
 def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
@@ -747,8 +771,11 @@ def main():
 
     # Порядок: (а) секрет → 5; (б) exe → 3; (в) front/bump → 6/7/FRONT_RUNS.
     # Секрет до exe (критерий 1 при отсутствии агента); exe до bump (бюджет не жечь).
+    # Гейт-отказы: journal start+end до return (дыры нет).
+    role = orchlib.resolve_run_role(a.role, prompt)
     sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
     if sec_rc is not None:
+        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, sec_rc)
         return sec_rc
 
     exe = find_cursor_agent()
@@ -758,22 +785,12 @@ def main():
 
     gate_rc, gate_lines = apply_front_gates(a.front, log_path)
     if gate_rc is not None:
+        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, gate_rc)
         return gate_rc
 
     # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
-    parent = os.environ.get("ORCH_RUN_ID") or None
-    role = orchlib.resolve_run_role(a.role, prompt)
     prompt_abs = os.path.abspath(prompt_file)
-    orchlib.journal_append({
-        "ts": time.time(),
-        "kind": "start",
-        "id": a.id,
-        "parent": parent,
-        "engine": "local",
-        "prompt_file": prompt_abs,
-        "front": a.front,
-        "role": role,
-    })
+    journal_start(a.id, prompt_file, a.front, role, engine="local")
     os.environ["ORCH_RUN_ID"] = a.id
 
     if not a.no_reground_line:

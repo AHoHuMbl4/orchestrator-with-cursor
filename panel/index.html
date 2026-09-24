@@ -695,7 +695,7 @@ function journalRowHtml(n, depth, tsMap, frontFilter){
   }
   const pad = depth>0 ? ("&nbsp;".repeat(Math.min(depth,8)*2)+"└─ ") : "";
   const role = (n.role!=null && n.role!=="") ? esc(n.role) : "—";
-  const st = (n.status!=null && n.status!=="") ? esc(String(n.status)) : "—";
+  const st = (n.status!=null && n.status!=="") ? esc(String(n.status)) : "бежит/нет end";
   const gate = gatesNonEmpty(n.gates) ? "⚠️" : "";
   const tm = fmtJournalTs(tsMap[n.id]);
   let html = "<tr><td>"+pad+esc(n.id)+"</td><td>"+role+"</td><td>"+esc(n.engine||"—")+
