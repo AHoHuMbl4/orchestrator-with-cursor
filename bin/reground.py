@@ -117,6 +117,34 @@ KIT_LIVE_FRONTS_MSG = (
     "(после приёмки и OK наблюдателя), не посреди"
 )
 
+STATE_WITHOUT_PROJECT_MSG = (
+    "⚠️ STATE БЕЗ ПРОЕКТА: здесь есть граф фронтов, но нет PROJECT.md. "
+    "Если это другая работа — НЕ продолжай чужой граф: открой отдельную "
+    "папку проекта верхнего уровня (свой .orchestration) или создай "
+    "PROJECT.md, если ты действительно продолжаешь этот проект."
+)
+
+
+def foreign_state_warning():
+    """Предупреждение: fronts.json есть, PROJECT.md в корне проекта — нет.
+
+    Тихие ошибки → пустая строка (как будто предупреждения нет).
+    """
+    try:
+        state = orchlib.find_state_dir()
+        project_md = os.path.join(os.path.dirname(state), "PROJECT.md")
+        if os.path.exists(project_md):
+            return ""
+        fronts_path = os.path.join(state, "fronts.json")
+        with open(fronts_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        fronts = data.get("fronts") if isinstance(data, dict) else None
+        if isinstance(fronts, list) and len(fronts) > 0:
+            return STATE_WITHOUT_PROJECT_MSG
+    except Exception:
+        pass
+    return ""
+
 
 def _orch_soft(name, *args):
     """Вызов orchlib.<name>; нет функции / ошибка → (None, False), не падать."""
@@ -485,10 +513,12 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    # префикс: сперва обновление кита, затем compass-guard
+    # префикс: kit_update → compass-guard → чужой state (все emit-пути)
     kit_prefix = kit_update if kit_update else ""
     guard_prefix = (guard + "\n") if guard else ""
-    head = kit_prefix + guard_prefix
+    foreign = foreign_state_warning()
+    foreign_prefix = (foreign + "\n") if foreign else ""
+    head = kit_prefix + guard_prefix + foreign_prefix
 
     if not guard and not nudge and prev == marks and not kit_update:
         # params/compass не менялись — всё равно вклеиваем Kit (всегда)

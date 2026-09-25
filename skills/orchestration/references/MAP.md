@@ -34,6 +34,7 @@ State — `.orchestration/` в проекте.
 
 ## B. State-каталог `.orchestration` (что где лежит)
 
+- **Изоляция state:** 1 проект = 1 папка верхнего уровня со своим `.orchestration`; работа внутри чужого дерева подхватывает чужой state (фронты/лимиты/журнал)
 - `params.json` — параметры пачки (`execution.*`, `review.*`, `reground.every_min`, …)
 - `compass.md` — ОБЩИЙ шаблон; правится только в панели «Расширенные»
 - `sessions/<sid>/compass.md` — личная копия сессии; авто-сеется; пишет `menu.py --session`
