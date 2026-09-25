@@ -17,7 +17,8 @@ State — `.orchestration/` в проекте.
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
-- `bin/reground.py` — хук-движок: `session-start` / `prompt-submit` / `post-tool` / `heartbeat`
+- `bin/reground.py` — хук-движок Kimi: UserPromptSubmit, SessionHeartbeat, PreToolUse, PostToolUse, SubagentStart/Stop (+ session-start)
+- События хуков Kimi: **UserPromptSubmit** (вклейка params/compass/гарда; блок при overflow); **SessionHeartbeat** (сверка; overflow → pending-флаг, observation-only); **PreToolUse** (мгновенный deny Write/Edit в compass — только через write-compass.py); **PostToolUse** (нуджи каждые N + гард при записи в compass); **SubagentStart/Stop** → видимость генералов-субагентов движка в `journal.jsonl` (не только обёртки run-exec/run-cloud)
 - `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); не лаунчер
 - `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
 - `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
@@ -46,7 +47,7 @@ State — `.orchestration/` в проекте.
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
 - `<state>/agent-<id>.json` — id агента для follow-up без ре-парсинга лога
-- `<state>/journal.jsonl` — летописец вызовов (start/end от `run-exec` / `run-cloud`)
+- `<state>/journal.jsonl` — летописец вызовов (start/end от `run-exec` / `run-cloud`; плюс SubagentStart/Stop — генералы-субагенты движка, не только обёртки)
 - `cursor.key` — API-ключ Cursor (gitignore; панель сохраняет сюда)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`

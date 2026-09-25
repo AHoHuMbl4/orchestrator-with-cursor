@@ -1,6 +1,6 @@
 # FLOW — канонический граф потоков оркестрации
 
-Счёт: **§1:** 19 узлов / 22 ребра · **§2:** 19 узлов / 10 рёбер · **гейты §3:** 14.
+Счёт: **§1:** 19 узлов / 22 ребра · **§2:** 20 узлов / 12 рёбер · **гейты §3:** 15.
 
 ## 1. Кто кого запускает
 
@@ -27,7 +27,7 @@ graph TD
   Col -->|код-волна до/после| Git[git-warden]
   Col -->|значимая волна| Docs[docs-keeper]
   Col -->|значимая код-волна| Simp[simplicity-warden]
-  Col -->|развилка «как делать»| Adv
+  Col -->|перед выдачей работы с выбором| Adv
 ```
 
 Легенда моделей: **умный движок** — командующий (оркестратор сессии), генерал, наблюдатель (`SKILL.md:323–349`; `traps.md:№25`). **умная модель** (роль, не traps№25) — прокурор (`front-prosecutor.md:3`). **инспектор** — runtime в роли не задан (`invocation-inspector.md`). **cursor local** — советник; код-исполнители (`opportunity-advisor.md:1–6`; `SKILL.md:65–71`). **cursor cloud** — не-код + web-scout (`SKILL.md:80–86`; `web-scout.md:5–6`). **полковник dual** — код → local-cursor, прочее → cloud (`SKILL.md:385–386`; `front-colonel.md:3`).
@@ -40,7 +40,9 @@ graph TD
 graph LR
   Order[order.md_приказ] -->|вниз read-only| GenCol[генерал/полковник]
   Levels[агент_уровня] -->|вызов write-compass.py| Funnel[воронка]
-  Funnel -->|пишет файл; гард пост-фактум| CompassFile[compass.md]
+  Funnel -->|пишет файл| CompassFile[compass.md]
+  Levels -->|прямой Write/Edit| PreTU[PreToolUse_deny]
+  PreTU -->|хуки: мгновенный блок; иначе пост-фактум-гард| CompassFile
   Brief[выжимка_≤15] -->|вверх| Up[командир выше]
   RawArt[артефакты/логи] -->|только читателям| RawR[raw-brief-synthesizer]
   Journal[journal.jsonl] -->|аудит| InspPros[инспектор/прокурор/панель]
@@ -50,7 +52,7 @@ graph LR
   Hand[handoff.md] -->|новая сессия| Entry[session-entry]
 ```
 
-Лимиты курса: сессия ≤8500; фронт/полковник ≤4000 (`orchlib.py:54–57`; `MAP.md:39`). Приказы отдельно от курса (`traps.md:№47`; `front-general.md:20`). Журнал пишут `run-exec`/`run-cloud` (`run-exec.py:358–387`; `run-cloud.py:202–231`; `MAP.md:49`). Компас: агент вызывает воронку `write-compass.py`, воронка пишет файл; прямой Write/Edit — нарушение, гард пост-фактум (`SKILL.md:475–495`; `traps.md:№48`).
+Лимиты курса: сессия ≤8500; фронт/полковник ≤4000 (`orchlib.py:54–57`; `MAP.md:39`). Приказы отдельно от курса (`traps.md:№47`; `front-general.md:20`). Журнал пишут `run-exec`/`run-cloud` (`run-exec.py:358–387`; `run-cloud.py:202–231`; `MAP.md:49`). Компас: агент вызывает воронку `write-compass.py`, воронка пишет файл; прямой Write/Edit в компас: блок PreToolUse (сессии с хуками) + пост-фактум-гард для остальных (`SKILL.md:523–527`; `traps.md:№48`).
 
 ## 3. Таблица гейтов
 
@@ -58,6 +60,7 @@ graph LR
 |---|---|---|---|---|---|
 | запуск run | секрет-сканер | паттерны ключей/токенов в промте | `run-exec`/`run-cloud` `scan_secrets` | `SECRETS_IN_PROMPT`, exit 5 | `run-exec.py:75–93`; `traps.md:№43` |
 | запись курса | лимит compass (воронка) | size ≤ max_session/front | `write-compass.py` | exit 2, файл не пишется, pending | `write-compass.py:59–70` |
+| прямой Write/Edit в compass | PreToolUse-deny компаса | путь compass + инструмент Write/Edit | PreToolUse (хуки Kimi): мгновенный deny; иначе пост-фактум-гард | deny / громкий блок / флаг | `reground.py` PreToolUse; `SKILL.md:541–542`; `traps.md:№48` |
 | обход воронки | лимит compass (пост-фактум) | живое превышение / pending | `reground` prompt-submit; panel guard | громкий блок / флаг | `reground.py:335–366`; `SKILL.md:486–495` |
 | запуск `--front` | закрытый фронт | status ∈ cancelled\|rejected | `apply_front_gates` / `apply_launch_gates` | `FRONT_CLOSED`, exit 6 | `run-exec.py:111–115`; `run-cloud.py:120–122` |
 | bump прогонов | бюджет warn | used ≥ warn (деф. 60 в params) | `bump_front_runs` + `emit_pending_budget_warn` | `FRONT_BUDGET_WARN`, продолжается | порог: `run-exec.py:127`; `run-cloud.py:132`; деф.60: `orchlib.py:60` |
@@ -97,10 +100,10 @@ graph LR
 2. **Критерий + compass сессии**; gate неоднозначности / Assumptions (`planning.md:8–30`).
 3. **Иерархия?** auto/on → граф `fronts.json` + критики плана графа + **HITL** утверждения (`SKILL.md:305–316`; `planning.md:217–220,274–278`).
 4. **Развилка проекта** → советник (local) → web-scout (cloud); решение командующего (`planning.md:176–179`).
-5. Командующий пишет `fronts/<id>/order.md`, стартует **генерала** (движок) + **прокурора** на волну (`SKILL.md:336–340,357–359`).
+5. Командующий пишет `fronts/<id>/order.md` (обязательна строка `подход: … (по N вариантам советника)` ИЛИ `без советников: выбора нет`), стартует **генерала** (движок) + **прокурора** на волну (`SKILL.md:336–340,357–359`).
 6. Генерал: compass через воронку → декомпозиция → **критики плана** → OK (`front-general.md:20–24`).
-7. Генерал пишет `fronts/<id>/colonels/<cid>/order.md`, запускает **полковника** (cursor) (`front-general.md:21`).
-8. Полковник: развилка? → советник→scout; план → критики OK (`front-colonel.md:15–16`).
+7. Генерал пишет `fronts/<id>/colonels/<cid>/order.md` (обязательна строка `подход: … (по N вариантам советника)` ИЛИ `без советников: выбора нет, механическая`), запускает **полковника** (cursor) (`front-general.md:21–22`).
+8. Полковник: перед выдачей работы с выбором → советник→scout; в задании обязательна строка `подход: … (по N вариантам советника)` ИЛИ `без советников: выбора нет`; план → критики OK (`front-colonel.md:15–16`).
 9. **Развилка исполнения:** роль `code/*` → **local-cursor** (`run-exec`); иначе → **cloud** (`run-cloud`) (`SKILL.md:65–86`; `MAP.md:10`).
 10. Код-волна: **git-warden** checkpoint → исполнители → критики приёмки+замер → git revise; значимая → **docs-keeper**; значимая код → **simplicity-warden** (git/docs: `front-colonel.md:17`; `planning.md:295–298`; simplicity: `planning.md:197`; `front-colonel.md:17`).
 11. Сырьё → **raw-brief-synthesizer** (≤15 строк) вверх; генерал/полковник сырьё не читают (`raw-brief-synthesizer.md:5–7`).

@@ -490,14 +490,21 @@ function Install-OrchKimi {
     $cfgText = Get-Content -LiteralPath $kimiCfg -Raw -Encoding UTF8
     if (-not $cfgText) { $cfgText = "" }
     $hasBlock = $cfgText.Contains("orchestration-kit hooks")
-    $hasOldPy = $false
-    if ($hasBlock -and $cfgText.Contains('command = "python3 ')) {
-        $hasOldPy = $true
+    # Идемпотентность: маркер блока. Замена если старый python3 ИЛИ нет pre-tool
+    # (расширение: PreToolUse/PostToolUse/SubagentStart/Stop).
+    # ОГРАНИЧЕНИЕ: PreToolUse/PostToolUse гарантированно в сессии с хуками
+    # (главная/командующий); для субагентов движка — зависит от стрельбы
+    # событий на их вызовах (проверить на живой машине). SubagentStart/Stop —
+    # видимость генералов независимо.
+    $needReplace = $false
+    if ($hasBlock) {
+        if ($cfgText.Contains('command = "python3 ')) { $needReplace = $true }
+        if ($cfgText -notmatch 'pre-tool') { $needReplace = $true }
     }
-    if ($hasBlock -and $hasOldPy) {
+    if ($hasBlock -and $needReplace) {
         Copy-Item -LiteralPath $kimiCfg -Destination ($kimiCfg + ".bak-orch") -Force
         Remove-OrchKimiHookBlock -CfgPath $kimiCfg
-        Write-Host "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python)"
+        Write-Host "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python / новые хуки)"
         $cfgText = Get-Content -LiteralPath $kimiCfg -Raw -Encoding UTF8
         if (-not $cfgText) { $cfgText = "" }
         $hasBlock = $cfgText.Contains("orchestration-kit hooks")
@@ -506,9 +513,17 @@ function Install-OrchKimi {
         Copy-Item -LiteralPath $kimiCfg -Destination ($kimiCfg + ".bak-orch") -Force
         $cmdPs = New-OrchHookCommand -Action "prompt-submit" -Engine "kimi"
         $cmdHb = New-OrchHookCommand -Action "heartbeat" -Engine "kimi"
+        $cmdPre = New-OrchHookCommand -Action "pre-tool" -Engine "kimi"
+        $cmdPost = New-OrchHookCommand -Action "post-tool" -Engine "kimi"
+        $cmdSaStart = New-OrchHookCommand -Action "subagent-start" -Engine "kimi"
+        $cmdSaStop = New-OrchHookCommand -Action "subagent-stop" -Engine "kimi"
         # TOML basic string: экранируем внутренние двойные кавычки
         $cmdPsToml = $cmdPs.Replace('"', '\"')
         $cmdHbToml = $cmdHb.Replace('"', '\"')
+        $cmdPreToml = $cmdPre.Replace('"', '\"')
+        $cmdPostToml = $cmdPost.Replace('"', '\"')
+        $cmdSaStartToml = $cmdSaStart.Replace('"', '\"')
+        $cmdSaStopToml = $cmdSaStop.Replace('"', '\"')
         $block = @"
 
 # >>> orchestration-kit hooks >>>
@@ -520,6 +535,27 @@ function Install-OrchKimi {
 [[hooks]]
   event = "SessionHeartbeat"
   command = "$cmdHbToml"
+  timeout = 10
+
+[[hooks]]
+  event = "PreToolUse"
+  matcher = "Write|Edit"
+  command = "$cmdPreToml"
+  timeout = 10
+
+[[hooks]]
+  event = "PostToolUse"
+  command = "$cmdPostToml"
+  timeout = 10
+
+[[hooks]]
+  event = "SubagentStart"
+  command = "$cmdSaStartToml"
+  timeout = 10
+
+[[hooks]]
+  event = "SubagentStop"
+  command = "$cmdSaStopToml"
   timeout = 10
 # <<< orchestration-kit hooks <<<
 "@

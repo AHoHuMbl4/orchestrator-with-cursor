@@ -32,12 +32,22 @@ python3.6+ stdlib, кроссплатформенно (Linux/macOS/Windows), б�
 
 ## Что нового
 
+- **Хуки Kimi** (`bin/reground.py`): UserPromptSubmit (вклейка params/compass/
+  гарда; громкий блок при overflow); SessionHeartbeat (сверка; overflow →
+  pending-флаг, observation-only); **PreToolUse** — мгновенный deny прямого
+  Write/Edit в compass-путь («только через воронку write-compass.py»);
+  **PostToolUse** — нуджи каждые N вызовов + гард при записи в compass-путь;
+  **SubagentStart / SubagentStop** — генералы-субагенты движка в
+  `journal.jsonl`. Проверка на живой машине: запустить субагента, пишущего в
+  compass-путь → увидеть deny/блок в логах; убедиться, что SubagentStart
+  появился в `journal.jsonl`.
 - **Воронка записи compass** (`bin/write-compass.py`): канонический путь для
   агентов — `python3 <kit>/bin/write-compass.py --path <compass>
   [--text-file <ф>|--stdin] [--session <sid>]`. Exit-коды: 0 — записано;
   1 — ошибка чтения/записи; 2 — превышение лимита (файл НЕ записан,
   pending-флаг); 3 — путь не является compass-путём состояния. Прямой
-  Write/Edit в `**/compass.md` запрещён — только воронка или menu/панель.
+  Write/Edit в `**/compass.md` запрещён — только воронка или menu/панель;
+  при хуках PreToolUse блокирует мгновенно.
 - **Сторож панели:** фоновый опрос compass каждые `compass.guard_poll_s`
   секунд (дефолт **2**); флаг/подсветка превышения без ожидания следующего
   prompt-submit.
@@ -47,13 +57,14 @@ python3.6+ stdlib, кроссплатформенно (Linux/macOS/Windows), б�
   полковника) ≤ 4000; значения в `.orchestration/params.json` (секция
   compass-лимитов; без секции — те же дефолты в хуках). Настройка — правкой
   params или панелью.
-- **Гарды reground** (`bin/reground.py`): prompt-submit — громкий блок при
+- **Гарды reground** (`bin/reground.py`): UserPromptSubmit — громкий блок при
   превышении по всем `**/compass.md` состояния (живое превышение или
-  pending-флаг); heartbeat при overflow пишет pending-флаг гарда
-  (пути+размеры), доставка — в ближайший prompt-submit (не «громкий блок
-  сразу»: SessionHeartbeat observation-only); post-tool — только при записи
-  в compass-путь; session-start — видимая обрезка с маркером вместо тихого
-  среза.
+  pending-флаг); SessionHeartbeat при overflow пишет pending-флаг гарда
+  (пути+размеры), доставка — в ближайший UserPromptSubmit (не «громкий блок
+  сразу»: observation-only); PreToolUse — мгновенный deny Write/Edit в
+  compass; PostToolUse — нуджи + гард при записи в compass-путь;
+  SubagentStart/Stop → journal; session-start — видимая обрезка с маркером
+  вместо тихого среза.
 - **Валидация menu/panel:** отказ при записи надлимитного compass; в панели
   размер виден, превышение подсвечено.
 - **Слой полковников:** командующий → наблюдатели + генералы фронтов →
@@ -69,7 +80,8 @@ params.json            шаблон параметров (сеется в .orche
 compass.md             общий стартовый шаблон (сеется в .orchestration/compass.md)
 bin/orchlib.py         общая библиотека (state-каталог, params, валидация)
 bin/discover.py        снимок моделей/efforts -> .orchestration/discovered.json
-bin/reground.py        движок сверки курса (session-start / post-tool / heartbeat)
+bin/reground.py        движок сверки курса (UserPromptSubmit / SessionHeartbeat /
+                       PreToolUse / PostToolUse / SubagentStart/Stop)
 bin/run-cloud.py       облачный запуск: Cursor Cloud Agents API (не-код;
                        исследования / без ФС)
 bin/run-exec.py        локальный CLI: cursor-agent для код-задач (промт из

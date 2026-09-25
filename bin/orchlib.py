@@ -120,8 +120,10 @@ def state_path(name):
 
 # --- летописец вызовов (journal.jsonl) ---------------------------------
 
-_ROLE_RE = re.compile(
-    r"(?:роль=|Роль:\s*|role=|roles/)([A-Za-z0-9_/.-]+\.md)")
+# Шапка промта (только первые 3 строки): «роль: path.md» / «role:» / «Роль:».
+# Упоминания путей ролей в теле текста НЕ считаются (ловушка №54).
+_ROLE_HEADER_RE = re.compile(
+    r"^(?:роль|Роль|role):\s*([A-Za-z0-9_/.-]+\.md)\s*$")
 _GATE_MARKERS = (
     "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED")
 _COMPASS_GATE_RE = re.compile(r"COMPASS_OVERFLOW[A-Z0-9_]*")
@@ -188,13 +190,18 @@ def journal_read(limit=500):
 
 
 def extract_prompt_role(text):
-    """Первое вхождение роли в тексте промта или None."""
-    m = _ROLE_RE.search(text or "")
-    return m.group(1) if m else None
+    """Роль только из шапки: первые 3 строки, паттерн «роль: path.md». Тело — игнор."""
+    if not text:
+        return None
+    for line in text.splitlines()[:3]:
+        m = _ROLE_HEADER_RE.match(line)
+        if m:
+            return m.group(1)
+    return None
 
 
 def resolve_run_role(role_flag, prompt_text):
-    """--role если передан, иначе extract_prompt_role; иначе None."""
+    """Приоритет: --role > шапка промта > None."""
     if role_flag:
         return role_flag
     return extract_prompt_role(prompt_text)

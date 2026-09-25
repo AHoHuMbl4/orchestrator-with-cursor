@@ -146,7 +146,7 @@ def _add_common_args(parser):
                         help="id фронта: статус cancelled/rejected; бюджет warn/hard "
                              "(warn=датчик, hard=стоп при hard>0)")
     parser.add_argument("--role", default=argparse.SUPPRESS,
-                        help="имя роли (иначе из промт-файла: роль=/role=/Роль:/roles/)")
+                        help="роль (приоритет над шапкой); иначе «роль: path.md» в первых 3 строках промта")
     parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
                         help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
 

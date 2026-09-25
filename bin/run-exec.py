@@ -11,7 +11,13 @@ $(cat ...) и без кавычек). Модель исполнителя все
 
   python3 run-exec.py --id T1 [--prompt-file ...] [--timeout 1800] [--detach]
                       [--yield-after 480] [--no-reground-line] [--model auto]
-                      [доп. флаги cursor-agent]
+                      [--readonly] [доп. флаги cursor-agent]
+
+  --readonly (барьер A): добавляет `--mode plan` в вызов cursor-agent
+  (только local); journal start получает "readonly": true. Назначение —
+  аналитические прогоны без артефактов на диск (чтение + выжимка в ответ:
+  аудит/ревью). НЕ для командирных ролей с артефактами (советник/инспектор/
+  наблюдатель/генерал) — те запускаются обычно, без --readonly.
 
 Лог: <state>/cursor-run-<id>.log, в конце строка EXIT=<код>.
 При --detach: pid-файл <state>/cursor-run-<id>.pid, процесс не ждём.
@@ -308,9 +314,21 @@ def check_compass_overflow(log_path, session, noted, allow_log_write=True):
         pass
 
 
-def build_agent_cmd(exe, prompt, model, extra):
-    return [exe, "-p", prompt, "--force", "--model", model,
-            "--output-format", "stream-json"] + list(extra or [])
+def build_agent_cmd(exe, prompt, model, extra, readonly=False):
+    """Собрать argv cursor-agent. readonly → `--mode plan` (барьер A).
+
+    readonly — только аналитика (чтение+выжимка в ответ), не командные роли.
+    """
+    cmd = [exe, "-p", prompt, "--force", "--model", model,
+           "--output-format", "stream-json"]
+    if readonly:
+        cmd.extend(["--mode", "plan"])
+    return cmd + list(extra or [])
+
+
+def is_readonly_env():
+    """Readonly-флаг прогона (наследуется watcher/retry через ORCH_READONLY)."""
+    return os.environ.get("ORCH_READONLY") == "1"
 
 
 def wait_child(proc, log_fh, log_path, timeout_s, yield_after=0):
@@ -355,12 +373,13 @@ def agent_popen_kwargs(run_id=None):
     return kwargs
 
 
-def journal_start(run_id, prompt_file, front, role, engine="local"):
+def journal_start(run_id, prompt_file, front, role, engine="local",
+                  readonly=False):
     """Запись kind=start в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
     parent = os.environ.get("ORCH_RUN_ID") or None
-    orchlib.journal_append({
+    entry = {
         "ts": time.time(),
         "kind": "start",
         "id": run_id,
@@ -369,7 +388,10 @@ def journal_start(run_id, prompt_file, front, role, engine="local"):
         "prompt_file": os.path.abspath(prompt_file) if prompt_file else None,
         "front": front,
         "role": role,
-    })
+    }
+    if readonly:
+        entry["readonly"] = True
+    orchlib.journal_append(entry)
 
 
 def journal_end(run_id, log_path, exit_code):
@@ -388,9 +410,10 @@ def journal_end(run_id, log_path, exit_code):
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="local"):
+                        engine="local", readonly=False):
     """start+end при отказе гейта (exit 5/6/7) — без дыры в journal."""
-    journal_start(run_id, prompt_file, front, role, engine=engine)
+    journal_start(run_id, prompt_file, front, role, engine=engine,
+                  readonly=readonly)
     journal_end(run_id, log_path, exit_code)
 
 
@@ -418,7 +441,8 @@ def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra
     except Exception:
         return "4"
     log_fh = open(log_path, "a", encoding="utf-8")
-    cmd = build_agent_cmd(exe, prompt, model, extra)
+    cmd = build_agent_cmd(exe, prompt, model, extra,
+                          readonly=is_readonly_env())
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT,
                             **agent_popen_kwargs())
     try:
@@ -724,8 +748,11 @@ def main():
     ap.add_argument("--no-reground-line", action="store_true",
                     help="не доклеивать строку самопроверки в промт")
     ap.add_argument("--role", default=None,
-                    help="имя роли (иначе из промт-файла: роль=/role=/Роль:/roles/)")
+                    help="роль (приоритет над шапкой); иначе «роль: path.md» в первых 3 строках промта")
     ap.add_argument("--model", default="auto", help="всегда auto (доктрина)")
+    ap.add_argument("--readonly", action="store_true",
+                    help="барьер A: --mode plan; journal readonly=true; "
+                         "только аналитика (чтение+выжимка), не командные роли")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
 
@@ -773,9 +800,11 @@ def main():
     # Секрет до exe (критерий 1 при отсутствии агента); exe до bump (бюджет не жечь).
     # Гейт-отказы: journal start+end до return (дыры нет).
     role = orchlib.resolve_run_role(a.role, prompt)
+    readonly = bool(a.readonly)
     sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
     if sec_rc is not None:
-        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, sec_rc)
+        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, sec_rc,
+                            readonly=readonly)
         return sec_rc
 
     exe = find_cursor_agent()
@@ -785,12 +814,18 @@ def main():
 
     gate_rc, gate_lines = apply_front_gates(a.front, log_path)
     if gate_rc is not None:
-        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, gate_rc)
+        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, gate_rc,
+                            readonly=readonly)
         return gate_rc
 
     # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
     prompt_abs = os.path.abspath(prompt_file)
-    journal_start(a.id, prompt_file, a.front, role, engine="local")
+    if readonly:
+        os.environ["ORCH_READONLY"] = "1"
+    elif "ORCH_READONLY" in os.environ:
+        del os.environ["ORCH_READONLY"]
+    journal_start(a.id, prompt_file, a.front, role, engine="local",
+                  readonly=readonly)
     os.environ["ORCH_RUN_ID"] = a.id
 
     if not a.no_reground_line:
@@ -800,7 +835,7 @@ def main():
 
     timeout_s = a.timeout or int(params.get("execution", {}).get("timeout_s", 1800))
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
-    cmd = build_agent_cmd(exe, prompt, a.model, a.extra)
+    cmd = build_agent_cmd(exe, prompt, a.model, a.extra, readonly=readonly)
 
     # Truncate: переносим gate success markers в начало лога (FRONT_RUNS уже
     # был append'нут в apply_launch_gates — без rewrite open('w') стёр бы его).

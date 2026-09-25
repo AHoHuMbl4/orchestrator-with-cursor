@@ -8,7 +8,10 @@
 
 Подкоманды:
   session-start  — вклейка params+compass в начало сессии (и после компакшна)
-  post-tool      — счётчик/таймер на каждый tool call (Claude/Codex hooks)
+  post-tool      — счётчик/таймер на каждый tool call (Claude/Codex/Kimi)
+  pre-tool       — PreToolUse: deny Write/Edit в compass (exit 2) — Kimi и др.
+  subagent-start — SubagentStart → journal kind=start (engine-subagent)
+  subagent-stop  — SubagentStop → journal kind=end (engine-subagent)
   heartbeat      — wall-clock для Kimi SessionHeartbeat (60-секундный тик)
   stop           — зарезервировано, молчит (не мешает завершению turn)
 
@@ -16,8 +19,8 @@
 или text (Kimi: stdout дописывается в контекст при exit 0).
 
 Кроссплатформенно (Windows: python/py -3), python3.6+, только stdlib.
-Выход всегда 0, кроме реальных ошибок чтения (тогда 0 тоже — хук не должен
-ронять сессию; ошибка пишется в stderr).
+Выход обычно 0 (ошибка чтения — тоже 0, хук не должен ронять сессию;
+ошибка в stderr). Исключение: pre-tool → exit 2 при блоке compass-пути.
 """
 import json
 import os
@@ -191,8 +194,12 @@ def cmd_session_start(engine, fmt):
 
 
 def _tool_write_path(ev):
-    """Целевой путь записи из PostToolUse (Claude/Codex): tool_name + tool_input.file_path."""
-    tool = ev.get("tool_name") or ev.get("toolName") or ""
+    """Целевой путь записи из Post/PreToolUse: tool_name + tool_input.file_path.
+
+    engine-agnostic (Claude/Codex/Kimi): tool_name|tool|toolName;
+    tool_input.file_path|path.
+    """
+    tool = ev.get("tool_name") or ev.get("toolName") or ev.get("tool") or ""
     write_tools = ("Write", "Edit", "MultiEdit", "NotebookEdit")
     if tool not in write_tools:
         return None
@@ -205,7 +212,76 @@ def _tool_write_path(ev):
     return None
 
 
+def _tool_input_path(ev):
+    """Путь из tool_input (file_path/path), без фильтра по имени инструмента."""
+    ti = ev.get("tool_input") or ev.get("toolInput") or {}
+    if not isinstance(ti, dict):
+        return None
+    path = ti.get("file_path") or ti.get("filePath") or ti.get("path")
+    if isinstance(path, str) and path.strip():
+        return path.strip()
+    return None
+
+
+def cmd_pre_tool(engine, fmt):
+    """PreToolUse: блок прямого Write/Edit в compass-путь состояния (exit 2).
+
+    ОГРАНИЧЕНИЕ: PreToolUse/PostToolUse гарантированно действуют в сессии,
+    где хуки зарегистрированы (главная/командующий); для субагентов движка —
+    зависит от того, стреляют ли события на их вызовах (проверить на живой
+    машине: запустить субагента с Write в compass и посмотреть, заблокирует
+    ли). SubagentStart/Stop дают видимость генералов независимо.
+    """
+    ev = read_stdin_json()
+    path = _tool_input_path(ev)
+    if path and orchlib.is_compass_path(path):
+        msg = (
+            "⛔ Компас пишется ТОЛЬКО через воронку: python3 %s/bin/write-compass.py "
+            "--path <путь> --text-file <ф>. Прямой Write/Edit запрещён."
+        ) % orchlib.KIT_DIR
+        sys.stderr.write(msg + "\n")
+        return 2
+    return 0
+
+
+def _subagent_name(ev):
+    """Имя субагента из события SubagentStart/Stop (sanitize снаружи)."""
+    for k in ("agent_name", "agentName", "subagent_name", "subagentName",
+              "agent_type", "agentType", "subagent_type", "subagentType",
+              "name", "matcher"):
+        v = ev.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    agent = ev.get("agent")
+    if isinstance(agent, dict):
+        for k in ("name", "type", "agent_type", "agent_name"):
+            v = agent.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return "unknown"
+
+
+def cmd_subagent_lifecycle(kind):
+    """kind: start|end — запись в journal; ошибки тихие."""
+    try:
+        ev = read_stdin_json()
+        name = safe_name(_subagent_name(ev))
+        orchlib.journal_append({
+            "kind": kind,
+            "id": "subagent:" + name,
+            "engine": "engine-subagent",
+            "parent": session_id_of(ev),
+            "ts": time.time(),
+            "extra": {"event": ev},
+        })
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_post_tool(engine, fmt):
+    # engine не влияет на логику (только fmt из main для kimi→text); без
+    # claude-специфики — счётчики нуджа + compass-гард записи.
     ev = read_stdin_json()
     session_id = session_id_of(ev)
     orchlib.touch_session(session_id)
@@ -472,6 +548,12 @@ def main():
             cmd_session_start(engine, fmt)
         elif cmd == "post-tool":
             cmd_post_tool(engine, fmt)
+        elif cmd == "pre-tool":
+            return cmd_pre_tool(engine, fmt)
+        elif cmd == "subagent-start":
+            return cmd_subagent_lifecycle("start")
+        elif cmd == "subagent-stop":
+            return cmd_subagent_lifecycle("end")
         elif cmd == "prompt-submit":
             cmd_prompt_submit(engine, fmt)
         elif cmd == "heartbeat":
