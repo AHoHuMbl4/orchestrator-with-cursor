@@ -62,6 +62,7 @@ State — `.orchestration/` в проекте.
 
 - `skills/orchestration/SKILL.md` — регламент: исполнители, контроль, компас, вердикт
 - `references/planning.md` — план, волны, DAG, preflight-бюджет
+- `references/FLOW.md` — канонический граф потоков: кто кого запускает / данные / гейты / жизненный цикл
 - `references/engines.md` — исполнители/ключи/движки (local-cursor / cloud-cursor, Claude, Codex, Kimi)
 - `references/traps.md` — ловушки (читать перед пачкой)
 - `references/MAP.md` — эта карта (инструменты и state)
