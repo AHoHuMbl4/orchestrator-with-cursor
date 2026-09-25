@@ -124,22 +124,33 @@ STATE_WITHOUT_PROJECT_MSG = (
     "PROJECT.md, если ты действительно продолжаешь этот проект."
 )
 
+STATE_PARENT_MSG = (
+    "⚠️ STATE РОДИТЕЛЯ: работаешь в чужом дереве (state: %s); "
+    "продолжать чужой граф только осознанно"
+)
+
 
 def foreign_state_warning():
-    """Предупреждение: fronts.json есть, PROJECT.md в корне проекта — нет.
+    """Предупреждение о чужом/беспроектном state при наличии фронтов.
 
-    Тихие ошибки → пустая строка (как будто предупреждения нет).
+    Молчание только при своём state + PROJECT.md.
+    fronts + state_is_foreign → STATE РОДИТЕЛЯ (даже если PROJECT.md есть).
+    fronts + нет PROJECT.md → STATE БЕЗ ПРОЕКТА.
+    Тихие ошибки → пустая строка.
     """
     try:
         state = orchlib.find_state_dir()
-        project_md = os.path.join(os.path.dirname(state), "PROJECT.md")
-        if os.path.exists(project_md):
-            return ""
         fronts_path = os.path.join(state, "fronts.json")
         with open(fronts_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         fronts = data.get("fronts") if isinstance(data, dict) else None
-        if isinstance(fronts, list) and len(fronts) > 0:
+        if not (isinstance(fronts, list) and len(fronts) > 0):
+            return ""
+        foreign = orchlib.state_is_foreign()
+        if foreign:
+            return STATE_PARENT_MSG % foreign
+        project_md = os.path.join(os.path.dirname(state), "PROJECT.md")
+        if not os.path.exists(project_md):
             return STATE_WITHOUT_PROJECT_MSG
     except Exception:
         pass

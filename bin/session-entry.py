@@ -17,14 +17,6 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
 
-STATE_WITHOUT_PROJECT_MSG = (
-    "⚠️ STATE БЕЗ ПРОЕКТА: здесь есть граф фронтов, но нет PROJECT.md. "
-    "Если это другая работа — НЕ продолжай чужой граф: открой отдельную "
-    "папку проекта верхнего уровня (свой .orchestration) или создай "
-    "PROJECT.md, если ты действительно продолжаешь этот проект."
-)
-
-
 def _project_root():
     """Корень проекта = каталог выше state (.orchestration или ORCHESTRATION_DIR)."""
     return os.path.dirname(orchlib.find_state_dir())
@@ -57,7 +49,7 @@ def _read_trunc(path, max_chars):
 def _parse_project_goal(path):
     """Первая непустая строка после заголовка Цель (# Цель / ## Цель / Цель:)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             lines = f.read().splitlines()
     except Exception:
         return None
@@ -77,46 +69,52 @@ def _parse_project_goal(path):
     return None
 
 
-def _belonging_section():
-    """Секция принадлежности: цель / число фронтов / последний фронт."""
+def _project_section():
+    """Секция «Проект» — первая в брифинге: имя, цель, фронты, mtime, чужой state."""
     root = _project_root()
+    name = os.path.basename(root) or root
     project_md = os.path.join(root, "PROJECT.md")
-    has_project = os.path.exists(project_md)
-    goal = "⚠️ не определён"
-    if has_project:
+    goal = "⚠️ не определена"
+    if os.path.exists(project_md):
         parsed = _parse_project_goal(project_md)
         if parsed:
             goal = parsed
 
     n_fronts = 0
-    last_front = "—"
-    warn = ""
+    graph_mtime = "—"
     try:
         data = orchlib.load_fronts()
         fronts = data.get("fronts") or []
         if isinstance(fronts, list):
             n_fronts = len(fronts)
-            if n_fronts > 0:
-                last = fronts[-1] if isinstance(fronts[-1], dict) else {}
-                fid = last.get("id", "?") if isinstance(last, dict) else "?"
-                fp = os.path.join(orchlib.find_state_dir(), "fronts.json")
-                try:
-                    mtime = os.path.getmtime(fp)
-                    date_s = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
-                except Exception:
-                    date_s = "?"
-                last_front = "%s (%s)" % (fid, date_s)
-                if not has_project:
-                    warn = "\n\n%s" % STATE_WITHOUT_PROJECT_MSG
+        fp = os.path.join(orchlib.find_state_dir(), "fronts.json")
+        if os.path.exists(fp):
+            try:
+                mtime = os.path.getmtime(fp)
+                graph_mtime = time.strftime(
+                    "%Y-%m-%d %H:%M", time.localtime(mtime))
+            except Exception:
+                graph_mtime = "—"
     except Exception:
         pass
 
-    line = (
-        "Проект: %s; фронтов: %d; последний фронт: %s; "
-        "если это не твой проект — отдельная папка со своим .orchestration"
-        % (goal, n_fronts, last_front)
-    )
-    return "## Принадлежность\n\n%s%s\n" % (line, warn)
+    lines = [
+        "## Проект",
+        "",
+        "Проект: %s" % name,
+        "Цель: %s" % goal,
+        "Фронтов: %d" % n_fronts,
+        "Последнее изменение графа: %s" % graph_mtime,
+    ]
+    foreign = orchlib.state_is_foreign()
+    if foreign:
+        lines.append(
+            "State: %s (⚠️ найден ВЫШЕ текущей папки — если это не твой "
+            "проект, открой отдельную папку со своим .orchestration)"
+            % foreign
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _project_md_section():
@@ -184,8 +182,8 @@ def _prompt_template_section():
 def build_briefing(session_id=None):
     parts = [
         "# Session entry briefing\n",
+        _project_section(),
         "## kit_version\n\n%s\n" % orchlib.kit_version(),
-        _belonging_section(),
         _project_md_section(),
         _handoff_section(),
         _fronts_section(),

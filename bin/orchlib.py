@@ -101,15 +101,29 @@ def state_dir_note():
     Пустая строка — state под текущим cwd (или совпадает с ожидаемым локальным).
     Не вызывать из reground/хуков: тишина в хуках обязательна.
     """
+    foreign = state_is_foreign()
+    if not foreign:
+        return ""
+    return ("state выше по дереву: %s "
+            "(запускай из папки проекта или задай ORCHESTRATION_DIR)" % foreign)
+
+
+def state_is_foreign(cwd=None):
+    """Путь к state, если найденный state не лежит в cwd (выше / чужой); иначе None.
+
+    Логика согласована с state_dir_note / find_state_dir:
+    commonpath(state, cwd) == cwd → свой (state под cwd).
+    """
+    if cwd is None:
+        cwd = os.getcwd()
     state = os.path.abspath(find_state_dir())
-    cwd = os.path.abspath(os.getcwd())
+    cwd = os.path.abspath(cwd)
     try:
         if os.path.commonpath([cwd, state]) == cwd:
-            return ""
+            return None
     except ValueError:
         pass  # другой диск (Windows)
-    return ("state выше по дереву: %s "
-            "(запускай из папки проекта или задай ORCHESTRATION_DIR)" % state)
+    return state
 
 
 def state_path(name):
