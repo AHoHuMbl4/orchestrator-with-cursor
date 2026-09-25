@@ -93,7 +93,7 @@ State — `.orchestration/` в проекте.
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`) |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
-| генералу нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
+| командующему/генералу/полковнику нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
 | Приказ фронту? | `<state>/fronts/<id>/order.md` (read-only для генерала) |
 | Compass фронта? | `<state>/fronts/<id>/compass.md` (≤ 4000; только курс + ссылка на order.md) |
 | Приказ полковнику? | `<state>/fronts/<id>/colonels/<cid>/order.md` (read-only для полковника) |
