@@ -1104,11 +1104,84 @@ def front_status(fid):
     return None
 
 
+def _dir_lock_acquire(lock_dir, timeout_s=5.0, stale_s=30.0):
+    """Каталог-замок через os.mkdir (атомарен на Linux+Windows).
+
+    True — замок взят; False — не удалось (вызывать без блокировки).
+    Ошибки — тихий stderr, без raise.
+    """
+    deadline = time.time() + float(timeout_s)
+    sleep_s = 0.05
+    while True:
+        try:
+            os.mkdir(lock_dir)
+            return True
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(lock_dir)
+                if age > float(stale_s):
+                    stolen = "%s.stale-%d-%.6f" % (
+                        lock_dir, os.getpid(), time.time())
+                    try:
+                        os.rename(lock_dir, stolen)
+                    except Exception:
+                        pass
+                    else:
+                        try:
+                            os.rmdir(stolen)
+                        except Exception:
+                            try:
+                                sys.stderr.write(
+                                    "orchlib: stale-lock cleanup failed: %s\n"
+                                    % stolen)
+                            except Exception:
+                                pass
+                    continue
+            except Exception as exc:
+                try:
+                    sys.stderr.write(
+                        "orchlib: lock mtime check failed: %s\n" % exc)
+                except Exception:
+                    pass
+            if time.time() >= deadline:
+                try:
+                    sys.stderr.write(
+                        "orchlib: lock busy, proceed unlocked: %s\n"
+                        % lock_dir)
+                except Exception:
+                    pass
+                return False
+            time.sleep(sleep_s)
+            sleep_s = min(sleep_s * 1.5, 0.5)
+        except Exception as exc:
+            try:
+                sys.stderr.write(
+                    "orchlib: lock acquire failed: %s\n" % exc)
+            except Exception:
+                pass
+            return False
+
+
+def _dir_lock_release(lock_dir):
+    """Снять каталог-замок; ошибки — тихий stderr."""
+    try:
+        os.rmdir(lock_dir)
+    except Exception as exc:
+        try:
+            sys.stderr.write(
+                "orchlib: lock release failed: %s\n" % exc)
+        except Exception:
+            pass
+
+
 def bump_front_runs(fid):
     """Инкремент used в counters/front-runs-<safe_fid>.json → (used, warn, hard).
 
     Пороги из params.budgets: warn_runs_per_front (дефолт 60),
     hard_runs_per_front (дефолт 0 = выключен).
+    Инкремент под каталог-замком <счётчик>.lock (mkdir); при сбое замка —
+    продолжаем без блокировки (счётчик может потерять инкремент, запуск
+    не роняем).
     """
     warn, hard = 60, 0
     try:
@@ -1123,18 +1196,33 @@ def bump_front_runs(fid):
     counters = os.path.join(find_state_dir(), "counters")
     os.makedirs(counters, exist_ok=True)
     path = os.path.join(counters, "front-runs-%s.json" % safe_name(fid))
-    used = 0
-    if os.path.exists(path):
+    lock_dir = path + ".lock"
+    held = False
+    try:
+        held = _dir_lock_acquire(lock_dir)
+    except Exception as exc:
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and "used" in data:
-                used = int(data["used"])
+            sys.stderr.write(
+                "orchlib: lock unexpected: %s\n" % exc)
         except Exception:
-            used = 0
-    used += 1
-    _write_json_atomic(path, {"used": used})
-    return (used, warn, hard)
+            pass
+        held = False
+    try:
+        used = 0
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and "used" in data:
+                    used = int(data["used"])
+            except Exception:
+                used = 0
+        used += 1
+        _write_json_atomic(path, {"used": used})
+        return (used, warn, hard)
+    finally:
+        if held:
+            _dir_lock_release(lock_dir)
 
 
 def active_fronts():
