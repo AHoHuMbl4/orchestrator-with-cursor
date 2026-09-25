@@ -132,11 +132,12 @@ No key and no local binary for the needed path? Default `auto` **stops and asks*
 
 ## Hierarchy for large projects
 
-Large projects run as a command chain: commander → observers + front generals
-(smart engine subagents) → subtask colonels (Cursor agents, role `front-colonel`)
-→ executors (Cursor). A colonel owns one subtask (3–5 works, mini-compass within
-limit, one nesting level; escalate after 2 failed rounds) and must run with a
-full suite:
+Large projects run as a command chain: commander → observers and prosecutor
+(Cursor runs via `run-exec`: observer at checkpoints between waves, prosecutor
+per front wave) + front generals (smart engine subagents) → subtask colonels
+(Cursor agents, role `front-colonel`) → executors (Cursor). A colonel owns one
+subtask (3–5 works, mini-compass within limit, one nesting level; escalate after
+2 failed rounds) and must run with a full suite:
 advisors at forks (`opportunity-advisor`, cloud), plan critics (`fact-checker` /
 `code-reviewer`), acceptance critics per work, raw readers
 (`raw-brief-synthesizer` — briefs instead of reading raw outputs whole),

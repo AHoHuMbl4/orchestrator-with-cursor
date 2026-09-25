@@ -72,11 +72,12 @@ State — `.orchestration/` в проекте.
 - `references/roles/_template.md` — каркас: `{{ЗАДАЧА}}` / `{{КРИТЕРИЙ}}` / `{{ГРАНИЦЫ}}` + процесс/анти-паттерны
 - `references/roles/<домен>/<роль>.md` — шаблон промта роли (путь берётся из `_index.md`)
 - `references/roles/meta/` — meta-роли иерархии; выбор через `_index.md`
+- Легенда моделей: **умный движок** — командующий, генералы фронтов; **cursor local** — наблюдатель/прокурор (запуск командующим через `run-exec`), полковники (код), свита, исполнители кода; **cursor cloud** — не-код + web-scout; ребро: командующий → наблюдатель/прокурор (`run-exec`)
 - `references/roles/meta/front-general.md` — генерал фронта: умная модель, узкий фронт, критики плана, выжимка вверх
 - `references/roles/meta/front-colonel.md` — полковник подзадачи: cursor, свита, мини-compass, выжимка генералу
 - `references/roles/meta/raw-brief-synthesizer.md` — читатель сырья волны → выжимка ≤15 строк командиру
-- `references/roles/meta/front-observer.md` — наблюдатель: 4 прицела, власть ноль
-- `references/roles/meta/front-prosecutor.md` — прокурор: внутриволновой надзор, власть ноль
+- `references/roles/meta/front-observer.md` — наблюдатель: cursor local (`run-exec`, запуск командующим на КТ); 4 прицела, власть ноль
+- `references/roles/meta/front-prosecutor.md` — прокурор: cursor local (`run-exec`, запуск командующим на волну); внутриволновой надзор, власть ноль; закрытый канал
 - `references/roles/meta/invocation-inspector.md` — инспектор вызовов: аудит дерева по journal.jsonl
 - `references/roles/code/coder.md` — базовый исполнитель кода
 - `references/roles/code/code-reviewer.md` — критик кода
