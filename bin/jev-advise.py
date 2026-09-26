@@ -20,6 +20,8 @@ Fail-open: API-недоступность/ошибка → пустой отве
       [--question id:type:instructions… | --questions-file PATH]
       [--defer-below N] [--confirm-below N] [--yes-at N]
       [--api-url URL] [--key-path PATH] [--session-id ID]
+  jev-advise.py --caller <front/run-id>   # ad-hoc Score/Choice/Noul БЕЗ --point
+      --question…|--questions-file PATH [--defer-below N] [--confirm-below N]
 
 Таблица маршрутизации: routing/jev-table.json (обязательна).
 Журнал: <state>/jev-calls.jsonl.
@@ -357,7 +359,9 @@ def main(argv=None):
                     help="напечатать routing/jev-table.json и выйти")
     ap.add_argument("--table-path", default=TABLE_PATH,
                     help="путь к таблице точек (по умолчанию routing/jev-table.json)")
-    ap.add_argument("--point", help="id точки маршрутизации из таблицы")
+    ap.add_argument("--point",
+                    help="id точки из таблицы; опционален при "
+                         "--question/--questions-file (ad-hoc)")
     ap.add_argument("--caller", help="front/run-id вызывающего")
     st = ap.add_mutually_exclusive_group()
     st.add_argument("--state-text", help="state как строка")
@@ -409,7 +413,7 @@ def main(argv=None):
             append_journal(state_dir, {
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "caller": args.caller,
-                "point": args.point,
+                "point": result.get("point"),
                 "question_ids": list((result.get("advice") or {}).keys()),
                 "band": bands,
                 "confidence": confs or None,
@@ -423,14 +427,25 @@ def main(argv=None):
         sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
         return 0
 
-    if not args.point or not args.caller:
+    if not args.caller:
+        return fail_open("нужен --caller (или --list-table)")
+
+    has_adhoc_qs = bool(args.question) or bool(args.questions_file)
+    if not args.point and not has_adhoc_qs:
         return fail_open("нужны --point и --caller (или --list-table)")
 
-    try:
-        table = load_table(args.table_path)
-        point = point_by_id(table, args.point)
-    except Exception as e:
-        return fail_open("таблица/точка: %s" % e)
+    # --point опционален при ad-hoc (--question/--questions-file + caller)
+    if args.point:
+        try:
+            table = load_table(args.table_path)
+            point = point_by_id(table, args.point)
+        except Exception as e:
+            return fail_open("таблица/точка: %s" % e)
+        journal_point = args.point
+    else:
+        point = {}
+        journal_point = "ad-hoc"
+    empty["point"] = journal_point
 
     state = _load_state(args)
     if state is None:
@@ -484,7 +499,7 @@ def main(argv=None):
     bands, confs, nouls = _journal_advice_fields(advice)
     result = {
         "ok": True,
-        "point": args.point,
+        "point": journal_point,
         "caller": args.caller,
         "fallback": point.get("fallback"),
         "thresholds": {
@@ -502,7 +517,7 @@ def main(argv=None):
         append_journal(state_dir, {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "caller": args.caller,
-            "point": args.point,
+            "point": journal_point,
             "question_ids": list(questions.keys()),
             "band": bands,
             "confidence": confs or None,
