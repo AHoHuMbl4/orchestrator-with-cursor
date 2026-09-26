@@ -384,8 +384,9 @@ docs-keeper после значимых волн.
   при декомпозиции на фронты решение о подходе фронта фиксируется в order.md
   строкой `подход: <выбрано> (по N вариантам советника)` ИЛИ
   `без советников: выбора нет` (симметрично генералу/полковнику);
-  приказ без строки обоснования — детектор вклеивает нудж
-  (блок-гейт — будущая работа);
+  приказ без строки обоснования — детектор вклеивает нудж,
+  order-гейт блокирует Write/Edit как PreToolUse-deny
+  (reground.py: `_order_has_basis`, exit 2 без «подход:»/«без советников»);
   декомпозиция 3–7; **подзадачи — через полковников** (`meta/front-colonel`);
   при выдаче подзадачи генерал пишет `fronts/<id>/colonels/<cid>/order.md`;
   сырьё волн читают только `raw-brief-synthesizer`, генерал — выжимки и
@@ -477,7 +478,7 @@ Reject. TTL: нет ответа N мин в интерактиве → лест
 После end роли волны возможен автопрокурор `prosecutor-auto-<F>-<n>`
 (один на волну, lockdir). Бюджет фронта — датчик заноса, не жёсткий стоп по умолчанию:
 `params.budgets.warn_runs_per_front` (дефолт **60**) — churn-датчик:
-`used > warn` → лог `FRONT_BUDGET_WARN` + флаг `pending_budget_warn.json`
+`used >= warn` → лог `FRONT_BUDGET_WARN` + флаг `pending_budget_warn.json`
 (командующий/владелец), запуск продолжается; `params.budgets.hard_runs_per_front`
 (дефолт **0** = выключен) — только при `hard > 0` и `used > hard` отказ
 `BUDGET_HARD` / exit 7. Качество > токены: не режь осознанную сложность
@@ -510,7 +511,7 @@ Reject. TTL: нет ответа N мин в интерактиве → лест
 | review.max_rounds | 3 | кругов ревью до доклада |
 | execution.timeout_s | 1800 | потолок прогона исполнителя, сек |
 | reground.every_min | 10 | интервал сверки курса, мин |
-| budgets.warn_runs_per_front | 60 | churn-датчик: used>warn → FRONT_BUDGET_WARN + pending, запуск продолжается (командующий/владелец) |
+| budgets.warn_runs_per_front | 60 | churn-датчик: used>=warn → FRONT_BUDGET_WARN + pending, запуск продолжается (командующий/владелец) |
 | budgets.hard_runs_per_front | 0 | жёсткий стоп: used>hard при hard>0 → BUDGET_HARD/exit 7; 0 = выключен; качество > токены |
 
 По слову «меню» — покажи текущие и спроси, что поменять. Изменил — подтверди
