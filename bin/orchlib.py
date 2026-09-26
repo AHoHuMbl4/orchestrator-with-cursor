@@ -147,6 +147,50 @@ _VERDICT_RE = re.compile(
     r"Вердикт:\s*(?:(OK)\b|(PROBLEMS|BLOCKED)\b(:[^\n\\\"\r]*)?)")
 _VERDICT_MAX_LEN = 200
 
+# --- секрет-сканер (единая точка кита) -----------------------------------
+
+# Невидимые для нормализованной копии: U+200B..U+200D, U+2060, U+FEFF, U+00AD
+_SECRET_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad]")
+# Пробельные прогоны ≤2 символов (разрыв ключа) — схлоп только в копии
+_SECRET_SHORT_WS_RE = re.compile(r"[ \t\n\r\f\v]{1,2}")
+
+# Текущие 6 из run-exec/run-cloud — как есть; далее расширения по приказу SEC-C1.
+SECRET_PATTERNS = (
+    re.compile(r"crsr_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
+    re.compile(r"ghp_[A-Za-z0-9]{30,}"),
+    re.compile(r"sk-(?:or-v1|proj|ant)-[A-Za-z0-9]{20,}"),
+    re.compile(r"Bearer\s+[A-Za-z0-9]{20,}"),
+    re.compile(r"(?i)(?:token|api_key|apikey)\s*=\s*[A-Za-z0-9]{20,}"),
+)
+
+
+def _normalize_secret_text(text):
+    """Нормализованная копия только для матчинга (исходный text не меняется)."""
+    t = _SECRET_INVISIBLE_RE.sub("", text)
+    t = _SECRET_SHORT_WS_RE.sub("", t)
+    return t
+
+
+def scan_secrets(text):
+    """Первый совпавший паттерн (pattern.pattern) или None.
+
+    Матчинг идёт по (а) сыром тексту и (б) нормализованной копии только для
+    матчинга: срез невидимых (U+200B..U+200D, U+2060, U+FEFF, U+00AD) +
+    схлопывание пробельных прогонов ≤2 символов (разрыв ключа). Глобальную
+    склейку всего текста не делать; паттерны требуют префикс + длинную
+    base62-подобную основу.
+    """
+    raw = text or ""
+    norm = _normalize_secret_text(raw)
+    for rx in SECRET_PATTERNS:
+        if rx.search(raw) or rx.search(norm):
+            return rx.pattern
+    return None
+
 
 def journal_path():
     """Путь к <state>/journal.jsonl (каталог state создаётся при необходимости)."""
