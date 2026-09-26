@@ -140,7 +140,7 @@ _ROLE_HEADER_RE = re.compile(
     r"^(?:роль|Роль|role):\s*([A-Za-z0-9_/.-]+\.md)\s*$")
 _GATE_MARKERS = (
     "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED",
-    "FRONT_REQUIRED")
+    "FRONT_REQUIRED", "API_KEY_REQUIRED")
 _COMPASS_GATE_RE = re.compile(r"COMPASS_OVERFLOW[A-Z0-9_]*")
 # осмысленный вердикт без JSON-хвоста (OK | PROBLEMS:… | BLOCKED:…)
 _VERDICT_RE = re.compile(
