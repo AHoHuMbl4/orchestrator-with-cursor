@@ -1,4 +1,8 @@
 {
+  "orchestration": {
+    "enabled": true,
+    "hierarchy": "auto"
+  },
   "task": {
     "description_file": ".orchestration/compass.md"
   },
