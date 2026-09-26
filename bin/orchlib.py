@@ -13,6 +13,11 @@ import sys
 import tempfile
 import time
 
+try:
+    import fcntl
+except ImportError:  # Windows / среды без fcntl
+    fcntl = None
+
 KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEFAULTS = {
@@ -207,7 +212,14 @@ def journal_append(entry):
         path = journal_path()
         line = json.dumps(entry, ensure_ascii=False) + "\n"
         with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+            if fcntl is not None:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.write(line)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            else:
+                f.write(line)
     except Exception as e:
         try:
             sys.stderr.write("journal_append failed: %s\n" % e)
@@ -1112,36 +1124,45 @@ def validate_fronts(f):
     return errs
 
 
-def save_fronts(f):
+def save_fronts(f, timeout_s=5.0):
     """Атомарная запись fronts.json после валидации.
 
     Legacy-статусы принимаются и перед записью нормализуются в канон.
+    Запись под каталог-замком fronts.json.lock; при busy — RuntimeError
+    (не ValueError: панель ловит ValueError и пишет в обход замка).
     """
-    fronts = f.get("fronts") if isinstance(f.get("fronts"), list) else []
-    _migrate_fronts_list(fronts)
-    errs = validate_fronts(f if isinstance(f, dict) else {"fronts": fronts})
-    if errs:
-        raise ValueError(errs)
-    out = {
-        "goal": f.get("goal", "") if isinstance(f.get("goal"), str) else "",
-        "fronts": fronts,
-        "notes": f.get("notes", "") if isinstance(f.get("notes"), str) else "",
-    }
     pf = fronts_path()
     d = os.path.dirname(pf)
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+    lock_dir = pf + ".lock"
+    held = _dir_lock_acquire(lock_dir, timeout_s=timeout_s)
+    if not held:
+        raise RuntimeError("fronts lock busy: %s" % lock_dir)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(out, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, pf)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+        fronts = f.get("fronts") if isinstance(f.get("fronts"), list) else []
+        _migrate_fronts_list(fronts)
+        errs = validate_fronts(f if isinstance(f, dict) else {"fronts": fronts})
+        if errs:
+            raise ValueError(errs)
+        out = {
+            "goal": f.get("goal", "") if isinstance(f.get("goal"), str) else "",
+            "fronts": fronts,
+            "notes": f.get("notes", "") if isinstance(f.get("notes"), str) else "",
+        }
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(out, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, pf)
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+    finally:
+        _dir_lock_release(lock_dir)
 
 
 def front_waves(f):
@@ -1304,14 +1325,13 @@ def _dir_lock_release(lock_dir):
             pass
 
 
-def bump_front_runs(fid):
+def bump_front_runs(fid, timeout_s=5.0):
     """Инкремент used в counters/front-runs-<safe_fid>.json → (used, warn, hard).
 
     Пороги из params.budgets: warn_runs_per_front (дефолт 60),
     hard_runs_per_front (дефолт 0 = выключен).
-    Инкремент под каталог-замком <счётчик>.lock (mkdir); при сбое замка —
-    продолжаем без блокировки (счётчик может потерять инкремент, запуск
-    не роняем).
+    Инкремент под каталог-замком <счётчик>.lock (mkdir); если замок
+    не взят за timeout — RuntimeError (явный отказ, без тихого инкремента).
     """
     warn, hard = 60, 0
     try:
@@ -1329,7 +1349,7 @@ def bump_front_runs(fid):
     lock_dir = path + ".lock"
     held = False
     try:
-        held = _dir_lock_acquire(lock_dir)
+        held = _dir_lock_acquire(lock_dir, timeout_s=timeout_s)
     except Exception as exc:
         try:
             sys.stderr.write(
@@ -1337,6 +1357,8 @@ def bump_front_runs(fid):
         except Exception:
             pass
         held = False
+    if not held:
+        raise RuntimeError("front-runs lock busy: %s" % lock_dir)
     try:
         used = 0
         if os.path.exists(path):
@@ -1351,8 +1373,7 @@ def bump_front_runs(fid):
         _write_json_atomic(path, {"used": used})
         return (used, warn, hard)
     finally:
-        if held:
-            _dir_lock_release(lock_dir)
+        _dir_lock_release(lock_dir)
 
 
 def active_fronts():
