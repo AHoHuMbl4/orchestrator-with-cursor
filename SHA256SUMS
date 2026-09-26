@@ -4,8 +4,8 @@ d81bde5fb7506ed8388cb38d403a3e0999f925b092df8bf8edffb87a08f6284b  ./README.md
 4f97826e91d8bcfcb1a3757fb3b443bb31816362828fe6224364f92437b6b474  ./README.ru.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
-45ca085cf2ab10c6795e987cfd917573786fdbeaf47b5f528acb0ad318a8f1b8  ./bin/orchlib.py
-5d0b0b07ab18cad859107420f666a98a64b495388fc722de203108b81403a670  ./bin/reground.py
+1ad3838d5f091718f21c5d3e213fb258323aa704f3c0f219df40db9e184413a1  ./bin/orchlib.py
+3f25d31b1065d8aac6b0352b27b515c631c5c90ac4b4a3da7557bf7ecd142a49  ./bin/reground.py
 fa4ea688f2043e1a251e8bab8e7a69a17537dfe7e290a9a253e80ea2f5f0b0d6  ./bin/run-cloud.py
 9c0f4d84ddf170a55f57b5e880d3681156585bb33cfa41bcb46abb56f6163246  ./bin/run-exec.py
 394a6b605e58a1e694dc2123dca5590dbb575cd12259999a43f69f2a82a2ee6c  ./bin/session-entry.py
@@ -23,11 +23,11 @@ f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 4159210f0c395d6147fab45a0e0132ea37f4db232d18e276e6a5fdc446ef7430  ./panel/index.html
 71fd6f190cf376117e8e8cd1bbafbd35f1117c8b9c739a8eb9d0ff01bc9e2f8d  ./panel/server.py
 b2738a6da4e6b62fc0bdf5cd4719f78e454e26b7ed6f7faee3e7f858276f3d12  ./params.json
-ba1e64f256c33d3dc75378c018ee4eef326799059ecb82be568016ef75a350b6  ./skills/orchestration/SKILL.md
+4bc8dead5416e7ba0d482ac3621ca14f074cc74f859be59f11483fb681b79651  ./skills/orchestration/SKILL.md
 8a234417baa6f7827dd1dba983230f8c4555dac6fd97822be45ab77d58315abc  ./skills/orchestration/references/FLOW.md
-f9b3741784f95b3c2b675441cfe128ec6965aa375d7a2986bc7b7ac0f173090b  ./skills/orchestration/references/MAP.md
+8ce8caf14b05a8860dbf5e174112b5f297e73d19ef3d6e0452491f991c6fca4c  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
-81e3bbce9180bbc05ad75e90d55c8a090b03fbb944e9ecbe87f8618e16e748d4  ./skills/orchestration/references/planning.md
+1f5a6712e03f44c68c4acaf17705b33e8672b3f0a3ecf9bd169fa89435440970  ./skills/orchestration/references/planning.md
 694e0097745eea99d340b4b68b9c15b6ec563361179398ece848a61c218e311a  ./skills/orchestration/references/roles/_index.md
 fa20ccabe8bd59108f1cd5bfeff28e613e67a789b07477ce7340d110c75bb782  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
@@ -185,6 +185,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 4bfed61791bac587af70c96c895a62374a9c658ac6b787ce5cdd92ee53485135  ./skills/orchestration/references/roles/trends/scenario-planning-facilitator.md
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
-2ef5fe058c903c7672fe6772e50e626f7e54074a064f0eb0db92224e0b670ef5  ./skills/orchestration/references/traps.md
+65b94cac3588929f397891c053d2c66a710caede8c0758d4e9afc6311d2cacd7  ./skills/orchestration/references/traps.md
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh

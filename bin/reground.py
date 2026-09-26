@@ -524,12 +524,31 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    # префикс: kit_update → compass-guard → чужой state (все emit-пути)
+    # префикс: kit_update → compass-guard → детекторы → чужой state (все emit)
     kit_prefix = kit_update if kit_update else ""
     guard_prefix = (guard + "\n") if guard else ""
+    det_lines = []
+    try:
+        bad_orders = orchlib.orders_without_basis()
+    except Exception:
+        bad_orders = []
+    try:
+        bad_waves = orchlib.waves_without_prosecutor()
+    except Exception:
+        bad_waves = []
+    for path in bad_orders or []:
+        det_lines.append(
+            '⛔ ПРИКАЗ БЕЗ ОБОСНОВАНИЯ: %s — добавь строку "подход: ..." '
+            'или "без советников: выбора нет"' % path)
+    for fid in bad_waves or []:
+        det_lines.append(
+            "⚠️ ВОЛНА БЕЗ ПРОКУРОРА: фронт %s — работы идут, записи "
+            "прокурора в журнале нет; запусти прокурора волной и не "
+            "принимай волну без него" % fid)
+    det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""
-    head = kit_prefix + guard_prefix + foreign_prefix
+    head = kit_prefix + guard_prefix + det_prefix + foreign_prefix
 
     if not guard and not nudge and prev == marks and not kit_update:
         # params/compass не менялись — всё равно вклеиваем Kit (всегда)

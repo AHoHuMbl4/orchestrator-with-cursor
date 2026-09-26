@@ -1289,3 +1289,162 @@ def mark_kit_version(sid, v):
     """Записать {"version": v} в counters/kit-version-<safe_sid>.json атомарно."""
     path = _kit_version_counter_path(sid)
     _write_json_atomic(path, {"version": v})
+
+
+# --- детекторы (нуджи хука UserPromptSubmit) -----------------------------
+
+def _order_has_basis(text):
+    """True, если есть строка «подход:…» или «без советников…» (после lstrip)."""
+    if not text:
+        return False
+    for line in text.splitlines():
+        s = line.lstrip()
+        if s.startswith("подход:") or s.startswith("без советников"):
+            return True
+    return False
+
+
+def orders_without_basis(state=None):
+    """Относительные пути order.md без строки обоснования (posix).
+
+    Обходит fronts/<id>/order.md и fronts/<id>/colonels/<cid>/order.md.
+    Пустой/битый файл — пропуск. Ошибки ФС — [] / skip.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        fronts_root = os.path.join(state, "fronts")
+        if not os.path.isdir(fronts_root):
+            return []
+        out = []
+        for dirpath, _dirnames, filenames in os.walk(fronts_root):
+            if "order.md" not in filenames:
+                continue
+            path = os.path.join(dirpath, "order.md")
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    text = f.read()
+            except Exception:
+                continue
+            if not text or not text.strip():
+                continue
+            if _order_has_basis(text):
+                continue
+            rel = os.path.relpath(path, state)
+            out.append(rel.replace(os.sep, "/"))
+        return out
+    except Exception:
+        return []
+
+
+def _role_is_wave_work(role):
+    """Роль = работа волны (полковник / code/ / исполнитель домена)."""
+    if not isinstance(role, str) or not role:
+        return False
+    if role == "meta/front-colonel.md" or role.endswith("front-colonel.md"):
+        return True
+    if role.startswith("code/"):
+        return True
+    if "/" in role and not role.startswith("meta/"):
+        return True
+    return False
+
+
+def _role_is_prosecutor(role):
+    if not isinstance(role, str) or not role:
+        return False
+    return (role == "meta/front-prosecutor.md"
+            or role.endswith("front-prosecutor.md"))
+
+
+def _load_fronts_at(state):
+    """fronts.json из явного state; legacy status → канон in-memory."""
+    pf = os.path.join(state, "fronts.json")
+    if not os.path.exists(pf):
+        return {"goal": "", "fronts": [], "notes": ""}
+    try:
+        with open(pf, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception:
+        return {"goal": "", "fronts": [], "notes": ""}
+    if not isinstance(data, dict):
+        return {"goal": "", "fronts": [], "notes": ""}
+    fronts = data.get("fronts") if isinstance(data.get("fronts"), list) else []
+    _migrate_fronts_list(fronts)
+    return {
+        "goal": data.get("goal", "") if isinstance(data.get("goal"), str) else "",
+        "fronts": fronts,
+        "notes": data.get("notes", "") if isinstance(data.get("notes"), str) else "",
+    }
+
+
+def _journal_entries_at(state):
+    """Все валидные записи journal.jsonl из state (хронологический порядок)."""
+    path = os.path.join(state, "journal.jsonl")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    out = []
+    for raw in lines:
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out
+
+
+def waves_without_prosecutor(state=None, window_runs=30):
+    """id active-фронтов, где в окне start-записей есть работа, но нет прокурора.
+
+    Окно: последние window_runs kind==start с front==fid. Тихие ошибки → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        try:
+            window_runs = int(window_runs)
+        except Exception:
+            window_runs = 30
+        if window_runs < 0:
+            window_runs = 0
+        data = _load_fronts_at(state)
+        journal = _journal_entries_at(state)
+        out = []
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            if fr.get("status") != "active":
+                continue
+            fid = fr.get("id")
+            if not isinstance(fid, str) or not fid:
+                continue
+            starts = [
+                e for e in journal
+                if e.get("kind") == "start" and e.get("front") == fid
+            ]
+            if window_runs:
+                starts = starts[-window_runs:]
+            else:
+                starts = []
+            worked = False
+            has_pros = False
+            for e in starts:
+                role = e.get("role")
+                if _role_is_prosecutor(role):
+                    has_pros = True
+                if _role_is_wave_work(role):
+                    worked = True
+            if worked and not has_pros:
+                out.append(fid)
+        return out
+    except Exception:
+        return []
