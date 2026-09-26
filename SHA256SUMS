@@ -1,10 +1,14 @@
 13080c40e45b9d8f35ff08ded09f348692bacb58543b76b9cee45edf955930c9  ./.gitattributes
-88a145d7cbd2612a62dae1ce7c46dde32b7bc2e3ee1c453be828dd4bcfd195c8  ./.gitignore
+2a5752fac2dada4fe72dff4a276ffb9b11eedb045b68ec3b1d127f033594db7b  ./.gitignore
+c8e5f9cc87a12b3a4d86ad94372623f09d23f008f9bd5ff7373db3013db7e0e7  ./.orchestration/compass.md
+3c894a3e6662593469be4cbf629ba4ccfc11a6d0d07e28dac73362993154a157  ./.orchestration/counters/install-check.json
+4a58288b5406570c08d4fdf5c0929687b741ccdba1fe019a116fa925b4fe5d85  ./.orchestration/discovered.json
+aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./.orchestration/params.json
 d81bde5fb7506ed8388cb38d403a3e0999f925b092df8bf8edffb87a08f6284b  ./README.md
 4f97826e91d8bcfcb1a3757fb3b443bb31816362828fe6224364f92437b6b474  ./README.ru.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
-27d99f33bbf56f18a57b930ecd9fba2935cfc656f9dc0f07ab34f2318c5d0bed  ./bin/orchlib.py
+e1a50cad7a2369eb152e22bfd729c7a91dc60c3fe324267a866c2a2e34f69e6a  ./bin/orchlib.py
 6dd5d86525091c4f7b5f91f55d18c7b6f4b835cc162365c894306a2304a28d16  ./bin/reground.py
 3d827ab25f7fcaeb56fe7feba21391c4d8aaf63052b7c4e682662ea0b29b1006  ./bin/run-cloud.py
 1ed8ec118183e0869896f84426d055f680a95c621cc2ff131c59de3f1f59d4f8  ./bin/run-exec.py
@@ -17,7 +21,7 @@ c8e5f9cc87a12b3a4d86ad94372623f09d23f008f9bd5ff7373db3013db7e0e7  ./compass.md
 2f9f7f7ba64391d105958b71a8af27d76ca97dcd9f96930b49dfd9ad7e9cfed2  ./hooks/claude-settings.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
 69d2c970b633a9d072a18d90de2eb9ad2bdeea0c7b3670dc59fd5f263d422bfd  ./install-local.ps1
-8e5249a90d1c04118d94b7b28aeb759adeca3f34fd2dc28fe98810bf6045c4d3  ./install-local.sh
+ca00c70d7939c407090a2ea20479ad981b9367fd238c4b049bedc0a0f7c42f1c  ./install-local.sh
 960e3fed4e21ce6a640b076484d1f3c586d45760babae365713f390ec5ae8175  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 11a54fbeef5a0d1ecd25c37b61df4a880f828e04e2fb40ab8c5e9e644dcfd9ac  ./panel/index.html

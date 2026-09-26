@@ -264,9 +264,34 @@ echo "== 5/6 параметры, панель =="
 mkdir -p "$TARGET/.orchestration"
 [ -f "$TARGET/.orchestration/params.json" ] || cp "$KIT/params.json" "$TARGET/.orchestration/params.json"
 [ -f "$TARGET/.orchestration/compass.md" ] || cp "$KIT/compass.md" "$TARGET/.orchestration/compass.md"
-for line in ".orchestration/counters/" ".orchestration/*.log" ".orchestration/*.pid" ".orchestration/prompt-*.run.md" ".orchestration/discovered.json" ".orchestration/cursor.key" "__pycache__/"; do
-  grep -qxF "$line" "$TARGET/.gitignore" 2>/dev/null || echo "$line" >> "$TARGET/.gitignore"
-done
+# Идемпотентно: не трогаем .gitignore, если все строки уже на месте
+# (иначе мутация tracked-файла ломает sha256sum -c / обновление с GitHub).
+GI_LINES=".orchestration/counters/
+.orchestration/*.log
+.orchestration/*.pid
+.orchestration/prompt-*.run.md
+.orchestration/discovered.json
+.orchestration/cursor.key
+__pycache__/"
+GI_NEED=0
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  if ! grep -qxF "$line" "$TARGET/.gitignore" 2>/dev/null; then
+    GI_NEED=1
+    break
+  fi
+done <<EOF
+$GI_LINES
+EOF
+if [ "$GI_NEED" = "1" ]; then
+  [ -f "$TARGET/.gitignore" ] || touch "$TARGET/.gitignore"
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    grep -qxF "$line" "$TARGET/.gitignore" 2>/dev/null || echo "$line" >> "$TARGET/.gitignore"
+  done <<EOF
+$GI_LINES
+EOF
+fi
 chmod +x "$KIT"/bin/*.py 2>/dev/null || true
 if [ "$HAVE_PY" = "1" ]; then
   # нормализация старых дефолтов (every_min 7 -> 10), явные значения владельца не трогаем

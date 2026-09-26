@@ -1355,12 +1355,18 @@ def mark_kit_version(sid, v):
 # --- детекторы (нуджи хука UserPromptSubmit) -----------------------------
 
 def _order_has_basis(text):
-    """True, если есть строка «подход:…» или «без советников…» (после lstrip)."""
+    """True, если есть строка «подход:…» / «подход (…):…» или «без советников…» (после lstrip).
+
+    Принимаются только две формы подхода: «подход:» и «подход (» (с «):» или без).
+    Любое иное «подход*» (напр. «подходчик:») — не основание.
+    """
     if not text:
         return False
     for line in text.splitlines():
         s = line.lstrip()
-        if s.startswith("подход:") or s.startswith("без советников"):
+        if s.startswith("без советников"):
+            return True
+        if s.startswith("подход:") or s.startswith("подход ("):
             return True
     return False
 
