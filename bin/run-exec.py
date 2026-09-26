@@ -896,6 +896,8 @@ def main():
         start_watcher(proc.pid, log_path, pid_path, timeout_s,
                       run_prompt_file, a.model, a.session)
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
+        # fd родителя: потомок держит свой dup; без close — утечка в detach
+        log_fh.close()
         return 0
 
     # foreground: pid-файл уже записан; при уступке watcher его удалит
