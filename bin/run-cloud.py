@@ -250,16 +250,27 @@ def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
     journal_end(run_id, log_path, exit_code)
 
 
-def api_key(a):
+def resolve_api_key(a):
+    """Ключ из --api-key / CURSOR_API_KEY / <state>/cursor.key; иначе None."""
     key = a.api_key or os.environ.get("CURSOR_API_KEY")
-    kf = os.path.abspath(os.path.join(orchlib.find_state_dir(), "cursor.key"))
     if not key:
+        kf = os.path.abspath(os.path.join(orchlib.find_state_dir(), "cursor.key"))
         if os.path.exists(kf):
             with open(kf, "r", encoding="utf-8") as f:
                 key = f.read().strip()
+    return key or None
+
+
+def api_key_missing_msg():
+    kf = os.path.abspath(os.path.join(orchlib.find_state_dir(), "cursor.key"))
+    return ("нужен --api-key, env CURSOR_API_KEY или файл %s "
+            "(вносится в панели; state-каталог ищется от cwd вверх)" % kf)
+
+
+def api_key(a):
+    key = resolve_api_key(a)
     if not key:
-        sys.stderr.write("нужен --api-key, env CURSOR_API_KEY или файл %s "
-                         "(вносится в панели; state-каталог ищется от cwd вверх)\n" % kf)
+        sys.stderr.write(api_key_missing_msg() + "\n")
         sys.exit(2)
     return key
 
@@ -623,14 +634,20 @@ def cmd_run(a):
             a.id, prompt_file, None, role, log_path,
             orchlib.FRONT_REQUIRED_EXIT)
         return orchlib.FRONT_REQUIRED_EXIT
+    # API-ключ ДО bump_front_runs: нет ключа → отказ без расхода бюджета
+    key = resolve_api_key(a)
+    if not key:
+        msg = api_key_missing_msg()
+        _append_gate_log(log_path, "API_KEY_REQUIRED")
+        sys.stderr.write(msg + "\n")
+        journal_gate_refuse(a.id, prompt_file, front, role, log_path, 2,
+                            no_front_reason=no_front_reason)
+        return 2
     gate_rc = apply_launch_gates(prompt, prompt_file, front, log_path)
     if gate_rc is not None:
         journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc,
                             no_front_reason=no_front_reason)
         return gate_rc
-
-    # api_key до journal start — иначе sys.exit(2) оставляет orphan-start
-    key = api_key(a)
 
     # летописец start (parent из OUR env; cloud-агент env не наследует)
     journal_start(a.id, prompt_file, front, role, engine="cloud",
@@ -699,28 +716,17 @@ def cmd_run(a):
     if a.wait:
         if agent and run:
             rc = wait_and_report(agent, run, key, state, a)
-            # exit: статус терминала из result.json если есть, иначе rc
-            exit_val = rc
-            try:
-                rpath = os.path.join(state, "cloud-%s.result.json" % a.id)
-                with open(rpath, "r", encoding="utf-8") as rf:
-                    rdata = json.load(rf)
-                st = rdata.get("status") if isinstance(rdata, dict) else None
-                if isinstance(st, str) and st:
-                    exit_val = st
-            except Exception:
-                pass
-            journal_end(a.id, log_path, exit_val)
+            # journal_end только после терминала / таймаута wait (rc из wait_and_report)
+            journal_end(a.id, log_path, rc)
             return rc
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
         check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                None, set())
-        journal_end(a.id, log_path, 0)
-        return 0
-    # без --wait: пост-проверка после create/follow-up
+        journal_end(a.id, log_path, 1)
+        return 1
+    # без --wait: create/follow-up успешен, агент ещё бежит — journal_end не пишем
     check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                            None, set())
-    journal_end(a.id, log_path, 0)
     return 0
 
 
@@ -763,7 +769,13 @@ def wait_and_report(agent, run, key, state, a):
     # маркер в лог — строго после flush/close lf (вне окна параллельной записи)
     check_compass_overflow(log_path, None, noted, allow_log_write=True)
     print(json.dumps(status, ensure_ascii=False, indent=2))
-    return 0
+    # честные exit: FINISHED→0; ERROR/CANCELLED/EXPIRED→1; deadline без терминала→124
+    if run_status_terminal(status):
+        st = status.get("status") if isinstance(status, dict) else None
+        if st == "FINISHED":
+            return 0
+        return 1
+    return 124
 
 
 def cmd_status(a):
