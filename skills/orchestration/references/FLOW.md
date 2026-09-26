@@ -58,16 +58,19 @@ graph LR
 
 | шаг | гейт | что проверяет | механизм | исход | ист. |
 |---|---|---|---|---|---|
+| запуск run | FRONT_REQUIRED | hierarchy≠off и нет --front/--no-front | `resolve_front_launch` + `journal_gate_refuse` | `FRONT_REQUIRED`, exit 8 | `orchlib.py`; `run-exec.py`; `run-cloud.py` |
 | запуск run | секрет-сканер | паттерны ключей/токенов в промте | `run-exec`/`run-cloud` `scan_secrets` | `SECRETS_IN_PROMPT`, exit 5 | `run-exec.py`; `traps.md:№43` |
 | запись курса | лимит compass (воронка) | size ≤ max_session/front | `write-compass.py` | exit 2, файл не пишется, pending | `write-compass.py` |
 | прямой Write/Edit в compass | PreToolUse-deny компаса | путь compass + инструмент Write/Edit | PreToolUse (хуки Kimi): мгновенный deny; иначе пост-фактум-гард | deny / громкий блок / флаг | `reground.py` PreToolUse; `SKILL.md` § Хуки Kimi / PreToolUse; `traps.md:№48` |
+| Write/Edit order.md | обоснование приказа | строка «подход:» / «без советников» | PreToolUse + `_order_has_basis` | deny exit 2 | `reground.py`; `orchlib.py`; фолбэк: чипы/инспектор |
 | обход воронки | лимит compass (пост-фактум) | живое превышение / pending | `reground` prompt-submit; panel guard | громкий блок / флаг | `reground.py`; `SKILL.md` § Сверка курса |
 | запуск `--front` | закрытый фронт | status ∈ cancelled\|rejected | `apply_front_gates` / `apply_launch_gates` | `FRONT_CLOSED`, exit 6 | `run-exec.py`; `run-cloud.py` |
 | bump прогонов | бюджет warn | used ≥ warn (деф. 60 в params) | `bump_front_runs` + `emit_pending_budget_warn` | `FRONT_BUDGET_WARN`, продолжается | `run-exec.py`; `run-cloud.py`; деф.60: `orchlib.py` |
 | bump прогонов | бюджет hard | hard>0 и used>hard | то же | `BUDGET_HARD`, exit 7 | `run-exec.py` |
+| end роли волны | автопрокурор | idle фронт + ≥1 wave-end после last prosecutor; lockdir | `maybe_auto_prosecutor_after_end` | detached `prosecutor-auto-<F>-<n>` | `run-exec.py`; контроль-после, раз в волну |
 | план любого уровня | критики плана | план+цель; без OK не старт | fact-checker / code-reviewer | PROBLEMS/BLOCKED → ремонт плана | `SKILL.md` § План тоже через критиков; `front-colonel.md` |
 | после работы | критики приёмки + замер | дифф/артефакт + критерий | красная волна критиков + замер оркестратора | без OK/замера не принято | `planning.md` §4 Волны; `SKILL.md` § Контроль |
-| развилка / приёмка фронта | advisor-обоснование | advisor в journal или «без советников» | роль + чек-лист командующего | иначе PROBLEMS | `front-general.md`; `traps.md:№49` |
+| развилка / приёмка фронта | advisor-обоснование | advisor в journal или «без советников» | роль + чек-лист командующего; чип orders_without_basis | иначе PROBLEMS | `front-general.md`; `traps.md:№49` |
 | граф / деструктив / 2 круга | HITL | Approve/Revise/Reject | доктрина (вопрос владельцу) | TTL → лестница авто | `SKILL.md` § HITL-ворота; `planning.md` §3.7 HITL-ворота |
 | КТ между волнами | SLA наблюдателя | heartbeat ≤30 мин + OK | `observer-heartbeat.txt` | гейт не зелёный | `front-observer.md`; `SKILL.md` § Запуск наблюдателя и прокурора |
 | save/волны графа | порядок фронтов | deps, циклы, топосорт | `validate_fronts` / `front_waves` | ошибка «цикл в deps» | `orchlib.py` |
@@ -104,8 +107,9 @@ graph LR
 6. Генерал: compass через воронку → декомпозиция → **критики плана** → OK (`front-general.md`).
 7. Генерал пишет `fronts/<id>/colonels/<cid>/order.md` (обязательна строка `подход: … (по N вариантам советника)` ИЛИ `без советников: выбора нет, механическая`), запускает **полковника** (cursor) (`front-general.md`).
 8. Полковник: перед выдачей работы с выбором → советник→scout; в задании обязательна строка `подход: … (по N вариантам советника)` ИЛИ `без советников: выбора нет`; план → критики OK (`front-colonel.md`).
-9. **Развилка исполнения:** роль `code/*` → **local-cursor** (`run-exec`); иначе → **cloud** (`run-cloud`) (`SKILL.md` § Исполнители: режим; `MAP.md` § A).
+9. **Развилка исполнения:** роль `code/*` → **local-cursor** (`run-exec --front <fid>` или `--no-front`); иначе → **cloud** (`run-cloud --front/--no-front`) (`SKILL.md` § Исполнители: режим; `MAP.md` § A). Без `--front`/`--no-front` при hierarchy≠off — `FRONT_REQUIRED` exit 8.
 10. Код-волна: **git-warden** checkpoint → исполнители → критики приёмки+замер → git revise; значимая → **docs-keeper**; значимая код → **simplicity-warden** (git/docs: `front-colonel.md`; `planning.md` §4 Волны; simplicity: `planning.md` §3.7 таблица этапов; `front-colonel.md`).
+10a. **Автопрокурор (S2):** после end роли волны, когда фронт idle — `run-exec` поднимает detached `prosecutor-auto-<F>-<n>` (lockdir, один на волну); ручной прокурор командующего тоже допустим.
 11. Сырьё → **raw-brief-synthesizer** (≤15 строк) вверх; генерал/полковник сырьё не читают (`raw-brief-synthesizer.md`).
 12. **КТ:** наблюдатель (cursor local через `run-exec`; 4 прицела + heartbeat≤30м) → инспектор по `journal.jsonl` → прокурору/владельцу; без OK наблюдателя следующая волна графа не стартует (`front-observer.md`; `SKILL.md` § Запуск наблюдателя и прокурора).
 13. **Сбой окна генерала** → снять окно; фронт → `stalled` (не `cancelled`); новый генерал входит через `order.md` + компас (курс) + журнал фронта; бегущие волны НЕ перезапускать — окно приёмки (`start` без `end` = бежит); новые волны — только для незакрытых работ (`SKILL.md` § ПРОЦЕДУРА «ЗАВИСШЕЕ…»; `planning.md` §3.7 ПРОЦЕДУРА «ЗАВИСШЕЕ…»; `front-general.md`; `traps.md:№51`).

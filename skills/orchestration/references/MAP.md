@@ -8,11 +8,14 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent)
-- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- Пример: `run-exec.py --id T1 --front KIT --role code/coder.md --prompt-file P.md`
+- Пример вне фронта: `run-exec.py --id smoke --no-front "smoke" --prompt-file P.md`
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
+- `panel/server.py` — `/api/health`: красные чипы (runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn); кэш по mtime journal+fronts
 - `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`

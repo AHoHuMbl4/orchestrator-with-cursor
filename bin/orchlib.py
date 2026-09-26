@@ -139,7 +139,8 @@ def state_path(name):
 _ROLE_HEADER_RE = re.compile(
     r"^(?:роль|Роль|role):\s*([A-Za-z0-9_/.-]+\.md)\s*$")
 _GATE_MARKERS = (
-    "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED")
+    "FRONT_BUDGET_WARN", "BUDGET_HARD", "SECRETS_IN_PROMPT", "FRONT_CLOSED",
+    "FRONT_REQUIRED")
 _COMPASS_GATE_RE = re.compile(r"COMPASS_OVERFLOW[A-Z0-9_]*")
 # осмысленный вердикт без JSON-хвоста (OK | PROBLEMS:… | BLOCKED:…)
 _VERDICT_RE = re.compile(
@@ -214,11 +215,70 @@ def extract_prompt_role(text):
     return None
 
 
+def normalize_journal_role(role):
+    """Каталог-относительный путь роли (code/coder.md), не абсолютный."""
+    if not isinstance(role, str) or not role:
+        return role
+    r = role.replace("\\", "/")
+    marker = "/references/roles/"
+    if marker in r:
+        return r.split(marker, 1)[1]
+    # абсолютный/длинный путь с /roles/<rel>
+    idx = r.find("/roles/")
+    if idx >= 0:
+        tail = r[idx + len("/roles/"):]
+        if tail and not tail.startswith("/") and "/" in tail:
+            return tail
+    return role
+
+
+def resolve_journal_parent(run_id):
+    """parent из ORCH_RUN_ID; не наследуется → null; не сам свой id."""
+    parent = os.environ.get("ORCH_RUN_ID") or None
+    if not parent:
+        return None
+    if run_id and parent == run_id:
+        return None
+    return parent
+
+
 def resolve_run_role(role_flag, prompt_text):
-    """Приоритет: --role > шапка промта > None."""
+    """Приоритет: --role > шапка промта > None. Роль — каталог-относительная."""
     if role_flag:
-        return role_flag
-    return extract_prompt_role(prompt_text)
+        return normalize_journal_role(role_flag)
+    return normalize_journal_role(extract_prompt_role(prompt_text))
+
+
+# Exit code: нет --front/--no-front при hierarchy != off.
+FRONT_REQUIRED_EXIT = 8
+
+
+def resolve_front_launch(front=None, no_front_reason=None):
+    """Общая проверка FRONT_REQUIRED для run-exec / run-cloud.
+
+    Returns (front_out, no_front_reason_out, refuse_msg).
+    refuse_msg is None → запуск разрешён; иначе текст отказа (exit 8).
+    hierarchy=off без фронта → front=None, reason=\"hierarchy-off\".
+    """
+    front = front if (isinstance(front, str) and front.strip()) else None
+    reason = (no_front_reason.strip()
+              if isinstance(no_front_reason, str) and no_front_reason.strip()
+              else None)
+    if front and reason:
+        return (None, None,
+                "FRONT_REQUIRED: укажите либо --front, либо --no-front, не оба")
+    if front:
+        return (front, None, None)
+    try:
+        hier = (load_params().get("orchestration") or {}).get("hierarchy")
+    except Exception:
+        hier = "auto"
+    if hier == "off":
+        return (None, "hierarchy-off", None)
+    if reason:
+        return (None, reason, None)
+    return (None, None,
+            "FRONT_REQUIRED: укажите --front <id> или --no-front \"<причина>\"")
 
 
 def _verdict_matches(text):
@@ -278,7 +338,8 @@ def _gate_token_from_wrapper_line(line):
             return tok
         return None
     for name in _GATE_MARKERS:
-        if s == name or s.startswith(name + "="):
+        # «NAME=…» (бюджет/секреты) и «NAME: …» (FRONT_REQUIRED refuse-msg)
+        if s == name or s.startswith(name + "=") or s.startswith(name + ":"):
             return name
     return None
 
@@ -1339,6 +1400,7 @@ def orders_without_basis(state=None):
 
 def _role_is_wave_work(role):
     """Роль = работа волны (полковник / code/ / исполнитель домена)."""
+    role = normalize_journal_role(role)
     if not isinstance(role, str) or not role:
         return False
     if role == "meta/front-colonel.md" or role.endswith("front-colonel.md"):
@@ -1351,6 +1413,7 @@ def _role_is_wave_work(role):
 
 
 def _role_is_prosecutor(role):
+    role = normalize_journal_role(role)
     if not isinstance(role, str) or not role:
         return False
     return (role == "meta/front-prosecutor.md"
@@ -1448,3 +1511,316 @@ def waves_without_prosecutor(state=None, window_runs=30):
         return out
     except Exception:
         return []
+
+
+def is_order_md_path(path, state=None):
+    """True, если path — fronts/*/order.md или fronts/*/colonels/*/order.md."""
+    if not isinstance(path, str) or not path.strip():
+        return False
+    try:
+        if state is None:
+            state = find_state_dir()
+        abs_path = os.path.abspath(path)
+        fronts_root = os.path.abspath(os.path.join(state, "fronts"))
+        try:
+            rel = os.path.relpath(abs_path, fronts_root)
+        except Exception:
+            return False
+        if rel.startswith(".."):
+            return False
+        parts = rel.replace("\\", "/").split("/")
+        if len(parts) == 2 and parts[1] == "order.md":
+            return True
+        if (len(parts) == 4 and parts[1] == "colonels"
+                and parts[3] == "order.md"):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _role_is_critic(role):
+    if not isinstance(role, str) or not role:
+        return False
+    r = normalize_journal_role(role)
+    return r in ("code/code-reviewer.md", "research/fact-checker.md")
+
+
+def _role_is_gitwarden(role):
+    if not isinstance(role, str) or not role:
+        return False
+    r = normalize_journal_role(role)
+    return r == "code/git-warden.md" or r.endswith("/git-warden.md")
+
+
+def _role_is_coder(role):
+    if not isinstance(role, str) or not role:
+        return False
+    r = normalize_journal_role(role)
+    return r.startswith("code/coder")
+
+
+# Честный потолок скана журнала для чипов панели (S4).
+HEALTH_JOURNAL_SCAN_LIMIT = 5000
+
+
+def _journal_start_index(entries):
+    """id → последняя start-запись (для стыковки end↔start)."""
+    idx = {}
+    for e in entries:
+        if e.get("kind") == "start" and e.get("id"):
+            idx[e["id"]] = e
+    return idx
+
+
+def health_red_chips(state=None, scan_limit=None):
+    """Шесть счётчиков красных чипов панели + списки id.
+
+    Скан journal — последние HEALTH_JOURNAL_SCAN_LIMIT строк (константа).
+
+    runs_no_front: только после активации гейта FRONT_REQUIRED в окне скана.
+    Активация = ts первой end-записи с маркером FRONT_REQUIRED в gates;
+    если маркера в окне нет — список пуст (история до гейта не шум).
+    Отказы самого гейта (FRONT_REQUIRED в gates) не считаются нарушением.
+    """
+    empty = {
+        "runs_no_front": [],
+        "orders_without_basis": [],
+        "fronts_no_prosecutor": [],
+        "waves_no_critic": [],
+        "code_waves_no_gitwarden": [],
+        "budget_warn": [],
+    }
+    try:
+        if state is None:
+            state = find_state_dir()
+        if scan_limit is None:
+            scan_limit = HEALTH_JOURNAL_SCAN_LIMIT
+        path = os.path.join(state, "journal.jsonl")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+        except Exception:
+            lines = []
+        if scan_limit and len(lines) > scan_limit:
+            lines = lines[-int(scan_limit):]
+        entries = []
+        for raw in lines:
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+
+        starts_by_id = _journal_start_index(entries)
+        # 1. runs_no_front: end без фронта ПОСЛЕ активации гейта FRONT_REQUIRED.
+        # Активация = первый end с FRONT_REQUIRED в gates в окне; иначе [].
+        # Отказы гейта (тот же маркер) — работа гейта, не нарушение.
+        gate_on_ts = None
+        for e in entries:
+            if e.get("kind") != "end":
+                continue
+            gates = e.get("gates") or []
+            if isinstance(gates, list) and "FRONT_REQUIRED" in gates:
+                gate_on_ts = e.get("ts")
+                break
+        runs_no_front = []
+        if gate_on_ts is not None:
+            for e in entries:
+                if e.get("kind") != "end":
+                    continue
+                ets = e.get("ts")
+                if ets is None or ets < gate_on_ts:
+                    continue
+                gates = e.get("gates") or []
+                if isinstance(gates, list) and "FRONT_REQUIRED" in gates:
+                    continue  # отказ гейта — не нарушение
+                rid = e.get("id")
+                st = starts_by_id.get(rid) if rid else None
+                if not st:
+                    continue
+                if st.get("front") is not None:
+                    continue
+                if st.get("no_front_reason"):
+                    continue  # hierarchy-off / --no-front — не считать
+                runs_no_front.append(rid)
+
+        orders = orders_without_basis(state)
+        data = _load_fronts_at(state)
+        fronts_no_prosecutor = []
+        waves_no_critic = []
+        code_waves_no_gitwarden = []
+        budget_warn = []
+
+        ends_with_meta = []
+        for e in entries:
+            if e.get("kind") != "end":
+                continue
+            rid = e.get("id")
+            st = starts_by_id.get(rid) if rid else None
+            if not st:
+                continue
+            ends_with_meta.append({
+                "id": rid,
+                "front": st.get("front"),
+                "role": normalize_journal_role(st.get("role")),
+                "gates": e.get("gates") or [],
+                "entry": e,
+            })
+
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            fid = fr.get("id")
+            if not isinstance(fid, str) or not fid:
+                continue
+            status = fr.get("status")
+            f_ends = [x for x in ends_with_meta if x.get("front") == fid]
+            started = {}
+            for e in entries:
+                if e.get("kind") == "start" and e.get("front") == fid:
+                    if e.get("id"):
+                        started[e["id"]] = True
+                elif e.get("kind") == "end" and e.get("id") in started:
+                    started[e["id"]] = False
+            live = [rid for rid, alive in started.items() if alive]
+            idle = not live
+
+            wave_ends = [x for x in f_ends if _role_is_wave_work(x.get("role"))]
+            pros_ends = [x for x in f_ends if _role_is_prosecutor(x.get("role"))]
+            if status == "active" and wave_ends and not pros_ends:
+                fronts_no_prosecutor.append(fid)
+
+            if idle and wave_ends:
+                last_critic_ts = None
+                for x in f_ends:
+                    if _role_is_critic(x.get("role")):
+                        last_critic_ts = x["entry"].get("ts")
+                after_critic = [
+                    x for x in wave_ends
+                    if last_critic_ts is None
+                    or (x["entry"].get("ts") or 0) > last_critic_ts
+                ]
+                if after_critic:
+                    waves_no_critic.append(fid)
+
+                last_gw_ts = None
+                for x in f_ends:
+                    if _role_is_gitwarden(x.get("role")):
+                        last_gw_ts = x["entry"].get("ts")
+                coder_after = [
+                    x for x in f_ends
+                    if _role_is_coder(x.get("role"))
+                    and (last_gw_ts is None
+                         or (x["entry"].get("ts") or 0) > last_gw_ts)
+                ]
+                if coder_after:
+                    code_waves_no_gitwarden.append(fid)
+
+            for x in f_ends:
+                gates = x.get("gates") or []
+                hit = False
+                if isinstance(gates, list):
+                    for g in gates:
+                        if isinstance(g, str) and "FRONT_BUDGET_WARN" in g:
+                            hit = True
+                            break
+                if hit and fid not in budget_warn:
+                    budget_warn.append(fid)
+
+        return {
+            "runs_no_front": runs_no_front,
+            "orders_without_basis": orders,
+            "fronts_no_prosecutor": fronts_no_prosecutor,
+            "waves_no_critic": waves_no_critic,
+            "code_waves_no_gitwarden": code_waves_no_gitwarden,
+            "budget_warn": budget_warn,
+        }
+    except Exception:
+        return empty
+
+
+def prosecutor_pending_lock_dir(fid, state=None):
+    """Путь lockdir counters/prosecutor-pending-<safe_fid>."""
+    if state is None:
+        state = find_state_dir()
+    counters = os.path.join(state, "counters")
+    os.makedirs(counters, exist_ok=True)
+    return os.path.join(counters, "prosecutor-pending-%s" % safe_name(fid))
+
+
+def next_auto_prosecutor_n(fid, state=None):
+    """Следующий номер prosecutor-auto-<F>-<n> по journal + файлам промтов."""
+    if state is None:
+        state = find_state_dir()
+    prefix = "prosecutor-auto-%s-" % fid
+    nums = []
+    for e in _journal_entries_at(state):
+        rid = e.get("id")
+        if isinstance(rid, str) and rid.startswith(prefix):
+            tail = rid[len(prefix):]
+            try:
+                nums.append(int(tail))
+            except Exception:
+                pass
+    try:
+        for name in os.listdir(state):
+            if name.startswith("prompt-" + prefix) and name.endswith(".md"):
+                mid = name[len("prompt-" + prefix):-len(".md")]
+                try:
+                    nums.append(int(mid))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return (max(nums) + 1) if nums else 1
+
+
+def auto_prosecutor_should_launch(fid, state=None):
+    """Условия S2 (1–4) для фронта F после end роли волны. Без lock."""
+    if not fid:
+        return False
+    if state is None:
+        state = find_state_dir()
+    entries = _journal_entries_at(state)
+    # live runs of front F
+    started = {}
+    for e in entries:
+        if e.get("kind") == "start" and e.get("front") == fid:
+            rid = e.get("id")
+            if rid:
+                started[rid] = e
+        elif e.get("kind") == "end" and e.get("id") in started:
+            del started[e["id"]]
+    if started:
+        # есть живые — но прокурор среди живых?
+        for e in started.values():
+            if _role_is_prosecutor(e.get("role")):
+                return False  # condition 4: live prosecutor
+        return False  # condition 2: live non-prosecutor runs
+    # last prosecutor end ts
+    starts_by_id = _journal_start_index(entries)
+    last_pros_end_ts = None
+    wave_ends_after = 0
+    for e in entries:
+        if e.get("kind") != "end":
+            continue
+        rid = e.get("id")
+        st = starts_by_id.get(rid)
+        if not st or st.get("front") != fid:
+            continue
+        role = normalize_journal_role(st.get("role"))
+        ts = e.get("ts") or 0
+        if _role_is_prosecutor(role):
+            last_pros_end_ts = ts
+            wave_ends_after = 0
+        elif _role_is_wave_work(role):
+            if last_pros_end_ts is None or ts > last_pros_end_ts:
+                wave_ends_after += 1
+    return wave_ends_after >= 1

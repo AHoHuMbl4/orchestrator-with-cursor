@@ -30,11 +30,74 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _guard_lock = threading.Lock()
 _guard_snapshot = {"overflows": [], "poll_s": 2}
 
+# Кэш /api/health: ключ = (mtime journal, mtime fronts.json, mtime fronts/)
+_health_lock = threading.Lock()
+_health_cache = {"key": None, "payload": None, "computed_at": 0.0}
+
 # Статусы фронта (контракт панели; orchlib может отставать — мягкая деградация).
 PANEL_FRONT_STATUSES = (
     "proposed", "active", "stalled", "cancelled", "rejected", "done",
 )
 DEFAULT_WARN_RUNS_PER_FRONT = 60
+
+
+def _health_mtime_key(state):
+    """Ключ кэша: mtime journal.jsonl + fronts.json + fronts/."""
+    paths = [
+        os.path.join(state, "journal.jsonl"),
+        os.path.join(state, "fronts.json"),
+        os.path.join(state, "fronts"),
+    ]
+    mt = []
+    for p in paths:
+        try:
+            mt.append(os.path.getmtime(p))
+        except Exception:
+            mt.append(0.0)
+    # также max mtime внутри fronts/ (order.md и т.п.)
+    fronts_dir = paths[2]
+    max_inner = 0.0
+    try:
+        for dirpath, _dns, fns in os.walk(fronts_dir):
+            for fn in fns:
+                try:
+                    max_inner = max(
+                        max_inner,
+                        os.path.getmtime(os.path.join(dirpath, fn)))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    mt.append(max_inner)
+    return tuple(mt)
+
+
+def _health_payload():
+    """Шесть счётчиков красных чипов; кэш по mtime journal+fronts."""
+    state = orchlib.find_state_dir()
+    key = _health_mtime_key(state)
+    with _health_lock:
+        if _health_cache["key"] == key and _health_cache["payload"] is not None:
+            out = dict(_health_cache["payload"])
+            out["cached"] = True
+            return out
+    chips = orchlib.health_red_chips(state)
+    counts = {k: len(v) if isinstance(v, list) else 0 for k, v in chips.items()}
+    payload = {
+        "counts": counts,
+        "ids": chips,
+        "scan_limit": getattr(orchlib, "HEALTH_JOURNAL_SCAN_LIMIT", 5000),
+        "cached": False,
+    }
+    with _health_lock:
+        _health_cache["key"] = key
+        _health_cache["payload"] = {
+            "counts": counts,
+            "ids": chips,
+            "scan_limit": payload["scan_limit"],
+        }
+        _health_cache["computed_at"] = time.time()
+    return payload
 
 
 def _kit_version_safe():
@@ -531,6 +594,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"sessions": visible})
         elif u.path == "/api/status":
             self.send_json({"runs": self.runs_status()})
+        elif u.path == "/api/health":
+            self.send_json(_health_payload())
         elif u.path == "/api/compass-guard":
             with _guard_lock:
                 overflows = list(_guard_snapshot.get("overflows") or [])

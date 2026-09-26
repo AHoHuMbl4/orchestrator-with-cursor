@@ -145,6 +145,8 @@ def _add_common_args(parser):
     parser.add_argument("--front", default=argparse.SUPPRESS,
                         help="id фронта: статус cancelled/rejected; бюджет warn/hard "
                              "(warn=датчик, hard=стоп при hard>0)")
+    parser.add_argument("--no-front", default=argparse.SUPPRESS, metavar="REASON",
+                        help="запуск вне фронта с причиной (journal no_front_reason)")
     parser.add_argument("--role", default=argparse.SUPPRESS,
                         help="роль (приоритет над шапкой); иначе «роль: path.md» в первых 3 строках промта")
     parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
@@ -192,6 +194,8 @@ def normalize_args(a):
         a.id = "C1"
     if not hasattr(a, "front"):
         a.front = None
+    if not hasattr(a, "no_front"):
+        a.no_front = None
     if not hasattr(a, "role"):
         a.role = None
     if not hasattr(a, "http_timeout"):
@@ -199,12 +203,14 @@ def normalize_args(a):
     return a
 
 
-def journal_start(run_id, prompt_file, front, role, engine="cloud"):
+def journal_start(run_id, prompt_file, front, role, engine="cloud",
+                  no_front_reason=None, auto=False):
     """Запись kind=start в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
-    parent = os.environ.get("ORCH_RUN_ID") or None
-    orchlib.journal_append({
+    parent = orchlib.resolve_journal_parent(run_id)
+    role = orchlib.normalize_journal_role(role)
+    entry = {
         "ts": time.time(),
         "kind": "start",
         "id": run_id,
@@ -213,7 +219,12 @@ def journal_start(run_id, prompt_file, front, role, engine="cloud"):
         "prompt_file": os.path.abspath(prompt_file) if prompt_file else None,
         "front": front,
         "role": role,
-    })
+    }
+    if no_front_reason:
+        entry["no_front_reason"] = no_front_reason
+    if auto or os.environ.get("ORCH_RUN_AUTO") == "1":
+        entry["auto"] = True
+    orchlib.journal_append(entry)
 
 
 def journal_end(run_id, log_path, exit_code):
@@ -232,9 +243,10 @@ def journal_end(run_id, log_path, exit_code):
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="cloud"):
-    """start+end при отказе гейта (exit 5/6/7) — без дыры в journal."""
-    journal_start(run_id, prompt_file, front, role, engine=engine)
+                        engine="cloud", no_front_reason=None):
+    """start+end при отказе гейта (exit 5/6/7/8) — без дыры в journal."""
+    journal_start(run_id, prompt_file, front, role, engine=engine,
+                  no_front_reason=no_front_reason)
     journal_end(run_id, log_path, exit_code)
 
 
@@ -598,19 +610,31 @@ def cmd_run(a):
 
     log_path = os.path.join(state, "cloud-%s.log" % a.id)
     role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
-    front = getattr(a, "front", None)
-    # Гейты до HTTP create / api_key: секрет-сканер; при --front — статус/бюджет.
+    front_raw = getattr(a, "front", None)
+    no_front_raw = getattr(a, "no_front", None)
+    front, no_front_reason, front_refuse = orchlib.resolve_front_launch(
+        front_raw, no_front_raw)
+    # Гейты до HTTP create / api_key: FRONT_REQUIRED; секрет; при --front — статус/бюджет.
     # Гейт-отказы: journal start+end до return (дыры нет).
+    if front_refuse is not None:
+        _append_gate_log(log_path, front_refuse)
+        sys.stderr.write(front_refuse + "\n")
+        journal_gate_refuse(
+            a.id, prompt_file, None, role, log_path,
+            orchlib.FRONT_REQUIRED_EXIT)
+        return orchlib.FRONT_REQUIRED_EXIT
     gate_rc = apply_launch_gates(prompt, prompt_file, front, log_path)
     if gate_rc is not None:
-        journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc)
+        journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc,
+                            no_front_reason=no_front_reason)
         return gate_rc
 
     # api_key до journal start — иначе sys.exit(2) оставляет orphan-start
     key = api_key(a)
 
     # летописец start (parent из OUR env; cloud-агент env не наследует)
-    journal_start(a.id, prompt_file, front, role, engine="cloud")
+    journal_start(a.id, prompt_file, front, role, engine="cloud",
+                  no_front_reason=no_front_reason)
 
     extra = {}
     if a.body_file:

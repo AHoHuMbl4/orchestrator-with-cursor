@@ -39,6 +39,12 @@
   .chip-cancelled, .chip-rejected { background: #eef0f3; color: #6f7b88;
     text-decoration: line-through; }
   .chip-proposed, .chip-done, .chip-other { background: #eef2f8; color: #445060; }
+  .chip-red { background: #fdecea; color: #b71c1c; cursor: pointer;
+    margin: 2px 4px 2px 0; user-select: none; }
+  .chip-red.zero { background: #eef0f3; color: #6f7b88; }
+  #healthChips { margin: 10px 0 4px; }
+  #healthChipDetail { font-size: 12px; color: #5a6572; margin: 4px 0 8px;
+    white-space: pre-wrap; }
   .obs-ok { color: #5a6572; font-size: 12px; }
   .obs-stale { color: #c62828; font-size: 12px; font-weight: 600; }
   .kit-ver { font-size: 13px; color: #5a6572; margin-left: auto; }
@@ -65,6 +71,8 @@
 <body>
 <h1>Оркестрация — параметры пачки</h1>
 <div class="hint" id="kitVersion">Kit: —</div>
+<div id="healthChips"></div>
+<div id="healthChipDetail"></div>
 <div class="row" style="align-items:center; gap:10px;">
   <label style="margin:0">Оркестрация:</label>
   <select id="orchestration.enabled" style="width:auto">
@@ -280,11 +288,51 @@ async function loadAll(){
     document.getElementById("discoveredInfo").textContent=info.join(" · ")||"—";
   }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
   loadStatus();
+  loadHealthChips();
   loadKeyInfo();
   await loadSessions();
   await loadTemplate();
   await loadFronts();
   loadCompassGuard();
+}
+const HEALTH_CHIP_LABELS = {
+  runs_no_front: "без фронта",
+  orders_without_basis: "приказ без основы",
+  fronts_no_prosecutor: "нет прокурора",
+  waves_no_critic: "волна без критика",
+  code_waves_no_gitwarden: "код без git-warden",
+  budget_warn: "budget warn",
+};
+let _healthIds = {};
+let _healthOpen = null;
+async function loadHealthChips(){
+  try{
+    const j = await (await fetch("/api/health")).json();
+    _healthIds = j.ids || {};
+    const counts = j.counts || {};
+    const box = document.getElementById("healthChips");
+    if(!box) return;
+    box.innerHTML = "";
+    Object.keys(HEALTH_CHIP_LABELS).forEach(k=>{
+      const n = counts[k] || 0;
+      const sp = document.createElement("span");
+      sp.className = "chip chip-red" + (n ? "" : " zero");
+      sp.textContent = HEALTH_CHIP_LABELS[k] + ": " + n;
+      sp.onclick = function(){
+        const det = document.getElementById("healthChipDetail");
+        if(_healthOpen === k){
+          _healthOpen = null;
+          det.textContent = "";
+          return;
+        }
+        _healthOpen = k;
+        const ids = _healthIds[k] || [];
+        det.textContent = HEALTH_CHIP_LABELS[k] + " (" + ids.length + "):\n"
+          + (ids.length ? ids.join("\n") : "—");
+      };
+      box.appendChild(sp);
+    });
+  }catch(e){ /* health optional */ }
 }
 let _guardPollTimer = null;
 async function loadCompassGuard(){

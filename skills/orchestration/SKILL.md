@@ -73,8 +73,8 @@ state (фронты/лимиты/журнал); проверка входа: ses
 1. **Код-задача** (роль из `code/`) → локальный cursor-agent CLI:
    `command -v cursor-agent` находит бинарник → **local-cursor**:
    исполнители — процессы cursor-agent (дёшево, отдельная квота Cursor,
-   модель всегда auto), запуск `run-exec.py --id <id> --session <sid>`
-   (sid — id твоей сессии из хука). длинные прогоны — --detach (мгновенный возврат) или foreground с авто-уступкой на 480 с (--yield-after) — длительность угадывать не нужно; статус: run-exec --id X --status; список: run-exec --list. Агент сам читает/правит/запускает
+   модель всегда auto), запуск `run-exec.py --id <id> --session <sid> --front <fid>`
+   (или `--no-front "<причина>"`; sid — id твоей сессии из хука). длинные прогоны — --detach (мгновенный возврат) или foreground с авто-уступкой на 480 с (--yield-after) — длительность угадывать не нужно; статус: run-exec --id X --status; список: run-exec --list. Агент сам читает/правит/запускает
    файлы проекта — кураторство контекста в промте НЕ нужно. Весь прогон —
    в `.orchestration/sessions/<sid>/runs/<id>/` (prompt.md, run.log), и туда
    же по карточке подзадачи кладутся артефакт исполнителя и отчёт критика.
@@ -472,7 +472,10 @@ Reject. TTL: нет ответа N мин в интерактиве → лест
 `on_cursor_fail: ask`); в авто-режиме — безопасная ветка + доклад.
 
 **Бюджеты и статусы фронтов.** Прогоны (`run-exec` / `run-cloud`) несут
-`--front <fid>`. Бюджет фронта — датчик заноса, не жёсткий стоп по умолчанию:
+`--front <fid>` или `--no-front "<причина>"` (иначе при hierarchy≠off —
+`FRONT_REQUIRED` exit 8; hierarchy=off → `no_front_reason=hierarchy-off`).
+После end роли волны возможен автопрокурор `prosecutor-auto-<F>-<n>`
+(один на волну, lockdir). Бюджет фронта — датчик заноса, не жёсткий стоп по умолчанию:
 `params.budgets.warn_runs_per_front` (дефолт **60**) — churn-датчик:
 `used > warn` → лог `FRONT_BUDGET_WARN` + флаг `pending_budget_warn.json`
 (командующий/владелец), запуск продолжается; `params.budgets.hard_runs_per_front`

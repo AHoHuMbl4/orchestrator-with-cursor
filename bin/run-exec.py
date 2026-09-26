@@ -32,11 +32,13 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   5       — секрет в промте (SECRETS_IN_PROMPT); процесс не стартовал
   6       — фронт закрыт (cancelled/rejected); FRONT_CLOSED
   7       — жёсткий бюджет фронта (hard>0 и used>hard); BUDGET_HARD
+  8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
   124     — таймаут
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
 Бюджет фронта (--front): warn = churn-датчик (FRONT_BUDGET_WARN + pending,
 запуск продолжается); hard=0 по умолчанию выключен. Качество > токены.
+При hierarchy≠off обязателен --front <id> или --no-front "<причина>".
 
 Автоперезапуск (execution.retry_on_fail, по умолчанию 1):
   только при EXIT=4 и EXIT=124; не при 1 и 3.
@@ -374,11 +376,12 @@ def agent_popen_kwargs(run_id=None):
 
 
 def journal_start(run_id, prompt_file, front, role, engine="local",
-                  readonly=False):
+                  readonly=False, no_front_reason=None, auto=False):
     """Запись kind=start в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
-    parent = os.environ.get("ORCH_RUN_ID") or None
+    parent = orchlib.resolve_journal_parent(run_id)
+    role = orchlib.normalize_journal_role(role)
     entry = {
         "ts": time.time(),
         "kind": "start",
@@ -389,8 +392,12 @@ def journal_start(run_id, prompt_file, front, role, engine="local",
         "front": front,
         "role": role,
     }
+    if no_front_reason:
+        entry["no_front_reason"] = no_front_reason
     if readonly:
         entry["readonly"] = True
+    if auto or os.environ.get("ORCH_RUN_AUTO") == "1":
+        entry["auto"] = True
     orchlib.journal_append(entry)
 
 
@@ -407,14 +414,132 @@ def journal_end(run_id, log_path, exit_code):
         "verdict": verdict,
         "gates": gates,
     })
+    # Снять lock автопрокурора, если это был он.
+    _release_auto_prosecutor_lock_if_any(run_id)
+    # S2: автопрокурор на волну (после end).
+    maybe_auto_prosecutor_after_end(run_id)
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="local", readonly=False):
-    """start+end при отказе гейта (exit 5/6/7) — без дыры в journal."""
+                        engine="local", readonly=False, no_front_reason=None):
+    """start+end при отказе гейта (exit 5/6/7/8) — без дыры в journal."""
     journal_start(run_id, prompt_file, front, role, engine=engine,
-                  readonly=readonly)
-    journal_end(run_id, log_path, exit_code)
+                  readonly=readonly, no_front_reason=no_front_reason)
+    # gate-refuse: не триггерим автопрокурора — пишем end напрямую
+    verdict, gates = orchlib.journal_log_meta(log_path)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "end",
+        "id": run_id,
+        "exit": exit_code,
+        "verdict": verdict,
+        "gates": gates,
+    })
+
+
+def _release_auto_prosecutor_lock_if_any(run_id):
+    """Снять counters/prosecutor-pending-<F> при end автопрокурора."""
+    try:
+        state = orchlib.find_state_dir()
+        entries = orchlib._journal_entries_at(state)
+        start = None
+        for e in entries:
+            if e.get("kind") == "start" and e.get("id") == run_id:
+                start = e
+        if not start:
+            return
+        if not (start.get("auto") or orchlib._role_is_prosecutor(start.get("role"))):
+            return
+        # Снимаем lock только для авто-прокурора (auto=true) или id-префикса.
+        rid = run_id or ""
+        if not (start.get("auto") or rid.startswith("prosecutor-auto-")):
+            return
+        fid = start.get("front")
+        if not fid:
+            return
+        lock_dir = orchlib.prosecutor_pending_lock_dir(fid, state)
+        orchlib._dir_lock_release(lock_dir)
+    except Exception:
+        pass
+
+
+def _write_auto_prosecutor_prompt(path, fid):
+    text = (
+        "роль: meta/front-prosecutor.md\n\n"
+        "Задача: аудит волны фронта %s — журнал фронта, обоснование приказов "
+        "(order.md), компас в лимите; вердикт в конец отчёта.\n"
+        "Критерий: Вердикт: OK или Вердикт: PROBLEMS с строками ПРОБЛЕМА:.\n"
+    ) % fid
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def maybe_auto_prosecutor_after_end(run_id, spawn=True):
+    """S2: после end роли волны — detached автопрокурор (один на волну, lockdir).
+
+    spawn=False — только решение+lock+промт (для замеров гонки без агента).
+    Returns pros_id или None.
+    """
+    try:
+        if not run_id:
+            return None
+        state = orchlib.find_state_dir()
+        entries = orchlib._journal_entries_at(state)
+        start = None
+        for e in entries:
+            if e.get("kind") == "start" and e.get("id") == run_id:
+                start = e
+        if not start:
+            return None
+        fid = start.get("front")
+        role = orchlib.normalize_journal_role(start.get("role"))
+        if not fid or not orchlib._role_is_wave_work(role):
+            return None
+        if not orchlib.auto_prosecutor_should_launch(fid, state):
+            return None
+        lock_dir = orchlib.prosecutor_pending_lock_dir(fid, state)
+        # TTL 30 мин по mtime (как в спеке S2); timeout=0 — без ожидания (гонка).
+        if not orchlib._dir_lock_acquire(lock_dir, timeout_s=0.0, stale_s=1800.0):
+            return None
+        # Повторная проверка под lock (гонка двух концов).
+        if not orchlib.auto_prosecutor_should_launch(fid, state):
+            orchlib._dir_lock_release(lock_dir)
+            return None
+        n = orchlib.next_auto_prosecutor_n(fid, state)
+        pros_id = "prosecutor-auto-%s-%d" % (fid, n)
+        # Промт: .orchestration/prompt-prosecutor-auto-<F>-<n>.md
+        prompt_path = os.path.join(
+            state, "prompt-prosecutor-auto-%s-%d.md" % (fid, n))
+        _write_auto_prosecutor_prompt(prompt_path, fid)
+        if not spawn:
+            return pros_id
+        env = dict(os.environ)
+        env["ORCH_RUN_AUTO"] = "1"
+        # Не наследовать parent=текущий run как себя через ORCH_RUN_ID.
+        env.pop("ORCH_RUN_ID", None)
+        cmd = [
+            sys.executable, os.path.abspath(__file__),
+            "--id", pros_id,
+            "--front", fid,
+            "--role", "meta/front-prosecutor.md",
+            "--prompt-file", prompt_path,
+            "--detach",
+            "--no-reground-line",
+        ]
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        return pros_id
+    except Exception as exc:
+        try:
+            sys.stderr.write("auto-prosecutor: %s\n" % exc)
+        except Exception:
+            pass
+        return None
 
 
 def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
@@ -732,6 +857,9 @@ def main():
     ap.add_argument("--front", default=None,
                     help="id фронта: статус cancelled/rejected; бюджет warn/hard "
                          "(warn=датчик, hard=стоп при hard>0)")
+    ap.add_argument("--no-front", default=None, metavar="REASON",
+                    help="запуск вне фронта с причиной (journal no_front_reason); "
+                         "при hierarchy=off можно без --front/--no-front")
     ap.add_argument("--session", default=None,
                     help="id сессии: все файлы прогона лягут в .orchestration/sessions/<id>/runs/<run>/")
     ap.add_argument("--prompt-file", default=None,
@@ -796,15 +924,25 @@ def main():
         log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
         pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
 
-    # Порядок: (а) секрет → 5; (б) exe → 3; (в) front/bump → 6/7/FRONT_RUNS.
-    # Секрет до exe (критерий 1 при отсутствии агента); exe до bump (бюджет не жечь).
-    # Гейт-отказы: journal start+end до return (дыры нет).
+    # Порядок: (а) FRONT_REQUIRED → 8; (б) секрет → 5; (в) exe → 3;
+    # (г) front/bump → 6/7/FRONT_RUNS. Гейт-отказы: journal start+end до return.
     role = orchlib.resolve_run_role(a.role, prompt)
     readonly = bool(a.readonly)
+    front_out, no_front_reason, front_refuse = orchlib.resolve_front_launch(
+        a.front, a.no_front)
+    if front_refuse is not None:
+        append_log(log_path, front_refuse)
+        sys.stderr.write(front_refuse + "\n")
+        journal_gate_refuse(
+            a.id, prompt_file, None, role, log_path,
+            orchlib.FRONT_REQUIRED_EXIT, readonly=readonly)
+        return orchlib.FRONT_REQUIRED_EXIT
+    a.front = front_out
+
     sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
     if sec_rc is not None:
         journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, sec_rc,
-                            readonly=readonly)
+                            readonly=readonly, no_front_reason=no_front_reason)
         return sec_rc
 
     exe = find_cursor_agent()
@@ -815,7 +953,7 @@ def main():
     gate_rc, gate_lines = apply_front_gates(a.front, log_path)
     if gate_rc is not None:
         journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, gate_rc,
-                            readonly=readonly)
+                            readonly=readonly, no_front_reason=no_front_reason)
         return gate_rc
 
     # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
@@ -825,7 +963,7 @@ def main():
     elif "ORCH_READONLY" in os.environ:
         del os.environ["ORCH_READONLY"]
     journal_start(a.id, prompt_file, a.front, role, engine="local",
-                  readonly=readonly)
+                  readonly=readonly, no_front_reason=no_front_reason)
     os.environ["ORCH_RUN_ID"] = a.id
 
     if not a.no_reground_line:

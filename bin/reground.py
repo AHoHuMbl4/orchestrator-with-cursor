@@ -9,7 +9,8 @@
 Подкоманды:
   session-start  — вклейка params+compass в начало сессии (и после компакшна)
   post-tool      — счётчик/таймер на каждый tool call (Claude/Codex/Kimi)
-  pre-tool       — PreToolUse: deny Write/Edit в compass (exit 2) — Kimi и др.
+  pre-tool       — PreToolUse: deny Write/Edit в compass; гейт order.md
+                   (обоснование подход:/без советников) — exit 2
   subagent-start — SubagentStart → journal kind=start (engine-subagent)
   subagent-stop  — SubagentStop → journal kind=end (engine-subagent)
   heartbeat      — wall-clock для Kimi SessionHeartbeat (60-секундный тик)
@@ -20,7 +21,8 @@
 
 Кроссплатформенно (Windows: python/py -3), python3.6+, только stdlib.
 Выход обычно 0 (ошибка чтения — тоже 0, хук не должен ронять сессию;
-ошибка в stderr). Исключение: pre-tool → exit 2 при блоке compass-пути.
+ошибка в stderr). Исключение: pre-tool → exit 2 при блоке compass-пути
+или order.md без обоснования.
 """
 import json
 import os
@@ -262,14 +264,40 @@ def _tool_input_path(ev):
     return None
 
 
+def _proposed_write_text(ev, path):
+    """Текст, который окажется в файле после Write/Edit (best-effort)."""
+    ti = ev.get("tool_input") or ev.get("toolInput") or {}
+    if not isinstance(ti, dict):
+        return None
+    tool = ev.get("tool_name") or ev.get("toolName") or ev.get("tool") or ""
+    if tool in ("Write",):
+        contents = ti.get("contents") or ti.get("content")
+        return contents if isinstance(contents, str) else None
+    # Edit / MultiEdit / StrReplace: old→new на текущем файле
+    old = ti.get("old_string") or ti.get("oldString")
+    new = ti.get("new_string") or ti.get("newString")
+    if isinstance(old, str) and isinstance(new, str):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                cur = f.read()
+        except Exception:
+            cur = ""
+        if old in cur:
+            return cur.replace(old, new, 1)
+        return cur + ("\n" if cur and not cur.endswith("\n") else "") + new
+    contents = ti.get("contents") or ti.get("content")
+    if isinstance(contents, str):
+        return contents
+    return None
+
+
 def cmd_pre_tool(engine, fmt):
-    """PreToolUse: блок прямого Write/Edit в compass-путь состояния (exit 2).
+    """PreToolUse: блок Write/Edit в compass; гейт обоснования order.md (exit 2).
 
     ОГРАНИЧЕНИЕ: PreToolUse/PostToolUse гарантированно действуют в сессии,
     где хуки зарегистрированы (главная/командующий); для субагентов движка —
-    зависит от того, стреляют ли события на их вызовах (проверить на живой
-    машине: запустить субагента с Write в compass и посмотреть, заблокирует
-    ли). SubagentStart/Stop дают видимость генералов независимо.
+    зависит от того, стреляют ли события на их вызовах. Гейт order.md живёт
+    только там, где хуки Kimi видят вызов; остальное — чипы S4 и инспектор.
     """
     ev = read_stdin_json()
     path = _tool_input_path(ev)
@@ -280,6 +308,22 @@ def cmd_pre_tool(engine, fmt):
         ) % orchlib.KIT_DIR
         sys.stderr.write(msg + "\n")
         return 2
+    if path and orchlib.is_order_md_path(path):
+        text = _proposed_write_text(ev, path)
+        if text is None:
+            # нет содержимого в событии — читаем текущий файл как фолбэк
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    text = f.read()
+            except Exception:
+                text = ""
+        if not orchlib._order_has_basis(text):
+            msg = (
+                "⛔ Приказ order.md без обоснования. Нужна строка "
+                "«подход: …» или «без советников…» (см. _order_has_basis)."
+            )
+            sys.stderr.write(msg + "\n")
+            return 2
     return 0
 
 
