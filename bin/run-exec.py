@@ -133,18 +133,6 @@ def apply_front_gates(front_id, log_path):
     return None, lines
 
 
-def apply_launch_gates(prompt, prompt_file, front_id, log_path):
-    """Гейты: секреты → 5; затем фронт closed → 6; hard-бюджет → 7.
-
-    Сохранена для совместимости; main вызывает секрет и фронт по отдельности,
-    чтобы вставить find_cursor_agent между ними.
-    """
-    sec_rc, sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
-    if sec_rc is not None:
-        return sec_rc, sec_lines
-    return apply_front_gates(front_id, log_path)
-
-
 def find_cursor_agent():
     for name in ("cursor-agent", "cursor-agent.exe", "cursor-agent.cmd"):
         path = shutil.which(name)
@@ -878,7 +866,7 @@ def main():
     cmd = build_agent_cmd(exe, a.model, a.extra, readonly=readonly)
 
     # Truncate: переносим gate success markers в начало лога (FRONT_RUNS уже
-    # был append'нут в apply_launch_gates — без rewrite open('w') стёр бы его).
+    # был append'нут в apply_front_gates — без rewrite open('w') стёр бы его).
     log_fh = open(log_path, "w", encoding="utf-8")
     for line in gate_lines:
         log_fh.write(line if line.endswith("\n") else line + "\n")
