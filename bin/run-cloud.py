@@ -54,6 +54,13 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
 Ключ (по приоритету): 1) --api-key; 2) env CURSOR_API_KEY; 3) файл
 <state>/cursor.key (state — .orchestration, ищется от cwd вверх / ORCHESTRATION_DIR).
 Схема beta: первый живой прогон калибрует парсинг id (ответ логируется целиком).
+
+Коды EXIT (гейты до HTTP create; едины с run-exec):
+  5       — секрет в промте (SECRETS_IN_PROMPT); процесс не стартовал
+  6       — фронт закрыт (cancelled/rejected); FRONT_CLOSED
+  7       — жёсткий бюджет фронта (hard>0 и used>hard); BUDGET_HARD
+  8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
+  9       — замок front-runs занят; FRONT_LOCK_BUSY
 """
 import argparse
 import json
@@ -81,10 +88,12 @@ def _append_gate_log(log_path, line):
 
 
 def apply_launch_gates(prompt, prompt_file, front_id, log_path):
-    """Гейты до HTTP create: секреты → 5; фронт closed → 6; hard-бюджет → 7.
+    """Гейты до HTTP create: секреты → 5; closed → 6; hard → 7; lock busy → 9.
 
     Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>=warn →
-    FRONT_BUDGET_WARN + pending_budget_warn, запуск продолжается. Иначе None.
+    FRONT_BUDGET_WARN + pending_budget_warn, запуск продолжается.
+    bump_front_runs RuntimeError(front-runs lock busy) → FRONT_LOCK_BUSY/exit 9.
+    Иначе None.
     """
     hit = orchlib.scan_secrets(prompt)
     if hit:
@@ -103,7 +112,13 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
             return 6
     bump = getattr(orchlib, "bump_front_runs", None)
     if callable(bump):
-        used, warn, hard = bump(front_id)
+        try:
+            used, warn, hard = bump(front_id)
+        except RuntimeError as exc:
+            if "front-runs lock busy" in str(exc):
+                _append_gate_log(log_path, "FRONT_LOCK_BUSY=%s" % front_id)
+                return 9
+            raise
         _append_gate_log(log_path, "FRONT_RUNS=%s %s warn=%s hard=%s" % (
             front_id, used, warn, hard))
         if hard > 0 and used > hard:
@@ -221,14 +236,29 @@ def journal_end(run_id, log_path, exit_code):
         "verdict": verdict,
         "gates": gates,
     })
+    # Снять lock автопрокурора, если это был он.
+    orchlib.release_auto_prosecutor_lock_if_any(run_id)
+    # автопрокурор на волну (после end).
+    orchlib.maybe_auto_prosecutor_after_end(run_id)
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
                         engine="cloud", no_front_reason=None):
-    """start+end при отказе гейта (exit 5/6/7/8) — без дыры в journal."""
+    """start+end при отказе гейта (exit 5/6/7/8/9) — без дыры в journal."""
     journal_start(run_id, prompt_file, front, role, engine=engine,
                   no_front_reason=no_front_reason)
-    journal_end(run_id, log_path, exit_code)
+    # gate-refuse: не триггерим автопрокурора — пишем end напрямую
+    verdict, gates = orchlib.journal_log_meta(log_path)
+    orchlib.journal_append({
+        "ts": time.time(),
+        "kind": "end",
+        "id": run_id,
+        "exit": exit_code,
+        "verdict": verdict,
+        "gates": gates,
+    })
+    # finally-семантика: снять lockdir на любом завершении; спавн — только journal_end.
+    orchlib.release_auto_prosecutor_lock_if_any(run_id)
 
 
 def resolve_api_key(a):
