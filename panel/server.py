@@ -4,7 +4,9 @@
 прогонов. python3.6+, только stdlib, кроссплатформенно (Linux/macOS/Windows).
 
 Запуск:  python3 server.py [--host 127.0.0.1] [--port 8765]
-По умолчанию host/port берутся из .orchestration/params.json (секция panel).
+По умолчанию bind 127.0.0.1; port — из .orchestration/params.json (секция panel).
+params.panel.host учитывается только если loopback (127.x / localhost / ::1);
+внешний bind — только через явный --host.
 
 Панель — ТОЛЬКО редактор и наблюдатель: она не запускает задачи и не принимает
 решений (решения — за оркестратором). Наружу не выставлять: доступ извне —
@@ -886,13 +888,41 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "not found"}, 404)
 
 
+def _is_loopback_host(h):
+    """True для 127.x.x.x, localhost, ::1 (без учёта регистра у имени)."""
+    if not isinstance(h, str) or not h:
+        return False
+    s = h.strip().lower()
+    if s in ("localhost", "::1"):
+        return True
+    # IPv4 loopback: 127.0.0.0/8
+    parts = s.split(".")
+    if len(parts) == 4 and parts[0] == "127":
+        try:
+            return all(0 <= int(p) <= 255 for p in parts)
+        except ValueError:
+            return False
+    return False
+
+
 def main():
     p = orchlib.load_params()
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=None)
     ap.add_argument("--port", type=int, default=None)
     a = ap.parse_args()
-    host = a.host or p.get("panel", {}).get("host", "127.0.0.1")
+    if a.host is not None:
+        host = a.host
+    else:
+        cand = p.get("panel", {}).get("host", "127.0.0.1")
+        if _is_loopback_host(cand):
+            host = cand
+        else:
+            sys.stderr.write(
+                "panel: params host %s не loopback — игнорирую, "
+                "bind 127.0.0.1 (внешний — --host)\n" % cand
+            )
+            host = "127.0.0.1"
     base = a.port or int(p.get("panel", {}).get("port", 8765))
     httpd = None
     for port in range(base, base + 5):  # 8765 занят — возьмём соседний
