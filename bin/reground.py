@@ -81,6 +81,33 @@ def _load_params_or_refuse():
         return None
 
 
+_PENDING_COMPASS_TTL_S = 24 * 3600
+
+
+def _read_pending_compass_flag(path):
+    """Читает pending_compass_guard.json; протухший (>24ч mtime) — игнор+unlink."""
+    try:
+        age = time.time() - os.stat(path).st_mtime
+    except OSError:
+        return None
+    if age > _PENDING_COMPASS_TTL_S:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            return payload.get("overflows")
+        if isinstance(payload, list):
+            return payload
+    except Exception:
+        pass
+    return None
+
+
 def counter_file(session_id):
     d = os.path.join(orchlib.find_state_dir(), "counters")
     os.makedirs(d, exist_ok=True)
@@ -507,28 +534,10 @@ def cmd_prompt_submit(engine, fmt):
     # (после блока обновления кита, если он есть)
     live_ov = orchlib.compass_overflows(p)
     flag_g = os.path.join(orchlib.session_dir(sid), "pending_compass_guard.json")
-    pending_ov = None
-    try:
-        with open(flag_g, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        if isinstance(payload, dict):
-            pending_ov = payload.get("overflows")
-        elif isinstance(payload, list):
-            pending_ov = payload
-    except Exception:
-        pass
     flag_st = os.path.join(orchlib.find_state_dir(), "pending_compass_guard.json")
-    state_ov = None
-    if not live_ov and pending_ov is None:
-        try:
-            with open(flag_st, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-            if isinstance(payload, dict):
-                state_ov = payload.get("overflows")
-            elif isinstance(payload, list):
-                state_ov = payload
-        except Exception:
-            pass
+    # чтение обеих флагов независимо от live_ov; TTL 24ч — внутри _read
+    pending_ov = _read_pending_compass_flag(flag_g)
+    state_ov = _read_pending_compass_flag(flag_st)
     if live_ov:
         guard = orchlib.format_compass_overflows(live_ov)
     elif pending_ov:
@@ -537,16 +546,10 @@ def cmd_prompt_submit(engine, fmt):
         guard = orchlib.format_compass_overflows(state_ov)
     else:
         guard = ""
-    # снять pending-флаг после доставки (как nudge); живое превышение и так
-    # поймает следующий prompt-submit. Сняли и если превышение уже ушло.
-    if pending_ov is not None:
+    # consume-on-delivery: снять ОБА флага после обработки (в т.ч. при live_ov)
+    for _fp in (flag_g, flag_st):
         try:
-            os.unlink(flag_g)
-        except Exception:
-            pass
-    if state_ov is not None:
-        try:
-            os.unlink(flag_st)
+            os.unlink(_fp)
         except Exception:
             pass
     marks = {}
