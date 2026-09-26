@@ -34,6 +34,7 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   7       — жёсткий бюджет фронта (hard>0 и used>hard); BUDGET_HARD
   8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
   9       — замок front-runs занят; FRONT_LOCK_BUSY
+  10      — params.json битый
   124     — таймаут
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
@@ -242,7 +243,11 @@ def check_compass_overflow(log_path, session, noted, allow_log_write=True):
       при записи. В present — только полные строки (с \\n).
     """
     try:
-        p = orchlib.load_params()
+        try:
+            p = orchlib.load_params()
+        except ValueError as e:
+            sys.stderr.write("%s\n" % e)
+            return
         overflows = orchlib.compass_overflows(p)
         if not allow_log_write:
             if overflows:
@@ -509,7 +514,11 @@ def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"
     else:
         code = classify_log(log_path)
 
-    params = orchlib.load_params()
+    try:
+        params = orchlib.load_params()
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        sys.exit(10)
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
     if run_prompt_file:
         code = apply_retries(code, log_path, pid_path, timeout_s,
@@ -775,6 +784,12 @@ def main():
     a = ap.parse_args()
 
     state = orchlib.find_state_dir()
+    # Ранний отказ и для лёгких --list/--status (иначе обходят load_params).
+    try:
+        params = orchlib.load_params()
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        return 10
     if a.list:
         return cmd_list(state, a.session)
     if a.status:
@@ -785,7 +800,6 @@ def main():
     if not a.id:
         ap.error("--id обязателен (кроме --list)")
 
-    params = orchlib.load_params()
     os.makedirs(state, exist_ok=True)
 
     run_dir = os.path.join(state, "prompt-%s" % a.id)  # совместимость без --session

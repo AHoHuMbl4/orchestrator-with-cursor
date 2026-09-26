@@ -61,6 +61,7 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
   7       — жёсткий бюджет фронта (hard>0 и used>hard); BUDGET_HARD
   8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
   9       — замок front-runs занят; FRONT_LOCK_BUSY
+  10      — params.json битый
 """
 import argparse
 import json
@@ -377,7 +378,11 @@ def check_compass_overflow(log_path, session, noted, allow_log_write=True):
       при записи. В present — только полные строки (с \\n).
     """
     try:
-        p = orchlib.load_params()
+        try:
+            p = orchlib.load_params()
+        except ValueError as e:
+            sys.stderr.write("%s\n" % e)
+            return
         overflows = orchlib.compass_overflows(p)
         if not allow_log_write:
             if overflows:
@@ -895,6 +900,12 @@ def main():
         sys.stderr.write(note + "\n")
     ap = build_parser()
     a = normalize_args(ap.parse_args())
+    # Ранний отказ и для list/status/artifacts (иначе обходят load_params).
+    try:
+        orchlib.load_params()
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        return 10
     if a.cmd == "run":
         return cmd_run(a)
     if a.cmd == "status":
