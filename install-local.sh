@@ -212,22 +212,18 @@ echo "  скилл: ~/.kimi-code/skills + ~/.agents/skills"
 if [ "$HAVE_PY" = "1" ]; then
   KIMI_CFG="$KIMI_DIR/config.toml"
   touch "$KIMI_CFG"
-  # Идемпотентность: маркер блока. Замена если старый python3 ИЛИ нет pre-tool
-  # (расширение: PreToolUse/PostToolUse/SubagentStart/Stop).
+  # Идемпотентность: при маркере orchestration-kit hooks ВСЕГДА удаляем
+  # старый блок и пишем текущий канон (кавычки вокруг абсолютных путей,
+  # полный набор хуков). Условный grep по python3/pre-tool недостаточен —
+  # unquoted abs-пути не матчились и оставались «актуальными».
   # ОГРАНИЧЕНИЕ: PreToolUse/PostToolUse гарантированно в сессии с хуками
   # (главная/командующий); для субагентов движка — зависит от стрельбы
   # событий на их вызовах (проверить на живой машине). SubagentStart/Stop —
   # видимость генералов независимо.
   if grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
-    KIMI_BLOCK=$(sed -n '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</p' "$KIMI_CFG")
-    NEED_REPLACE=0
-    echo "$KIMI_BLOCK" | grep -q 'command = "python3 ' && NEED_REPLACE=1
-    echo "$KIMI_BLOCK" | grep -q 'pre-tool' || NEED_REPLACE=1
-    if [ "$NEED_REPLACE" = "1" ]; then
-      cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
-      sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
-      echo "  ~/.kimi-code/config.toml: старый блок хуков заменён (абсолютный python / новые хуки)"
-    fi
+    cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
+    sed -i '/# >>> orchestration-kit hooks >>>/,/# <<< orchestration-kit hooks <<</d' "$KIMI_CFG"
+    echo "  ~/.kimi-code/config.toml: старый блок хуков удалён (канон будет перезаписан)"
   fi
   if ! grep -q "orchestration-kit hooks" "$KIMI_CFG"; then
     cp "$KIMI_CFG" "$KIMI_CFG.bak-orch"
