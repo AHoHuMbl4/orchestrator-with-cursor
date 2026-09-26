@@ -3,8 +3,8 @@
 """Запуск исполнителя cursor-agent (доктрина §2) — кроссплатформенно, без shell.
 
 Промт — ТОЛЬКО из файла (ловушка №1: текст промта не должен попадать в командную
-строку shell оркестратора; здесь он передаётся в argv через subprocess, без
-$(cat ...) и без кавычек). Модель исполнителя всегда auto.
+строку; передаётся в stdin cursor-agent через subprocess.PIPE, без argv-текста,
+без $(cat ...) и без кавычек). Модель исполнителя всегда auto.
 
 К cursor-агенту в конец промта доклеивается строка самопроверки курса
 (у cursor нет хуков — периодический re-ground идёт на уровне промта).
@@ -50,7 +50,6 @@ import argparse
 import glob
 import json
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -69,28 +68,10 @@ REGROUND_LINE = (
 
 RETRYABLE = frozenset(("4", "124"))
 
-# Паттерны секретов в промте — до старта cursor-agent.
-SECRET_PATTERNS = (
-    re.compile(r"crsr_[A-Za-z0-9]{20,}"),
-    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
-    re.compile(r"ghp_[A-Za-z0-9]{30,}"),
-)
-
-
-def scan_secrets(text):
-    """Первый совпавший паттерн (pattern.pattern) или None."""
-    for rx in SECRET_PATTERNS:
-        if rx.search(text or ""):
-            return rx.pattern
-    return None
-
 
 def apply_secret_gate(prompt, prompt_file, log_path):
     """Секрет-сканер до exe/bump. → (5, lines) | (None, [])."""
-    hit = scan_secrets(prompt)
+    hit = orchlib.scan_secrets(prompt)
     if not hit:
         return None, []
     line = "SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file)
@@ -315,16 +296,29 @@ def check_compass_overflow(log_path, session, noted, allow_log_write=True):
         pass
 
 
-def build_agent_cmd(exe, prompt, model, extra, readonly=False):
+def build_agent_cmd(exe, model, extra, readonly=False):
     """Собрать argv cursor-agent. readonly → `--mode plan` (барьер A).
 
+    Флаг -p/--print остаётся; текст промта в argv НЕ кладётся — только stdin.
     readonly — только аналитика (чтение+выжимка в ответ), не командные роли.
     """
-    cmd = [exe, "-p", prompt, "--force", "--model", model,
+    cmd = [exe, "-p", "--force", "--model", model,
            "--output-format", "stream-json"]
     if readonly:
         cmd.extend(["--mode", "plan"])
     return cmd + list(extra or [])
+
+
+def feed_prompt_stdin(proc, prompt):
+    """Записать текст промта в stdin дочернего cursor-agent и закрыть PIPE."""
+    data = (prompt or "").encode("utf-8")
+    try:
+        proc.stdin.write(data)
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
 
 
 def is_readonly_env():
@@ -565,10 +559,10 @@ def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra
     except Exception:
         return "4"
     log_fh = open(log_path, "a", encoding="utf-8")
-    cmd = build_agent_cmd(exe, prompt, model, extra,
-                          readonly=is_readonly_env())
-    proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT,
-                            **agent_popen_kwargs())
+    cmd = build_agent_cmd(exe, model, extra, readonly=is_readonly_env())
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log_fh,
+                            stderr=subprocess.STDOUT, **agent_popen_kwargs())
+    feed_prompt_stdin(proc, prompt)
     try:
         with open(pid_path, "w", encoding="utf-8") as f:
             f.write(str(proc.pid))
@@ -972,7 +966,7 @@ def main():
 
     timeout_s = a.timeout or int(params.get("execution", {}).get("timeout_s", 1800))
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
-    cmd = build_agent_cmd(exe, prompt, a.model, a.extra, readonly=readonly)
+    cmd = build_agent_cmd(exe, a.model, a.extra, readonly=readonly)
 
     # Truncate: переносим gate success markers в начало лога (FRONT_RUNS уже
     # был append'нут в apply_launch_gates — без rewrite open('w') стёр бы его).
@@ -981,7 +975,9 @@ def main():
         log_fh.write(line if line.endswith("\n") else line + "\n")
     log_fh.flush()
     kwargs = agent_popen_kwargs(a.id)
-    proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, **kwargs)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log_fh,
+                            stderr=subprocess.STDOUT, **kwargs)
+    feed_prompt_stdin(proc, prompt)
 
     with open(pid_path, "w", encoding="utf-8") as f:
         f.write(str(proc.pid))
