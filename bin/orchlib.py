@@ -151,8 +151,10 @@ _VERDICT_MAX_LEN = 200
 
 # Невидимые для нормализованной копии: U+200B..U+200D, U+2060, U+FEFF, U+00AD
 _SECRET_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad]")
-# Пробельные прогоны ≤2 символов (разрыв ключа) — схлоп только в копии
-_SECRET_SHORT_WS_RE = re.compile(r"[ \t\n\r\f\v]{1,2}")
+# Изолированные пробельные прогоны ровно 1..2 (не часть более длинного) — схлоп только в копии
+_SECRET_SHORT_WS_RE = re.compile(
+    r"(?<![ \t\n\r\f\v])[ \t\n\r\f\v]{1,2}(?![ \t\n\r\f\v])"
+)
 
 # Текущие 6 из run-exec/run-cloud — как есть; далее расширения по приказу SEC-C1.
 SECRET_PATTERNS = (
@@ -163,7 +165,9 @@ SECRET_PATTERNS = (
     re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
     re.compile(r"ghp_[A-Za-z0-9]{30,}"),
     re.compile(r"sk-(?:or-v1|proj|ant)-[A-Za-z0-9]{20,}"),
-    re.compile(r"Bearer\s+[A-Za-z0-9]{20,}"),
+    # \b + \s* — после схлопа коротких ws разделитель может исчезнуть (Bearer<token>);
+    # \b не даёт матчить вклейку вроде phraseBearer… из FP «Bearer token»
+    re.compile(r"\bBearer\s*[A-Za-z0-9]{20,}"),
     re.compile(r"(?i)(?:token|api_key|apikey)\s*=\s*[A-Za-z0-9]{20,}"),
 )
 
