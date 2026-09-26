@@ -198,6 +198,9 @@ local-cursor): веб копают разведчики (`meta/web-scout`, cloud
 `opportunity-advisor` (local) → `web-scout` (cloud); решение за командующим
 и фиксируется в `fronts/<id>/order.md` строкой
 `подход: <выбрано> (по N вариантам советника)` ИЛИ `без советников: выбора нет`.
+**Jev-роутер** (`bin/jev-advise.py` + `routing/jev-table.json`) — hop-by-hop
+слой на развилках (топ-3 точки таблицы + Noul need-advisor); defer/fail →
+fallback на обычный путь advisor. **не заменяет** advisor; **не решает за командира**.
 
 **Иерархия по подзадачам.** Слои: командующий → генералы фронтов (умные
 субагенты движка) → полковники подзадач (cursor, роль `meta/front-colonel.md`)
