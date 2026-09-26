@@ -1,9 +1,5 @@
 13080c40e45b9d8f35ff08ded09f348692bacb58543b76b9cee45edf955930c9  ./.gitattributes
 2a5752fac2dada4fe72dff4a276ffb9b11eedb045b68ec3b1d127f033594db7b  ./.gitignore
-c8e5f9cc87a12b3a4d86ad94372623f09d23f008f9bd5ff7373db3013db7e0e7  ./.orchestration/compass.md
-3c894a3e6662593469be4cbf629ba4ccfc11a6d0d07e28dac73362993154a157  ./.orchestration/counters/install-check.json
-4a58288b5406570c08d4fdf5c0929687b741ccdba1fe019a116fa925b4fe5d85  ./.orchestration/discovered.json
-aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./.orchestration/params.json
 d81bde5fb7506ed8388cb38d403a3e0999f925b092df8bf8edffb87a08f6284b  ./README.md
 4f97826e91d8bcfcb1a3757fb3b443bb31816362828fe6224364f92437b6b474  ./README.ru.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
