@@ -223,9 +223,8 @@ def classify_log(log_path):
 
 
 def classify_after_wait(log_path, returncode):
-    """После wait(): 0 при rc==0 без разбора лога; иначе — по логу."""
-    if returncode == 0:
-        return "0"
+    """После wait(): всегда по логу (rc==0 не маскирует отсутствие result)."""
+    # returncode в сигнатуре для совместимости вызовов; EXIT=0 ≠ готовность
     return classify_log(log_path)
 
 
