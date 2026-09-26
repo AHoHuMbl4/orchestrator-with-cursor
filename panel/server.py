@@ -435,6 +435,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def load_params_or_500(self):
+        """load_params; при битом JSON — 500 «params.json битый», без трейсбека."""
+        try:
+            return orchlib.load_params()
+        except ValueError:
+            self.send_json({"error": "params.json битый"}, 500)
+            return None
+
     def read_body_json(self):
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -508,9 +516,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif u.path == "/api/params":
-            self.send_json({"params": orchlib.load_params()})
+            p = self.load_params_or_500()
+            if p is None:
+                return
+            self.send_json({"params": p})
         elif u.path == "/api/compass":
-            p = orchlib.load_params()
+            p = self.load_params_or_500()
+            if p is None:
+                return
             sid = (q.get("id") or [""])[0]
             import re as _re
             if sid and not _re.match(r"^[A-Za-z0-9._-]{1,80}$", sid):
@@ -604,8 +617,11 @@ class Handler(BaseHTTPRequestHandler):
                 poll_s = _guard_snapshot.get("poll_s", 2)
             self.send_json({"overflows": overflows, "poll_s": poll_s})
         elif u.path == "/api/fronts":
+            p = self.load_params_or_500()
+            if p is None:
+                return
             data = orchlib.load_fronts()
-            _sess_lim, front_lim = _compass_limits(orchlib.load_params())
+            _sess_lim, front_lim = _compass_limits(p)
             runs_lim = _runs_limit()
             hard_lim = _hard_runs_limit()
             fronts_out = []
@@ -806,7 +822,9 @@ class Handler(BaseHTTPRequestHandler):
             if not sid and body.get("confirm_template") is not True:
                 self.send_json({"error": "глобальный compass — шаблон; подтвердите запись"}, 400)
                 return
-            p = orchlib.load_params()
+            p = self.load_params_or_500()
+            if p is None:
+                return
             sess_lim, _front_lim = _compass_limits(p)
             size = _compass_char_size(text)
             # Отказ только если лимит задан в params/orchlib; иначе — как раньше.
@@ -863,8 +881,10 @@ class Handler(BaseHTTPRequestHandler):
             os.chmod(kf, 0o600)
             self.send_json({"ok": True, "set": True, "path": kf})
         elif u.path == "/api/template/restore":
+            p = self.load_params_or_500()
+            if p is None:
+                return
             try:
-                p = orchlib.load_params()
                 dst = orchlib.compass_path(p)
                 src = os.path.join(orchlib.KIT_DIR, "compass.md")
                 if not os.path.isfile(src):
@@ -906,7 +926,12 @@ def _is_loopback_host(h):
 
 
 def main():
-    p = orchlib.load_params()
+    try:
+        p = orchlib.load_params()
+    except ValueError as e:
+        # load_params: "params.json битый: <причина> (путь: …)"
+        print("panel: %s" % e)
+        sys.exit(1)
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=None)
     ap.add_argument("--port", type=int, default=None)
