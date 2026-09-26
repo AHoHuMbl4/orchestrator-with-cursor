@@ -104,13 +104,13 @@ if [ "$HAVE_PY" = "1" ]; then
 {
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py session-start --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" session-start --engine claude", "timeout": 10}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py prompt-submit --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" prompt-submit --engine claude", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py post-tool --engine claude", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" post-tool --engine claude", "timeout": 10}]}
     ]
   }
 }
@@ -126,8 +126,15 @@ if os.path.exists(path):
     except Exception:
         cur = {}
 hooks = cur.setdefault("hooks", {})
+
+def refs_reground(entry):
+    for h in entry.get("hooks", []):
+        if "reground.py" in h.get("command", ""):
+            return True
+    return False
+
 for event, entries in snip["hooks"].items():
-    merged = hooks.get(event, [])
+    merged = [e for e in hooks.get(event, []) if not refs_reground(e)]
     have = {json.dumps(e, sort_keys=True) for e in merged}
     for e in entries:
         if json.dumps(e, sort_keys=True) not in have:
@@ -150,13 +157,13 @@ if [ "$HAVE_PY" = "1" ]; then
   "hooks": {
     "SessionStart": [
       {"matcher": "startup|resume|clear|compact",
-       "hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py session-start --engine codex", "timeout": 10}]}
+       "hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" session-start --engine codex", "timeout": 10}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py prompt-submit --engine codex", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" prompt-submit --engine codex", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "$PY_ABS $KIT/bin/reground.py post-tool --engine codex", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "\"$PY_ABS\" \"$KIT/bin/reground.py\" post-tool --engine codex", "timeout": 10}]}
     ]
   }
 }
@@ -172,8 +179,15 @@ if os.path.exists(path):
     except Exception:
         cur = {}
 hooks = cur.setdefault("hooks", {})
+
+def refs_reground(entry):
+    for h in entry.get("hooks", []):
+        if "reground.py" in h.get("command", ""):
+            return True
+    return False
+
 for event, entries in snip["hooks"].items():
-    merged = hooks.get(event, [])
+    merged = [e for e in hooks.get(event, []) if not refs_reground(e)]
     have = {json.dumps(e, sort_keys=True) for e in merged}
     for e in entries:
         if json.dumps(e, sort_keys=True) not in have:
@@ -222,33 +236,33 @@ if [ "$HAVE_PY" = "1" ]; then
 # >>> orchestration-kit hooks >>>
 [[hooks]]
   event = "UserPromptSubmit"
-  command = "$PY_ABS $KIT/bin/reground.py prompt-submit --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" prompt-submit --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "SessionHeartbeat"
-  command = "$PY_ABS $KIT/bin/reground.py heartbeat --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" heartbeat --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "PreToolUse"
   matcher = "Write|Edit"
-  command = "$PY_ABS $KIT/bin/reground.py pre-tool --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" pre-tool --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "PostToolUse"
-  command = "$PY_ABS $KIT/bin/reground.py post-tool --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" post-tool --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "SubagentStart"
-  command = "$PY_ABS $KIT/bin/reground.py subagent-start --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" subagent-start --engine kimi"
   timeout = 10
 
 [[hooks]]
   event = "SubagentStop"
-  command = "$PY_ABS $KIT/bin/reground.py subagent-stop --engine kimi"
+  command = "\"$PY_ABS\" \"$KIT/bin/reground.py\" subagent-stop --engine kimi"
   timeout = 10
 # <<< orchestration-kit hooks <<<
 EOF
@@ -295,7 +309,7 @@ fi
 chmod +x "$KIT"/bin/*.py 2>/dev/null || true
 if [ "$HAVE_PY" = "1" ]; then
   # нормализация старых дефолтов (every_min 7 -> 10), явные значения владельца не трогаем
-  ORCH_KIT="$KIT" "$PY" - <<'PYEOF' 2>/dev/null || true
+  if ! ORCH_KIT="$KIT" "$PY" - <<'PYEOF'
 import sys, os
 sys.path.insert(0, os.path.join(os.environ["ORCH_KIT"], "bin"))
 import orchlib
@@ -306,6 +320,9 @@ if p.get("execution", {}).get("executor") == "subagents":
     p["execution"]["executor"] = "auto"  # старый дефолт -> курсор-первым
 orchlib.save_params(p)
 PYEOF
+  then
+    echo "WARN: params.json битый — нормализация пропущена" >&2
+  fi
   cat > "$TARGET/panel.sh" <<EOF
 #!/usr/bin/env bash
 # Настройки оркестрации (панель). ./panel.sh — на переднем плане; ./panel.sh --bg — в фоне
