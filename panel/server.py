@@ -858,6 +858,7 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(kf), exist_ok=True)
             with open(kf, "w", encoding="utf-8") as f:
                 f.write(keyv.strip())
+            os.chmod(kf, 0o600)
             self.send_json({"ok": True, "set": True, "path": kf})
         elif u.path == "/api/template/restore":
             try:
