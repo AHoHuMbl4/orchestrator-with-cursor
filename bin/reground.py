@@ -26,7 +26,6 @@
 """
 import json
 import os
-import re
 import sys
 import time
 
@@ -73,14 +72,10 @@ def emit(fmt, event, text):
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
 
 
-def safe_name(s):
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", s)[:80] or "default"
-
-
 def counter_file(session_id):
     d = os.path.join(orchlib.find_state_dir(), "counters")
     os.makedirs(d, exist_ok=True)
-    return os.path.join(d, safe_name(session_id) + ".json")
+    return os.path.join(d, orchlib.safe_name(session_id) + ".json")
 
 
 def read_stdin_json():
@@ -348,7 +343,7 @@ def cmd_subagent_lifecycle(kind):
     """kind: start|end — запись в journal; ошибки тихие."""
     try:
         ev = read_stdin_json()
-        name = safe_name(_subagent_name(ev))
+        name = orchlib.safe_name(_subagent_name(ev))
         orchlib.journal_append({
             "kind": kind,
             "id": "subagent:" + name,
@@ -450,7 +445,7 @@ def cmd_heartbeat(engine, fmt):
     uptime_ms = ev.get("uptime_ms")
     if not isinstance(uptime_ms, (int, float)):
         return
-    cf = os.path.join(orchlib.find_state_dir(), "counters", "heartbeat-%s.json" % safe_name(sid))
+    cf = os.path.join(orchlib.find_state_dir(), "counters", "heartbeat-%s.json" % orchlib.safe_name(sid))
     os.makedirs(os.path.dirname(cf), exist_ok=True)
     last = None
     try:
@@ -545,7 +540,7 @@ def cmd_prompt_submit(engine, fmt):
             marks[name] = "%d:%d" % (st.st_mtime_ns if hasattr(os.stat_result, "st_mtime_ns") else int(st.st_mtime), st.st_size)
         except OSError:
             marks[name] = "none"
-    mf = os.path.join(orchlib.find_state_dir(), "counters", "prompt-submit-%s.json" % safe_name(sid))
+    mf = os.path.join(orchlib.find_state_dir(), "counters", "prompt-submit-%s.json" % orchlib.safe_name(sid))
     os.makedirs(os.path.dirname(mf), exist_ok=True)
     prev = {}
     try:
