@@ -48,7 +48,11 @@ def main():
         return 1
 
     path = os.path.normpath(os.path.abspath(args.path))
-    p = orchlib.load_params()
+    try:
+        p = orchlib.load_params()
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        return 1
 
     if not orchlib.is_compass_path(path):
         sys.stderr.write(

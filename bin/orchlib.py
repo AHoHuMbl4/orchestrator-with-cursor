@@ -330,10 +330,8 @@ def resolve_front_launch(front=None, no_front_reason=None):
                 "FRONT_REQUIRED: укажите либо --front, либо --no-front, не оба")
     if front:
         return (front, None, None)
-    try:
-        hier = (load_params().get("orchestration") or {}).get("hierarchy")
-    except Exception:
-        hier = "auto"
+    # ValueError от load_params (битый JSON) — наружу явно; гейт не молчит DEFAULTS.
+    hier = (load_params().get("orchestration") or {}).get("hierarchy")
     if hier == "off":
         return (None, "hierarchy-off", None)
     if reason:
@@ -506,8 +504,7 @@ def load_params():
         with open(pf, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
     except Exception as e:
-        sys.stderr.write("params.json битый (%s); используется канон\n" % e)
-        return dict(DEFAULTS)
+        raise ValueError("params.json битый: %s (путь: %s)" % (e, pf))
     return _merge(DEFAULTS, data)
 
 

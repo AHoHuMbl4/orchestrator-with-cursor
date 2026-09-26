@@ -72,6 +72,15 @@ def emit(fmt, event, text):
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
 
 
+def _load_params_or_refuse():
+    """load_params с явным stderr при битом JSON; None → хук выходит без падения хоста."""
+    try:
+        return orchlib.load_params()
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        return None
+
+
 def counter_file(session_id):
     d = os.path.join(orchlib.find_state_dir(), "counters")
     os.makedirs(d, exist_ok=True)
@@ -195,7 +204,9 @@ def cmd_session_start(engine, fmt):
     ev = read_stdin_json()
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
-    p = orchlib.load_params()
+    p = _load_params_or_refuse()
+    if p is None:
+        return
     seeded = orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
@@ -363,7 +374,9 @@ def cmd_post_tool(engine, fmt):
     ev = read_stdin_json()
     session_id = session_id_of(ev)
     orchlib.touch_session(session_id)
-    p = orchlib.load_params()
+    p = _load_params_or_refuse()
+    if p is None:
+        return
     if not enabled(p, session_id):
         return
     rg = p.get("reground", {})
@@ -427,7 +440,9 @@ def cmd_heartbeat(engine, fmt):
     ev = read_stdin_json()
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
-    p = orchlib.load_params()
+    p = _load_params_or_refuse()
+    if p is None:
+        return
     if not enabled(p, sid):
         return
     # SessionHeartbeat — observation-only (stdout НЕ в контекст модели):
@@ -480,7 +495,9 @@ def cmd_prompt_submit(engine, fmt):
     ev = read_stdin_json()
     sid = session_id_of(ev)
     orchlib.touch_session(sid)
-    p = orchlib.load_params()
+    p = _load_params_or_refuse()
+    if p is None:
+        return
     orchlib.seed_session_compass(p, sid)
     if not enabled(p, sid):
         return
