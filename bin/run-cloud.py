@@ -58,7 +58,6 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
 import argparse
 import json
 import os
-import re
 import sys
 import time
 import urllib.error
@@ -71,24 +70,6 @@ import orchlib  # noqa: E402
 BASE = "https://api.cursor.com"
 TERMINAL_RUN_STATUSES = frozenset(("FINISHED", "ERROR", "CANCELLED", "EXPIRED"))
 RECOVERY_WINDOW_SEC = 300
-
-# Паттерны секретов в промте — до HTTP create.
-SECRET_PATTERNS = (
-    re.compile(r"crsr_[A-Za-z0-9]{20,}"),
-    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"BEGIN [A-Z0-9 ]*PRIVATE KEY"),
-    re.compile(r"ghp_[A-Za-z0-9]{30,}"),
-)
-
-
-def scan_secrets(text):
-    """Первый совпавший паттерн (pattern.pattern) или None."""
-    for rx in SECRET_PATTERNS:
-        if rx.search(text or ""):
-            return rx.pattern
-    return None
 
 
 def _append_gate_log(log_path, line):
@@ -105,7 +86,7 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
     Бюджет: used>hard (hard>0) → BUDGET_HARD/exit 7; used>=warn →
     FRONT_BUDGET_WARN + pending_budget_warn, запуск продолжается. Иначе None.
     """
-    hit = scan_secrets(prompt)
+    hit = orchlib.scan_secrets(prompt)
     if hit:
         _append_gate_log(log_path, "SECRETS_IN_PROMPT=%s, %s" % (hit, prompt_file))
         sys.stderr.write(
