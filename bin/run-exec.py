@@ -741,6 +741,7 @@ def cmd_list(state, session=None):
 
 
 def main():
+    orchlib.utf8_stdio()
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
         # --__watch pid log_path pid_path timeout_s [run_prompt_file [model [session]]]
         argv = sys.argv
