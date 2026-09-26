@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "points": [
+    {
+      "id": "approach-after-advisor",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "fallback": "командир сам / opportunity-advisor"
+    },
+    {
+      "id": "role-shortlist",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "fallback": "каскад вручную"
+    },
+    {
+      "id": "best-synthesis-report",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "fallback": "командир сам"
+    },
+    {
+      "id": "need-advisor",
+      "type": "Noul",
+      "yes_at": 0.6,
+      "fallback": "сомнение → советник"
+    }
+  ]
+}
