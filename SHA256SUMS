@@ -87,7 +87,7 @@ b66765c98826bc4eef4b1b91c4c485ff3500dbb717238cacd034771076be2b7b  ./skills/orche
 72f950f5ef76c1ccec2eff3c89863acc80fb1d7214a33ac64fe2aa0ccc67fd67  ./skills/orchestration/references/roles/education/дизайнер-обучения.md
 7abd6ba008cc1e9937bdee94042068aedce6d4894f4b84c87ea43e72d6e797de  ./skills/orchestration/references/roles/finance/burn-rate-runway.md
 0c6b7204b14d6f7adf301143f263b1ceb530d6508e4af0d1b5144a71e14730d7  ./skills/orchestration/references/roles/finance/cap-table-analyst.md
-2894394fc60a0adeedb8cb0e535b6ea4d2cd09fb108bffc04cec3d25af1662e1  ./skills/orchestration/references/roles/finance/cfo-/-финансовый-директор.md
+2894394fc60a0adeedb8cb0e535b6ea4d2cd09fb108bffc04cec3d25af1662e1  ./skills/orchestration/references/roles/finance/cfo-бюджет-и-планирование.md
 24d1e63b43274c55a55be004b96d9f15b2ff81a792d18816cb047b3f0798e0a7  ./skills/orchestration/references/roles/finance/cfo-финансовый-директор.md
 8ede749ca6bda62e642b9ce7f5713c54488ef66794d2a84b1b87b64d3e8fea7e  ./skills/orchestration/references/roles/finance/dcf-valuation.md
 3bed163e08d3a7a063069fda4836b86a075f96e3e66c4addb8e5edab20fd4e40  ./skills/orchestration/references/roles/finance/financial-model-builder.md
@@ -99,7 +99,7 @@ c2c977a9f9be7770f60035a3cb7fba549c9c0445c51614543db30dffc448ff56  ./skills/orche
 bf3b58c4ac3c6bfa0e7810dbafd2111d70478b764c53fb1ae3c31a382cb8c1f8  ./skills/orchestration/references/roles/finance/венчурный-инвестор.md
 6d43c110868bcb7d53eaaf1446402d77d436569f5db97cae8d391f68deabb186  ./skills/orchestration/references/roles/finance/макроэкономист.md
 4f74f072976931a814f5a59098bee5a07ef6c2f9df9b4c7f55b70620175ca41f  ./skills/orchestration/references/roles/finance/финансовый-аналитик.md
-bc88a9722d4baf8d709d76b3ef1c16fd8d721b5c1060d1f60f878182b2a3e4cd  ./skills/orchestration/references/roles/hr/hr-/-рекрутер.md
+bc88a9722d4baf8d709d76b3ef1c16fd8d721b5c1060d1f60f878182b2a3e4cd  ./skills/orchestration/references/roles/hr/hr-оценка-и-онбординг.md
 720cf1ef8c48ae3236676f3f0c9bdd0daab88bd4ee932133927f2fca00a874a4  ./skills/orchestration/references/roles/hr/hr-рекрутер.md
 07d9ce13d55c7b70c8aaa7d8494e3bdc821656a123d4b6287f9a75d097a879b0  ./skills/orchestration/references/roles/legal/legal-analyst.md
 1d6b9ddcd3a9d0dab60afdb3452bf4baa7656faa64f4ae6baca47421b38fc213  ./skills/orchestration/references/roles/marketing/ad-copy-google.md
@@ -131,7 +131,7 @@ bcf8db0a5b3ba6a477411b009c95934e7e409e13a3f4fbcc793f8198488d8a68  ./skills/orche
 6a9267c6fd12152df4c76123cda7cdd28a295631994fc6aeb01248cdd0f5cae6  ./skills/orchestration/references/roles/meta/opportunity-advisor.md
 9c45f07a26c59c5bb8e68ec7ccab5e0bc2dae77cc697d520179ef0bcc314faa0  ./skills/orchestration/references/roles/meta/raw-brief-synthesizer.md
 b892966dad688518134247cdc6e6824bb88f6781891f92e5e6dcbc44e08171c3  ./skills/orchestration/references/roles/meta/web-scout.md
-b6401561d85f741a1d073118bf14e5d4786ffe5866e0145c3c316df0fd0fec2e  ./skills/orchestration/references/roles/operations/coo-/-операционный-директор.md
+b6401561d85f741a1d073118bf14e5d4786ffe5866e0145c3c316df0fd0fec2e  ./skills/orchestration/references/roles/operations/coo-опер-эффективность.md
 af583d4bc895aedbad0317e16bea01874b38cb3427cf3b83d5264cde8ae8f3eb  ./skills/orchestration/references/roles/operations/coo-операционный-директор.md
 0b2116e4d358c078be394ef37bee77943fc7a8d626e92621de8f04cf05119978  ./skills/orchestration/references/roles/operations/project-manager.md
 e696a1da226ad0ceec72630fae2083e232ba96c8c6e6a13d63062bd856b7e270  ./skills/orchestration/references/roles/operations/risk-manager.md
