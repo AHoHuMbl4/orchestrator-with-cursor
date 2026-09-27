@@ -169,6 +169,16 @@
       "hit": 0,
       "created": 1790505281.2710629,
       "run_ref": "F-RULES-R5-PLAN-C3"
+    },
+    {
+      "id": "dont-test-ustanovka-orch-test-install-kit-pod",
+      "type": "DON'T",
+      "кому": "executor",
+      "когда": "retro",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1790509093.3274467,
+      "run_ref": "F-DEBTS-DB"
     }
   ],
   "aliases": {}
