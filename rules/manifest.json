@@ -159,6 +159,16 @@
       "hit": 0,
       "created": 1790504843.6685367,
       "run_ref": "F-RULES-R4"
+    },
+    {
+      "id": "dont-plan-bez-vladelca-uslovnoj-retro-kartoch",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "retro",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790505281.2710629,
+      "run_ref": "F-RULES-R5-PLAN-C3"
     }
   ],
   "aliases": {}

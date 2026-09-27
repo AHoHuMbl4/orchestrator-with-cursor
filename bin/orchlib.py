@@ -2778,13 +2778,28 @@ def add_rule_card(тип, категория, кому, когда, части, 
     return cid
 
 
+# Гейт-отказы (стоп/refuse). Warn-датчики (FRONT_BUDGET_WARN,
+# COMPASS_OVERFLOW*) сюда не входят — OK-волну problem не делают.
+_RULES_GATE_REFUSALS = frozenset({
+    "FRONT_REQUIRED", "FRONT_CLOSED", "BUDGET_HARD",
+    "SECRETS_IN_PROMPT", "API_KEY_REQUIRED",
+})
+
+
 def _rules_end_is_problem(entry):
-    """end с PROBLEMS/BLOCKED в verdict или непустым gates (гейт-отказ)."""
+    """end с PROBLEMS/BLOCKED в verdict или гейт-отказом в gates.
+
+    Непустые gates → problem только при отказе (FRONT_REQUIRED /
+    FRONT_CLOSED / BUDGET_HARD / SECRETS_IN_PROMPT / API_KEY_REQUIRED).
+    Warn-датчики (FRONT_BUDGET_WARN и пр.) problem не считают.
+    """
     if not isinstance(entry, dict) or entry.get("kind") != "end":
         return False
     gates = entry.get("gates") or []
-    if isinstance(gates, list) and gates:
-        return True
+    if isinstance(gates, list):
+        for g in gates:
+            if isinstance(g, str) and g in _RULES_GATE_REFUSALS:
+                return True
     verdict = entry.get("verdict") or ""
     if not isinstance(verdict, str):
         verdict = str(verdict)
