@@ -2236,11 +2236,13 @@ def _rules_empty_manifest():
     return {"cards": [], "aliases": {}}
 
 
-def load_manifest(kit_dir=None):
+def load_manifest(kit_dir=None, allow_migrate=None):
     """Загрузить rules/manifest.json; нет файла → пустой {cards, aliases}.
 
     Одноразово проставляет born_at отсутствующим карточкам (migrate_rules_born_at)
     и сохраняет манифест при изменениях.
+    allow_migrate=False или ORCH_RULES_NO_MIGRATE=1 — только чтение
+    (изоляция /tmp-полигонов health_red_chips от записи в kit_dir; FA-FX3).
     """
     path = rules_manifest_path(kit_dir)
     try:
@@ -2259,11 +2261,14 @@ def load_manifest(kit_dir=None):
     if not isinstance(aliases, dict):
         aliases = {}
     manifest = {"cards": cards, "aliases": aliases}
-    try:
-        if migrate_rules_born_at(kit_dir, manifest=manifest):
-            save_manifest(manifest, kit_dir)
-    except Exception:
-        pass
+    if allow_migrate is None:
+        allow_migrate = os.environ.get("ORCH_RULES_NO_MIGRATE") != "1"
+    if allow_migrate:
+        try:
+            if migrate_rules_born_at(kit_dir, manifest=manifest):
+                save_manifest(manifest, kit_dir)
+        except Exception:
+            pass
     return manifest
 
 
@@ -3470,6 +3475,414 @@ def find_run_log(run_id, state=None, session=None, log_path=None):
     return candidates[0] if candidates else None
 
 
+def find_run_dir(run_id, state=None, session=None):
+    """Каталог runs/<id>/ (есть prompt.run.md|artifact.md|run.log); иначе None."""
+    if not run_id:
+        return None
+    if state is None:
+        state = find_state_dir()
+    candidates = []
+    if session:
+        candidates.append(
+            os.path.join(state, "sessions", session, "runs", run_id))
+    sess_root = os.path.join(state, "sessions")
+    if os.path.isdir(sess_root):
+        try:
+            for sid in os.listdir(sess_root):
+                candidates.append(
+                    os.path.join(sess_root, sid, "runs", run_id))
+        except Exception:
+            pass
+    candidates.append(os.path.join(state, "runs", run_id))
+    markers = ("prompt.run.md", "artifact.md", "run.log", "probe-receipt.md")
+    for d in candidates:
+        if not d or not os.path.isdir(d):
+            continue
+        for m in markers:
+            if os.path.isfile(os.path.join(d, m)):
+                return d
+    return None
+
+
+# --- F-ACCEPT: probes_missing / chip_silenced (канон приёмки v1) -----------
+# ADDITIVE MARKER: FA-C3 probes_missing begin
+
+_PROBE_BLOCK_KEYS = (
+    "проба:",
+    "оракул:",
+    "полигон:",
+    "класс-доказательства:",
+)
+_PROBE_CLASS_RE = re.compile(
+    r"класс-доказательства:\s*(function|oracle|narrative)\b", re.I)
+_RECEIPT_FIELD_RE = re.compile(
+    r"(?m)^\s*(probe|cmd|exit|oracle_match|ts|critic_id|artifact)\s*:\s*(.*\S)\s*$")
+_RECEIPT_INLINE_RE = re.compile(
+    r"\b(probe|cmd|exit|oracle_match|ts|critic_id|artifact)\s*:\s*([^;]+)")
+
+
+def _role_is_code_or_fix_wave(role):
+    """Волна кода/фикса: coder* или code/*fix* (не критик/warden/docs)."""
+    role = normalize_journal_role(role)
+    if not isinstance(role, str) or not role:
+        return False
+    if _role_is_coder(role):
+        return True
+    low = role.lower().replace("\\", "/")
+    if not low.startswith("code/"):
+        return False
+    if _role_is_critic(role) or _role_is_gitwarden(role):
+        return False
+    if low in ("code/docs-keeper.md", "code/simplicity-warden.md"):
+        return False
+    return "fix" in low
+
+
+def _read_text_silent(path):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def parse_probe_block(text):
+    """Машиночитаемый блок пробы (§1): проба/оракул/полигон/класс-доказательства.
+
+    Возвращает dict полей или None, если блок неполон/отсутствует.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    found = {}
+    for line in text.splitlines():
+        s = line.lstrip()
+        low = s.lower()
+        for key in _PROBE_BLOCK_KEYS:
+            if low.startswith(key) or s.startswith(key):
+                # сохраняем канонический ключ без двоеточия
+                k = key[:-1]
+                val = s.split(":", 1)[1].strip() if ":" in s else ""
+                if k not in found:
+                    found[k] = val
+                break
+    if len(found) < 4:
+        return None
+    cls = found.get("класс-доказательства", "")
+    if not _PROBE_CLASS_RE.search("класс-доказательства: " + cls):
+        # допускаем значение уже без префикса
+        if cls.strip().lower() not in ("function", "oracle", "narrative"):
+            return None
+    return found
+
+
+def wave_has_probe_block(run_id, state=None):
+    """True если prompt.run.md или artifact.md волны содержит блок пробы §1."""
+    d = find_run_dir(run_id, state=state)
+    if not d:
+        return False
+    for name in ("prompt.run.md", "artifact.md"):
+        block = parse_probe_block(_read_text_silent(os.path.join(d, name)))
+        if block:
+            return True
+    return False
+
+
+def wave_probe_artifact_path(run_id, state=None):
+    """Путь artifact.md волны (предпочтительно) или prompt.run.md с блоком."""
+    d = find_run_dir(run_id, state=state)
+    if not d:
+        return None
+    art = os.path.join(d, "artifact.md")
+    if os.path.isfile(art):
+        return art
+    pr = os.path.join(d, "prompt.run.md")
+    if os.path.isfile(pr) and parse_probe_block(_read_text_silent(pr)):
+        return pr
+    return art if os.path.isfile(art) else None
+
+
+def _oracle_expected_exit(oracle_text):
+    """Числовой exit из текста оракула; None если оракул не про exit."""
+    if not oracle_text:
+        return None
+    m = re.search(r"exit\s*[:=]?\s*(\d+)", oracle_text, re.I)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"^\s*(\d+)\s*$", oracle_text.strip())
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_receipt_records(text):
+    """Список dict-записей квитанции (multiline или inline ;-поля)."""
+    if not text or not isinstance(text, str):
+        return []
+    records = []
+    # сначала inline-строки вида probe: …; cmd: …; exit: …
+    for line in text.splitlines():
+        if "probe:" not in line.lower() and not line.lstrip().lower().startswith(
+                "probe:"):
+            # строка без probe — не inline-запись
+            if "cmd:" in line.lower() and "exit:" in line.lower():
+                pass
+            else:
+                continue
+        if ";" in line and "exit:" in line.lower():
+            fields = {}
+            for m in _RECEIPT_INLINE_RE.finditer(line):
+                fields[m.group(1).lower()] = m.group(2).strip()
+            if fields:
+                records.append(fields)
+    if records:
+        return records
+    # multiline блоки
+    cur = {}
+    for m in _RECEIPT_FIELD_RE.finditer(text):
+        k = m.group(1).lower()
+        v = m.group(2).strip()
+        if k == "probe" and cur.get("probe"):
+            records.append(cur)
+            cur = {}
+        cur[k] = v
+    if cur:
+        records.append(cur)
+    return records
+
+
+def parse_probe_receipt(text, artifact_path=None, run_id=None):
+    """Валидация квитанции §3 → (ok: bool, reason: str).
+
+    ok только если: все поля; exit числом; exit==оракулу (если числовой);
+    oracle_match true; ts≥mtime(артефакта); artifact ссылается на волну;
+    проза без cmd/exit = violation.
+    """
+    if not text or not isinstance(text, str) or not text.strip():
+        return False, "empty"
+    # проза без структуры
+    if "cmd:" not in text.lower() or "exit:" not in text.lower():
+        return False, "prose_no_cmd_exit"
+    records = _parse_receipt_records(text)
+    if not records:
+        return False, "no_records"
+    art_mtime = None
+    oracle_exit = None
+    if artifact_path and os.path.isfile(artifact_path):
+        try:
+            art_mtime = float(os.path.getmtime(artifact_path))
+        except Exception:
+            art_mtime = None
+        block = parse_probe_block(_read_text_silent(artifact_path))
+        if block:
+            oracle_exit = _oracle_expected_exit(block.get("оракул", ""))
+    art_base = None
+    if artifact_path:
+        art_base = os.path.basename(artifact_path)
+    for rec in records:
+        required = ("probe", "cmd", "exit", "oracle_match", "ts",
+                    "critic_id", "artifact")
+        for k in required:
+            if k not in rec or rec[k] == "":
+                return False, "missing_%s" % k
+        try:
+            exit_code = int(str(rec["exit"]).strip())
+        except (TypeError, ValueError):
+            return False, "exit_not_int"
+        om = str(rec["oracle_match"]).strip().lower()
+        if om not in ("true", "false"):
+            return False, "oracle_match_bad"
+        try:
+            ts = float(str(rec["ts"]).strip())
+        except (TypeError, ValueError):
+            return False, "ts_not_number"
+        if art_mtime is not None and ts < art_mtime:
+            return False, "ts_stale"
+        if oracle_exit is not None and exit_code != oracle_exit:
+            return False, "exit_ne_oracle"
+        # снятие чипа — только при oracle_match true
+        if om != "true":
+            return False, "oracle_match_false"
+        art_ref = str(rec["artifact"]).strip()
+        if run_id and art_ref not in (run_id, "artifact.md", art_base or ""):
+            # допускаем путь, оканчивающийся на runs/<id>/artifact.md
+            ok_ref = (
+                art_ref.endswith("/" + run_id + "/artifact.md")
+                or art_ref.endswith("\\" + run_id + "\\artifact.md")
+                or run_id in art_ref.split("/")
+                or run_id in art_ref.split("\\")
+            )
+            if not ok_ref and art_base and art_ref != art_base:
+                return False, "artifact_mismatch"
+    return True, "ok"
+
+
+def find_probe_receipts(run_id, state=None):
+    """Пути probe-receipt.md, относящиеся к волне (своя dir + чужие critic)."""
+    if state is None:
+        state = find_state_dir()
+    out = []
+    own = find_run_dir(run_id, state=state)
+    if own:
+        p = os.path.join(own, "probe-receipt.md")
+        if os.path.isfile(p):
+            out.append(p)
+    sess_root = os.path.join(state, "sessions")
+    if not os.path.isdir(sess_root):
+        return out
+    try:
+        for sid in os.listdir(sess_root):
+            runs = os.path.join(sess_root, sid, "runs")
+            if not os.path.isdir(runs):
+                continue
+            for rid in os.listdir(runs):
+                p = os.path.join(runs, rid, "probe-receipt.md")
+                if not os.path.isfile(p):
+                    continue
+                if p in out:
+                    continue
+                txt = _read_text_silent(p)
+                if run_id and run_id not in txt:
+                    continue
+                out.append(p)
+    except Exception:
+        pass
+    return out
+
+
+def wave_has_valid_probe_receipt(run_id, state=None):
+    """True если есть ≥1 валидная квитанция §3 на артефакт волны."""
+    art = wave_probe_artifact_path(run_id, state=state)
+    for path in find_probe_receipts(run_id, state=state):
+        ok, _reason = parse_probe_receipt(
+            _read_text_silent(path), artifact_path=art, run_id=run_id)
+        if ok:
+            return True
+    return False
+
+
+def probes_missing(state=None, scan_limit=None):
+    """id волн кода/фикса active-фронтов без блока пробы или без валидной квитанции.
+
+    Скоп: только active-фронты (DON'T all-chips-green — чужие фронты не
+    критерий приёмки текущего). Снятие только валидной квитанцией §3.
+    Тихие ошибки → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if scan_limit is None:
+            scan_limit = HEALTH_JOURNAL_SCAN_LIMIT
+        path = os.path.join(state, "journal.jsonl")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            return []
+        except Exception:
+            return []
+        if scan_limit and len(lines) > scan_limit:
+            lines = lines[-int(scan_limit):]
+        entries = []
+        for raw in lines:
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+        starts_by_id = _journal_start_index(entries)
+        data = _load_fronts_at(state)
+        active_fids = set()
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            if fr.get("status") != "active":
+                continue
+            fid = fr.get("id")
+            if isinstance(fid, str) and fid:
+                active_fids.add(fid)
+        out = []
+        seen = set()
+        for e in entries:
+            if e.get("kind") != "end":
+                continue
+            rid = e.get("id")
+            if not rid or rid in seen:
+                continue
+            st = starts_by_id.get(rid)
+            if not st:
+                continue
+            fid = st.get("front")
+            if fid not in active_fids:
+                continue
+            if not _role_is_code_or_fix_wave(st.get("role")):
+                continue
+            if st.get("readonly"):
+                continue
+            if _end_is_gate_refuse(e.get("exit"), e.get("gates") or []):
+                continue
+            has_block = wave_has_probe_block(rid, state=state)
+            has_receipt = wave_has_valid_probe_receipt(rid, state=state)
+            # нет блока ИЛИ нет валидной квитанции → красный
+            if not has_block or not has_receipt:
+                out.append(rid)
+                seen.add(rid)
+        return out
+    except Exception:
+        return []
+
+
+def _panel_has_chip_label(chip_id, kit_dir=None):
+    """True если panel/index.html объявляет label для chip_id."""
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    path = os.path.join(kit_dir, "panel", "index.html")
+    txt = _read_text_silent(path)
+    if not txt:
+        return False
+    return ("%s:" % chip_id) in txt or ("%s :" % chip_id) in txt
+
+
+def chip_silenced_ids(state=None, kit_dir=None, reported_probes=None):
+    """id волн, где probes_missing погашен фильтром/UI без устранения причины.
+
+    Срабатывает если сырой probes_missing непуст, а (a) ключ не в reported,
+    или reported пуст при непустом raw, или (b) panel UI не объявляет чип.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if kit_dir is None:
+            kit_dir = KIT_DIR
+        raw = probes_missing(state=state)
+        if not raw:
+            return []
+        silenced = False
+        if reported_probes is None:
+            # UI-глушение: нет label в панели
+            if not _panel_has_chip_label("probes_missing", kit_dir=kit_dir):
+                silenced = True
+        else:
+            if not isinstance(reported_probes, list):
+                silenced = True
+            elif len(reported_probes) == 0 and raw:
+                silenced = True
+            elif set(raw) - set(reported_probes):
+                silenced = True
+        if not silenced:
+            # доп. проверка UI даже при корректном reported
+            if not _panel_has_chip_label("probes_missing", kit_dir=kit_dir):
+                silenced = True
+        return list(raw) if silenced else []
+    except Exception:
+        return []
+
+# ADDITIVE MARKER: FA-C3 probes_missing end
+
+
 def _rules_wave_meta(run_id, state=None, session=None, log_path=None):
     """(verdict, gates) волны: journal_log_meta(log) → fallback journal end."""
     path = find_run_log(run_id, state=state, session=session, log_path=log_path)
@@ -3643,6 +4056,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "rules_dead": [],
         "manifest_category_oversize": [],
         "lint_failures": [],
+        # ADDITIVE MARKER: FA-C3 chips
+        "probes_missing": [],
+        "chip_silenced": [],
     }
     try:
         if state is None:
@@ -3926,13 +4342,33 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                             commander_no_children.append(fid)
                             break
 
-        rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
-        rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir, state=state)
-        manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
+        # FA-FX3: health не должен мигрировать rules в kit_dir (esp. /tmp-копии).
+        _prev_no_mig = os.environ.get("ORCH_RULES_NO_MIGRATE")
+        os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
+        try:
+            rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
+            rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir, state=state)
+            manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
+        finally:
+            if _prev_no_mig is None:
+                os.environ.pop("ORCH_RULES_NO_MIGRATE", None)
+            else:
+                os.environ["ORCH_RULES_NO_MIGRATE"] = _prev_no_mig
         try:
             lint_failures = orch_lint_violations(kit_dir=kit_dir)
         except Exception:
             lint_failures = []
+
+        # ADDITIVE MARKER: FA-C3 probes_missing / chip_silenced
+        try:
+            probes = probes_missing(state=state, scan_limit=scan_limit)
+        except Exception:
+            probes = []
+        try:
+            silenced = chip_silenced_ids(
+                state=state, kit_dir=kit_dir, reported_probes=probes)
+        except Exception:
+            silenced = []
 
         return {
             "runs_no_front": runs_no_front,
@@ -3948,6 +4384,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "rules_dead": rules_dead,
             "manifest_category_oversize": manifest_category_oversize,
             "lint_failures": lint_failures,
+            "probes_missing": probes,
+            "chip_silenced": silenced,
         }
     except Exception:
         return empty

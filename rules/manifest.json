@@ -428,6 +428,39 @@
       "created": 1790530759.3610525,
       "born_at": 1790530759.3610525,
       "run_ref": "CASE-F-C2-20260927"
+    },
+    {
+      "id": "dont-prinimat-volnu-po-nalichiyu-artefakta-il",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790531692.779447,
+      "born_at": 1790531692.779447,
+      "run_ref": "OWNER-INCIDENT-20260927"
+    },
+    {
+      "id": "dont-priemka-po-nalichiyu-artefakta-fajla-kvi",
+      "type": "DON'T",
+      "кому": "executor",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790531692.7800617,
+      "born_at": 1790531692.7800617,
+      "run_ref": "OWNER-INCIDENT-20260927"
+    },
+    {
+      "id": "do-zelenyj-rabotaet-na-poligone-prinyat-vol",
+      "type": "DO",
+      "кому": "executor",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790531692.7805195,
+      "born_at": 1790531692.7805195,
+      "run_ref": "OWNER-INCIDENT-20260927"
     }
   ],
   "aliases": {}

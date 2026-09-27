@@ -740,6 +740,11 @@ def cmd_prompt_submit(engine, fmt):
         bad_waves = orchlib.waves_without_prosecutor()
     except Exception:
         bad_waves = []
+    # ADDITIVE MARKER: FA-C3 probes_missing nudge
+    try:
+        bad_probes = orchlib.probes_missing()
+    except Exception:
+        bad_probes = []
     for path in bad_orders or []:
         det_lines.append(
             '⛔ ПРИКАЗ БЕЗ ОБОСНОВАНИЯ: %s — добавь строку "подход: ..." '
@@ -749,6 +754,13 @@ def cmd_prompt_submit(engine, fmt):
             "⚠️ ВОЛНА БЕЗ ПРОКУРОРА: фронт %s — работы идут, записи "
             "прокурора в журнале нет; запусти прокурора волной и не "
             "принимай волну без него" % fid)
+    for rid in bad_probes or []:
+        det_lines.append(
+            "⛔ PROBES_MISSING: волна %s — нет блока пробы "
+            "(проба/оракул/полигон/класс-доказательства) в "
+            "prompt.run.md|artifact.md или нет валидной квитанции "
+            "§3 (probe-receipt.md); снятие только валидной квитанцией; "
+            "не гаси чип фильтром (chip_silenced)" % rid)
     det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""

@@ -97,7 +97,11 @@ def _health_mtime_key(state):
 
 
 def _health_payload():
-    """Красные чипы health (вкл. lint_failures); кэш по mtime journal+fronts и kit HEAD."""
+    """Красные чипы health (вкл. lint_failures, probes_missing, chip_silenced).
+
+    Кэш по mtime journal+fronts и kit HEAD. Чипы из orchlib.health_red_chips;
+    probes_missing/chip_silenced — канон приёмки v1 (F-ACCEPT); не фильтровать.
+    """
     state = orchlib.find_state_dir()
     key = _health_mtime_key(state)
     with _health_lock:
