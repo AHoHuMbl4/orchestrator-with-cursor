@@ -84,7 +84,7 @@ State — `.orchestration/` в проекте.
 - `references/roles/meta/front-colonel.md` — полковник подзадачи: cursor, свита, мини-compass, выжимка генералу
 - `references/roles/meta/raw-brief-synthesizer.md` — читатель сырья волны → выжимка ≤15 строк командиру
 - `references/roles/meta/front-observer.md` — наблюдатель: cursor local (`run-exec`, запуск командующим на КТ); 4 прицела, власть ноль
-- `references/roles/meta/front-prosecutor.md` — прокурор: cursor local (`run-exec`, запуск командующим на волну); внутриволновой надзор, власть ноль; закрытый канал
+- `references/roles/meta/front-prosecutor.md` — прокурор: cursor local (`run-exec`, запуск командующим на волну); внутриволновой надзор, власть ноль; закрытый канал; by-design (не ПРОБЛЕМА): end без `front` (фронт на start; `case-end-records-front-on-start`); старт после `max_rounds=3` при задокументированной эскалации (`case-e2e-audit-retro-2`)
 - `references/roles/meta/invocation-inspector.md` — инспектор вызовов: аудит дерева по journal.jsonl
 - `references/roles/code/coder.md` — базовый исполнитель кода
 - `references/roles/code/code-reviewer.md` — критик кода

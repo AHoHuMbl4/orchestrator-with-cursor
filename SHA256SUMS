@@ -77,9 +77,9 @@ abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
 231d677ff5ccb3ed60dde2331e4db971b437b92f7fcdd860f6ce8626b1bffdea  ./rules/manifest.json
-4eae6a728cfb9044400681ffd69954280b13d4b513ae72edd4aa3c2f9fe84a38  ./skills/orchestration/SKILL.md
+ee384602dcc5fdb06f491a2467d4946b090ef58ba963add72e844784e602959a  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
-60ee251d07f756d6bbea4d11631aa730ac600465a8d7c60bd9b8dec6262beb4e  ./skills/orchestration/references/MAP.md
+7510d9edf8e0f26c68f4b7cf4a8742262b6fb0ba53ba11b2ba1222440f53eb3f  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
 a471c545c14bb32e39070450a9d703a3f38865ade66f81b0a11347c291da5088  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
