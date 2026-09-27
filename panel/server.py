@@ -33,7 +33,7 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _guard_lock = threading.Lock()
 _guard_snapshot = {"overflows": [], "poll_s": 2}
 
-# Кэш /api/health: ключ = (mtime journal, mtime fronts.json, mtime fronts/, HEAD)
+# Кэш /api/health: ключ = (mtime journal, fronts, rules/manifest, HEAD)
 _health_lock = threading.Lock()
 _health_cache = {"key": None, "payload": None, "computed_at": 0.0}
 
@@ -63,11 +63,13 @@ def _kit_head_hash():
 
 
 def _health_mtime_key(state):
-    """Ключ кэша: mtime journal.jsonl + fronts.json + fronts/ + kit HEAD."""
+    """Ключ кэша: mtime journal+fronts+rules/manifest + kit HEAD."""
+    kit = getattr(orchlib, "KIT_DIR", None) or PANEL_DIR
     paths = [
         os.path.join(state, "journal.jsonl"),
         os.path.join(state, "fronts.json"),
         os.path.join(state, "fronts"),
+        os.path.join(kit, "rules", "manifest.json"),
     ]
     mt = []
     for p in paths:
