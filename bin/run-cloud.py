@@ -62,6 +62,7 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
   8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
   9       — замок front-runs занят; FRONT_LOCK_BUSY
   10      — params.json битый
+  11      — id занят живым cloud-прогоном (CREATED/POLLING/RUNNING); --force
 """
 import argparse
 import json
@@ -77,6 +78,7 @@ import orchlib  # noqa: E402
 
 BASE = "https://api.cursor.com"
 TERMINAL_RUN_STATUSES = frozenset(("FINISHED", "ERROR", "CANCELLED", "EXPIRED"))
+LIVE_CLOUD_STATUSES = frozenset(("CREATED", "POLLING", "RUNNING"))
 RECOVERY_WINDOW_SEC = 300
 
 
@@ -148,6 +150,8 @@ def _add_common_args(parser):
                         help="роль (приоритет над шапкой); иначе «роль: path.md» в первых 3 строках промта")
     parser.add_argument("--http-timeout", type=float, default=argparse.SUPPRESS,
                         help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
+    parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
+                        help="обойти гард дубль-id (exit 11); гейты 5–9 не затрагивает")
 
 
 def build_parser():
@@ -197,6 +201,8 @@ def normalize_args(a):
         a.role = None
     if not hasattr(a, "http_timeout"):
         a.http_timeout = 300.0
+    if not hasattr(a, "force"):
+        a.force = False
     return a
 
 
@@ -443,6 +449,48 @@ def agent_json_path(state, run_id_label):
     return os.path.join(state, "agent-%s.json" % run_id_label)
 
 
+def cloud_live_status(state, run_id):
+    """Живой cloud-id → status-строка; иначе None. Не смотрит journal.
+
+    Приоритет: (а) result.json status ∈ LIVE → жив; (б) result нет/нечитаем,
+    но есть agent-<id>.json → CREATED; (в) result терминальный → нежив.
+    """
+    result_path = result_json_path(state, run_id)
+    if os.path.isfile(result_path):
+        try:
+            with open(result_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            st = data.get("status")
+            if isinstance(st, str) and st in LIVE_CLOUD_STATUSES:
+                return st
+            if isinstance(st, str) and st in TERMINAL_RUN_STATUSES:
+                return None
+            # result есть, status неизвестен/пуст — не считаем живым по result;
+            # agent-only ниже не применяем (result читаем).
+            return None
+        # result нечитаем → fallback на agent
+    agent_path = agent_json_path(state, run_id)
+    if os.path.isfile(agent_path):
+        return "CREATED"
+    return None
+
+
+def check_cloud_duplicate_id_guard(state, run_id, force=False):
+    """Отказ exit 11 при живом cloud-прогоне. --force обходит только этот гард."""
+    if force:
+        return None
+    status = cloud_live_status(state, run_id)
+    if status is None:
+        return None
+    sys.stderr.write(
+        "id %s занят живым cloud-прогоном (status %s); --force для явного\n"
+        % (run_id, status))
+    return 11
+
+
 def _extract_result_text(status_obj):
     """Текст ответа из тела GET run (поле result / text / output), иначе None."""
     if not isinstance(status_obj, dict):
@@ -627,6 +675,10 @@ def recover_create_after_timeout(key, body, prompt_text, http_timeout, lf):
 
 def cmd_run(a):
     state = orchlib.find_state_dir()
+    # Гард дубль-id: только subcommand run, до HTTP / записи cloud|agent файлов.
+    dup_rc = check_cloud_duplicate_id_guard(state, a.id, force=bool(a.force))
+    if dup_rc is not None:
+        return dup_rc
     os.makedirs(state, exist_ok=True)
     prompt_file = a.prompt_file or os.path.join(state, "prompt-%s.md" % a.id)
     with open(prompt_file, "r", encoding="utf-8") as f:
