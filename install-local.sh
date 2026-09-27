@@ -11,9 +11,74 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 TARGET="$(pwd)"
 
+# Якорь песочницы: тесты установщика — только на /tmp-клоне.
+ORCH_INSTALL_SANDBOX_HINT='тесты установщика — только на /tmp-клоне (git clone → установка с TARGET туда)'
+
+# audit — home-canonical, cwd-независимо
+_orch_install_audit_log_path() {
+  local audit_dir state py
+  if [ -d "${HOME}/.orchestration" ]; then
+    audit_dir="${HOME}/.orchestration"
+  else
+    state=""
+    if command -v python3 >/dev/null 2>&1; then py=python3
+    elif command -v python >/dev/null 2>&1; then py=python
+    else py=""
+    fi
+    if [ -n "$py" ]; then
+      state="$("$py" -c "
+import os, sys
+sys.path.insert(0, os.path.join(r'''$KIT''', 'bin'))
+from orchlib import find_state_dir
+print(find_state_dir())
+" 2>/dev/null || true)"
+    fi
+    if [ -n "$state" ]; then
+      audit_dir="$state"
+    else
+      audit_dir="${HOME}/.orchestration"
+    fi
+  fi
+  # НИКОГДА не писать audit внутрь репо кита
+  case "$audit_dir" in
+    "$KIT"|"$KIT"/*) audit_dir="${HOME}/.orchestration" ;;
+  esac
+  printf '%s\n' "${audit_dir}/install-audit.log"
+}
+
+_orch_write_install_audit() {
+  # Первое действие main — до гарда и тест-раннего-выхода (атрибуция и отказа гарда).
+  local audit_log audit_dir ts run_id caller mode head
+  audit_log="$(_orch_install_audit_log_path)"
+  audit_dir="$(dirname "$audit_log")"
+  mkdir -p "$audit_dir"
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  run_id="${ORCH_RUN_ID:--}"
+  if [ -n "${ORCH_CALLER:-}" ]; then
+    caller="$ORCH_CALLER"
+  else
+    caller="$(id -un 2>/dev/null || echo user)@$(hostname 2>/dev/null || echo host)"
+  fi
+  if [ "${ORCH_TEST_INSTALL:-}" = "1" ]; then
+    mode=test
+  else
+    mode=normal
+  fi
+  if git -C "$KIT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    head="$(git -C "$KIT" rev-parse HEAD 2>/dev/null || echo no-git)"
+  else
+    head=no-git
+  fi
+  printf '%s | ORCH_RUN_ID=%s | caller=%s | TARGET=%s | режим=%s | HEAD=%s\n' \
+    "$ts" "$run_id" "$caller" "$TARGET" "$mode" "$head" >>"$audit_log"
+}
+
+main() {
 # Тест-режим: ORCH_TEST_INSTALL=1 ИЛИ KIT лежит под /tmp|/var/tmp.
 # В тест-режиме не пишем конфиги движков и не трогаем TARGET
 # (ранний выход до любой мутации, включая проверку SHA256SUMS).
+_orch_write_install_audit
+
 TEST_INSTALL=0
 TEST_REASON=""
 if [ "${ORCH_TEST_INSTALL:-}" = "1" ]; then
@@ -41,6 +106,7 @@ if [ "$TEST_INSTALL" = "1" ]; then
     fi
   done
   echo "TEST INSTALL: хуки/конфиги не тронуты (проверка: $TEST_REASON)"
+  echo "$ORCH_INSTALL_SANDBOX_HINT"
   exit 0
 fi
 
@@ -50,6 +116,7 @@ KIT_DIR="$KIT"
 case "$TARGET" in
   "$KIT_DIR"|"$KIT_DIR"/*)
     echo "ОШИБКА: нельзя устанавливать оркестрацию в репо кита (TARGET=$TARGET, KIT=$KIT_DIR)" >&2
+    echo "$ORCH_INSTALL_SANDBOX_HINT"
     exit 1
     ;;
 esac
@@ -414,3 +481,6 @@ cat <<EOF
   повторите установщик — он доведёт остальное.
 EOF
 fi
+}
+
+main "$@"
