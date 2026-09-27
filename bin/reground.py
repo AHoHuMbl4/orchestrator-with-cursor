@@ -14,6 +14,8 @@
   subagent-start — SubagentStart → journal kind=start (engine-subagent)
   subagent-stop  — SubagentStop → journal kind=end (engine-subagent)
   heartbeat      — wall-clock для Kimi SessionHeartbeat (60-секундный тик)
+  retro          — ретро-шаг волны: --run-id → DON'T-требование / DO/CASE-подсказка
+                   (чип rules_no_retro — через health; /tmp-синтетика ок)
   stop           — зарезервировано, молчит (не мешает завершению turn)
 
 Формат вывода: --format json (Claude/Codex: hookSpecificOutput.additionalContext)
@@ -602,6 +604,57 @@ def cmd_heartbeat(engine, fmt):
         sys.stderr.write("counter write failed: %s\n" % e)
 
 
+def cmd_retro(args):
+    """Ретро-детектор конца волны: run-id → строки требования/подсказки.
+
+    CLI: retro --run-id ID [--state DIR] [--kit-dir DIR] [--session SID] [--log PATH]
+    Печатает строки в stdout (по одной); exit 0. Чип rules_no_retro — не здесь,
+    а через orchlib.health_red_chips / _rules_no_retro_ids при end PROBLEMS в journal.
+    """
+    run_id = None
+    state_arg = None
+    kit_dir = None
+    session = None
+    log_path = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--run-id" and i + 1 < len(args):
+            run_id = args[i + 1]; i += 2
+        elif a == "--state" and i + 1 < len(args):
+            state_arg = args[i + 1]; i += 2
+        elif a == "--kit-dir" and i + 1 < len(args):
+            kit_dir = args[i + 1]; i += 2
+        elif a == "--session" and i + 1 < len(args):
+            session = args[i + 1]; i += 2
+        elif a == "--log" and i + 1 < len(args):
+            log_path = args[i + 1]; i += 2
+        elif a.startswith("--run-id="):
+            run_id = a.split("=", 1)[1]; i += 1
+        else:
+            i += 1
+    if not run_id:
+        sys.stderr.write("retro: --run-id required\n")
+        return 2
+    prev_state = os.environ.get("ORCHESTRATION_DIR")
+    state = os.path.abspath(state_arg) if state_arg else None
+    try:
+        if state:
+            os.environ["ORCHESTRATION_DIR"] = state
+        lines = orchlib.format_retro_lines(
+            run_id, state=state, kit_dir=kit_dir, session=session,
+            log_path=log_path)
+    finally:
+        if state_arg is not None:
+            if prev_state is None:
+                os.environ.pop("ORCHESTRATION_DIR", None)
+            else:
+                os.environ["ORCHESTRATION_DIR"] = prev_state
+    for ln in lines:
+        sys.stdout.write(ln + "\n")
+    return 0
+
+
 def cmd_prompt_submit(engine, fmt):
     """UserPromptSubmit: вклеить параметры при первом сообщении и при ИЗМЕНЕНИИ
     params/compass (mtime+размер). Гарантия: сообщение владельца обрабатывается
@@ -772,6 +825,8 @@ def main():
             cmd_prompt_submit(engine, fmt)
         elif cmd == "heartbeat":
             cmd_heartbeat(engine, fmt)
+        elif cmd == "retro":
+            return cmd_retro(rest)
         elif cmd == "stop":
             pass  # зарезервировано: молчим, не мешаем завершению turn
         else:
