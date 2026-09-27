@@ -33,6 +33,6 @@
 ## Ссылки
 - `README.md` / `README.ru.md` — установка и обзор
 - `install-notes.md` — установка/перенос; audit и контур тестов на /tmp-клоне (DB6)
-- `skills/orchestration/SKILL.md`, `references/MAP.md`, `references/planning.md` — регламент; ретро-шаг в SKILL+planning
-- `rules/manifest.json` — индекс карточек; hit — `.orchestration/counters/rules-hits.json`; `.orchestration/fronts/F-RULES/order.md` — контракт фронта
+- `skills/orchestration/SKILL.md`, `skills/orchestration/references/MAP.md`, `skills/orchestration/references/planning.md` — регламент; ретро-шаг в SKILL+planning
+- `rules/manifest.json` — индекс карточек; hit — state `counters/rules-hits.json`; state: `fronts/F-RULES/order.md` — контракт фронта (вне репо)
 - Коммиты R2–R5: `edde13d`…`e9aac51`; DB6: `11fe4c4`, `f3d41ca`, `f698083`
