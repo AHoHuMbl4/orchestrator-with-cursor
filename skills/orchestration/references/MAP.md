@@ -15,14 +15,15 @@ State — `.orchestration/` в проекте.
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
-- `panel/server.py` — `/api/health`: красные чипы (runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn, advisors_without_scouts, commander_no_children, wave_no_docs); кэш по mtime journal+fronts + HEAD хэш кита; чипы из `orchlib.health_red_chips`
+- `panel/server.py` — `/api/health`: красные чипы из `orchlib.health_red_chips` (в т.ч. runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn, advisors_without_scouts, commander_no_children, wave_no_docs, rules_*, lint_failures, probes_missing, chip_silenced); кэш по mtime journal+fronts + HEAD хэш кита; F-ACCEPT: probes_missing/chip_silenced не фильтровать
 - `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
 - `bin/discover.py` — снимок моделей/ключа → `.orchestration/discovered.json`
 - `bin/reground.py` — хук-движок Kimi: UserPromptSubmit, SessionHeartbeat, PreToolUse, PostToolUse, SubagentStart/Stop (+ session-start)
-- События хуков Kimi: **UserPromptSubmit** (вклейка params/compass/гарда; блок при overflow; нуджи детекторов: приказ без обоснования / волна без прокурора); **SessionHeartbeat** (сверка; overflow → pending-флаг, observation-only); **PreToolUse** (мгновенный deny Write/Edit в compass — только через write-compass.py; + гейт order.md (без строки „подход:“/„без советников“ — deny)); **PostToolUse** (нуджи каждые N + гард при записи в compass); **SubagentStart/Stop** → видимость генералов-субагентов движка в `journal.jsonl` (не только обёртки run-exec/run-cloud)
-- `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); детекторы `orders_without_basis` + `waves_without_prosecutor` (детекторы + нуджи); не лаунчер
+- События хуков Kimi: **UserPromptSubmit** (вклейка params/compass/гарда; блок при overflow; нуджи детекторов: приказ без обоснования / волна без прокурора / probes_missing); **SessionHeartbeat** (сверка; overflow → pending-флаг, observation-only); **PreToolUse** (мгновенный deny Write/Edit в compass — только через write-compass.py; + гейт order.md (без строки „подход:“/„без советников“ — deny)); **PostToolUse** (нуджи каждые N + гард при записи в compass); **SubagentStart/Stop** → видимость генералов-субагентов движка в `journal.jsonl` (не только обёртки run-exec/run-cloud)
+- `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); детекторы `orders_without_basis` + `waves_without_prosecutor` + `probes_missing` / `chip_silenced` (F-ACCEPT канон v1; снятие probes_missing только валидной квитанцией §3); не лаунчер
+- `routing/jev-table.json` — Jev-точки: `rules-apply` (Choice), `tried-before` (Noul), `probe-sufficiency` (Score, только advisory — не разрешает/не запрещает закрытие волны)
 - `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
 - `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
@@ -46,7 +47,8 @@ State — `.orchestration/` в проекте.
 - `<state>/pending_compass_guard.json` — общий флаг гарда compass (доставка — ближайший UserPromptSubmit)
 - `sessions/<sid>/runs/<id>/prompt.md` — промт прогона
 - `sessions/<sid>/runs/<id>/run.log` — лог прогона (локальный/обёртка)
-- `sessions/<sid>/runs/<id>/artifact.md` — артефакт приёмки
+- `sessions/<sid>/runs/<id>/artifact.md` — артефакт волны (наличие файла ≠ зелёная приёмка)
+- `sessions/<sid>/runs/<id>/probe-receipt.md` — квитанция приёмки §3 (probe/cmd/exit/oracle_match/ts/critic_id/artifact); снимает чип `probes_missing`
 - `sessions/<sid>/prosecutor/` — закрытый канал прокурора волны (читает только командующий)
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
@@ -66,7 +68,7 @@ State — `.orchestration/` в проекте.
 ## C. Скилл и роли (как выбирать)
 
 - `skills/orchestration/SKILL.md` — регламент: исполнители, контроль, компас, вердикт
-- `references/planning.md` — план, волны, DAG, preflight-бюджет
+- `references/planning.md` — план, волны, DAG, preflight-бюджет; § «Приёмка = функция» (канон v1: проба/квитанция/`probes_missing`/`chip_silenced`; Jev `probe-sufficiency` advisory)
 - `references/FLOW.md` — канонический граф потоков: кто кого запускает / данные / гейты / жизненный цикл
 - `references/engines.md` — исполнители/ключи/движки (local-cursor / cursor-cloud, Claude, Codex, Kimi)
 - `references/traps.md` — ловушки (читать перед пачкой)
@@ -97,7 +99,8 @@ State — `.orchestration/` в проекте.
 |---|---|
 | Где взять инструмент? | секция A |
 | Куда пишется задача? | `sessions/<sid>/compass.md` (`menu.py --session`) |
-| Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`) |
+| Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`); приёмка — ещё `probe-receipt.md` (§3) |
+| Приёмка волны кода/фикса? | канон «Приёмка = функция»: блок пробы + свой прогон на полигоне; чип `probes_missing`; Jev `probe-sufficiency` только advisory |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
 | командующему/генералу/полковнику нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
