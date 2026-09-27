@@ -12,8 +12,8 @@
 - Jev Э2 / R4: `select_rule_card_ids` — лестница после адреса (n=0→[]; ≤3→все без Jev; 4–10→Choice `rules-apply`; >10→топ-10→Choice); fail-open/defer→без вставки. Launch — Noul `tried-before` (`format_tried_before_lines`). `add_rule_card` гейтит 21-ю карточку в категории; чип `manifest_category_oversize`.
 
 ## Карта
-- `bin/orchlib.py` — state/fronts/journal + rules API R1–R5 (`select_rule_card_ids`, hit в `counters/rules-hits.json`, oversize-гейт add)
-- `bin/reground.py` — хуки Kimi; step-inject через лестницу R4; `retro --run-id` (R3)
+- `bin/orchlib.py` — state/fronts/journal + rules API R1–R5 (`select_rule_card_ids`, hit в `counters/rules-hits.json`, oversize-гейт add) + `commander_no_front_series` (F-C2)
+- `bin/reground.py` — хуки Kimi; step-inject через лестницу R4; `retro --run-id` (R3); блок серии no-front в prompt-submit head
 - `bin/run-exec.py`, `bin/run-cloud.py` — обёртки; tried-before + прецеденты ≤3 строк в `prompt.run`
 - `bin/jev-advise.py` + `routing/jev-table.json` — точки Э2 `rules-apply` (Choice) и `tried-before` (Noul)
 - `install-local.sh` — главный установщик; audit `install-audit.log` (home-canonical); hint /tmp-клона в stdout (тест/гард)
@@ -27,7 +27,7 @@
 - 2026-09-27 R3: ретро-детектор + `add_rule_card`; доктрина «Ретро-шаг волны» (`dc82236`, `5327d5a`, `9e5a785`).
 - 2026-09-27 R4/Э2: Jev-точки + трёхступенчатый выбор + tried-before + fail-open + oversize-гейт add (`d494106`, `5761416`, `d68351b`).
 - 2026-09-27 R5: hit SoT = `.orchestration/counters/rules-hits.json`; `record_hit` не пишет manifest/репо (`e9aac51`).
-- 2026-09-27 DB6: audit установщика home-canonical (`~/.orchestration/install-audit.log`, до гарда); hint /tmp-клона в stdout; DON'T/DO `запуск/*tmp*` (`11fe4c4`, `f3d41ca`).
+- 2026-09-27 F-C2: серия ≥3 unmasked commander `--no-front` при живой иерархии → блок reground; фикс=фронт (`cdc53da`); карточка `dont-komandirskaya-volna-bez-fronta-seriya-ru`.
 - Знания в шаг — только кодом, 1–3 карточки ≤2 строки/часть; ретро/чип без карточки — контракт Э1. Пуш с волн F-RULES/F-DEBTS запрещён приказом фронта.
 
 ## Ссылки
