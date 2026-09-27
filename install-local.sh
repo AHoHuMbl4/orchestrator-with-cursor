@@ -74,7 +74,8 @@ _orch_write_install_audit() {
 }
 
 main() {
-# Тест-режим: ORCH_TEST_INSTALL=1 ИЛИ KIT лежит под /tmp|/var/tmp.
+# Тест-режим: ТОЛЬКО явный ORCH_TEST_INSTALL=1.
+# Путь KIT (включая /tmp|/var/tmp) сам по себе тест-режим НЕ включает.
 # В тест-режиме не пишем конфиги движков и не трогаем TARGET
 # (ранний выход до любой мутации, включая проверку SHA256SUMS).
 _orch_write_install_audit
@@ -85,16 +86,6 @@ if [ "${ORCH_TEST_INSTALL:-}" = "1" ]; then
   TEST_INSTALL=1
   TEST_REASON="ORCH_TEST_INSTALL=1"
 fi
-case "$KIT" in
-  /tmp|/tmp/*|/var/tmp|/var/tmp/*)
-    TEST_INSTALL=1
-    if [ -z "$TEST_REASON" ]; then
-      TEST_REASON="KIT under tmp ($KIT)"
-    else
-      TEST_REASON="$TEST_REASON; KIT under tmp ($KIT)"
-    fi
-    ;;
-esac
 if [ "$TEST_INSTALL" = "1" ]; then
   for f in \
     "$HOME/.claude/settings.json" \
@@ -106,6 +97,7 @@ if [ "$TEST_INSTALL" = "1" ]; then
     fi
   done
   echo "TEST INSTALL: хуки/конфиги не тронуты (проверка: $TEST_REASON)"
+  echo "тест только по явному ORCH_TEST_INSTALL=1; установка из любого каталога (включая /tmp) — обычная"
   echo "$ORCH_INSTALL_SANDBOX_HINT"
   exit 0
 fi
