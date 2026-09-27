@@ -1705,8 +1705,50 @@ def _journal_start_index(entries):
     return idx
 
 
-def health_red_chips(state=None, scan_limit=None):
-    """Восемь счётчиков красных чипов панели + списки id.
+# Механическая маска значимости для чипа wave_no_docs (git pathspec).
+WAVE_DOCS_MASK_PATHSPECS = (
+    "bin/*.py",
+    "panel/server.py",
+    "skills/orchestration/**",
+)
+
+
+def _last_mask_commit(kit_dir):
+    """Последний коммит по маске значимости: (unix_ct:int, short_h:str) или None."""
+    if not kit_dir:
+        return None
+    try:
+        r = subprocess.run(
+            [
+                "git", "-C", kit_dir, "log", "-1", "--format=%ct %h", "--",
+            ] + list(WAVE_DOCS_MASK_PATHSPECS),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=15,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    out = (r.stdout or "").strip()
+    if not out:
+        return None
+    parts = out.split(None, 1)
+    if len(parts) != 2:
+        return None
+    try:
+        ct = int(parts[0])
+    except (TypeError, ValueError):
+        return None
+    h = parts[1].strip()
+    if not h:
+        return None
+    return (ct, h)
+
+
+def health_red_chips(state=None, scan_limit=None, kit_dir=None):
+    """Девять счётчиков красных чипов панели + списки id.
 
     Скан journal — последние HEALTH_JOURNAL_SCAN_LIMIT строк (константа).
 
@@ -1714,6 +1756,10 @@ def health_red_chips(state=None, scan_limit=None):
     Активация = ts первой end-записи с маркером FRONT_REQUIRED в gates;
     если маркера в окне нет — список пуст (история до гейта не шум).
     Отказы самого гейта (FRONT_REQUIRED в gates) не считаются нарушением.
+
+    wave_no_docs: mask-коммит (bin/*.py, panel/server.py,
+    skills/orchestration/**) новее последнего local docs-keeper end —
+    список с %h mask-коммита. kit_dir=None → KIT_DIR (хук для /tmp-синтетики).
     """
     empty = {
         "runs_no_front": [],
@@ -1724,10 +1770,13 @@ def health_red_chips(state=None, scan_limit=None):
         "budget_warn": [],
         "advisors_without_scouts": [],
         "commander_no_children": [],
+        "wave_no_docs": [],
     }
     try:
         if state is None:
             state = find_state_dir()
+        if kit_dir is None:
+            kit_dir = KIT_DIR
         if scan_limit is None:
             scan_limit = HEALTH_JOURNAL_SCAN_LIMIT
         path = os.path.join(state, "journal.jsonl")
@@ -1796,6 +1845,7 @@ def health_red_chips(state=None, scan_limit=None):
         budget_warn = []
         advisors_without_scouts = []
         commander_no_children = []
+        wave_no_docs = []
 
         ends_with_meta = []
         for e in entries:
@@ -1813,6 +1863,35 @@ def health_red_chips(state=None, scan_limit=None):
                 "start_ts": st.get("ts"),
                 "entry": e,
             })
+
+        # P10: wave_no_docs — mask-коммит новее local docs-keeper end.
+        last_docs_end_ts = None
+        for e in entries:
+            if e.get("kind") != "end":
+                continue
+            rid = e.get("id")
+            st = starts_by_id.get(rid) if rid else None
+            if not st:
+                continue
+            if normalize_journal_role(st.get("role")) != "code/docs-keeper.md":
+                continue
+            # Строго engine == "local" (journal; не local-cursor).
+            if st.get("engine") != "local":
+                continue
+            ets = e.get("ts")
+            if ets is None:
+                continue
+            try:
+                ets_f = float(ets)
+            except (TypeError, ValueError):
+                continue
+            if last_docs_end_ts is None or ets_f > last_docs_end_ts:
+                last_docs_end_ts = ets_f
+        mask = _last_mask_commit(kit_dir)
+        if mask is not None:
+            mask_ct, mask_h = mask
+            if last_docs_end_ts is None or float(mask_ct) > last_docs_end_ts:
+                wave_no_docs.append(mask_h)
 
         # P4: advisors_without_scouts — advisor-run id без web-scout.
         scout_starts = []
@@ -1977,6 +2056,7 @@ def health_red_chips(state=None, scan_limit=None):
             "budget_warn": budget_warn,
             "advisors_without_scouts": advisors_without_scouts,
             "commander_no_children": commander_no_children,
+            "wave_no_docs": wave_no_docs,
         }
     except Exception:
         return empty
