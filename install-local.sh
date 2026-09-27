@@ -44,6 +44,16 @@ if [ "$TEST_INSTALL" = "1" ]; then
   exit 0
 fi
 
+# Гард: TARGET == KIT или TARGET внутри KIT → отказ (репо кита не цель установки).
+# Исключение — ORCH_TEST_INSTALL=1 (ранний выход выше). $1 не задаёт TARGET (только --global).
+KIT_DIR="$KIT"
+case "$TARGET" in
+  "$KIT_DIR"|"$KIT_DIR"/*)
+    echo "ОШИБКА: нельзя устанавливать оркестрацию в репо кита (TARGET=$TARGET, KIT=$KIT_DIR)" >&2
+    exit 1
+    ;;
+esac
+
 # --global: скилл/хуки Claude и Codex на уровень пользователя (работает во всех папках);
 # .orchestration (params/compass) всегда остаётся per-folder — у каждой папки свои параметры.
 GLOBAL=0
