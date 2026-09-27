@@ -111,13 +111,14 @@ pass "reground prompt-submit exit 0"
 [ -e "$HOME/.orchestration/compass.md" ] || fail "missing HOME/.orchestration/compass.md"
 pass "HOME/.orchestration params+compass exist"
 
-# (в) audit: install TARGET (P15=$HOME) и HEAD
+# (в) audit: поле TARGET=… и HEAD
+# Шов P15: без флагов install-local.sh пишет TARGET=$HOME (не cwd=$TARGET теста).
 AUDIT="$HOME/.orchestration/install-audit.log"
 [ -f "$AUDIT" ] || fail "missing install-audit.log"
 HEAD_AT_INSTALL="$(git -C "$KIT" rev-parse HEAD)"
-grep -Fq "$INSTALL_ROOT" "$AUDIT" || fail "audit missing INSTALL_ROOT/TARGET=$INSTALL_ROOT"
+grep -Fq "TARGET=${HOME}" "$AUDIT" || fail "audit missing TARGET=${HOME}"
 grep -Fq "$HEAD_AT_INSTALL" "$AUDIT" || fail "audit missing HEAD=$HEAD_AT_INSTALL"
-pass "install-audit.log contains TARGET(HOME) and HEAD"
+pass "install-audit.log contains TARGET and HEAD"
 
 # --- §5 ОБНОВЛЕНИЕ (идемпотентность) ---
 git -C "$KIT" \
