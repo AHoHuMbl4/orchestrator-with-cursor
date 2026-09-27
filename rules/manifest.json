@@ -149,6 +149,16 @@
       "hit": 0,
       "created": 1727400014.0,
       "run_ref": null
+    },
+    {
+      "id": "dont-runtime-hit-in-repo",
+      "type": "DON'T",
+      "кому": "executor",
+      "когда": "retro",
+      "категория": "маршрутизация",
+      "hit": 0,
+      "created": 1790504843.6685367,
+      "run_ref": "F-RULES-R4"
     }
   ],
   "aliases": {}
