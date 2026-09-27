@@ -28,7 +28,8 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1727400002.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-one-run-many",
@@ -38,7 +39,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1727400003.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-critic-sees-log",
@@ -48,7 +50,8 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1727400004.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-parallel-writers",
@@ -58,7 +61,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1727400005.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-pkill-prompt",
@@ -78,7 +82,8 @@
       "категория": "маршрутизация",
       "hit": 0,
       "created": 1727400007.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-bg-timeout",
@@ -88,7 +93,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1727400008.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-role-from-head",
@@ -108,7 +114,8 @@
       "категория": "промты",
       "hit": 0,
       "created": 1727400010.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "dont-exit0-mask",
@@ -118,7 +125,8 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1727400011.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "do-scan-secrets",
@@ -138,7 +146,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1727400013.0,
-      "run_ref": null
+      "run_ref": null,
+      "archived": true
     },
     {
       "id": "case-dup-id-exit11",
@@ -168,7 +177,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790505281.2710629,
-      "run_ref": "F-RULES-R5-PLAN-C3"
+      "run_ref": "F-RULES-R5-PLAN-C3",
+      "archived": true
     },
     {
       "id": "dont-test-ustanovka-orch-test-install-kit-pod",
@@ -178,7 +188,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1790509093.3274467,
-      "run_ref": "F-DEBTS-DB"
+      "run_ref": "F-DEBTS-DB",
+      "archived": true
     },
     {
       "id": "dont-posle-voln-pravok-fajlov-kita-prinyali-r",
@@ -189,6 +200,26 @@
       "hit": 0,
       "created": 1790511171.1926954,
       "run_ref": "F-DEBTS-DB-W2c"
+    },
+    {
+      "id": "dont-obertki-sab-progony-iz-cwd-repo-plodyat",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "retro",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1790513529.9367268,
+      "run_ref": "prosecutor-auto-F-DEBTS-4"
+    },
+    {
+      "id": "dont-avtoprokurorskie-id-prosecutor-auto-f-pe",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "retro",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1790513529.938892,
+      "run_ref": "prosecutor-auto-F-DEBTS-2"
     }
   ],
   "aliases": {}
