@@ -1,0 +1,155 @@
+{
+  "cards": [
+    {
+      "id": "dont-prompt-argv",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1727400000.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-freedom-or",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "prompt-submit",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1727400001.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-trust-summary",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1727400002.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-one-run-many",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1727400003.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-critic-sees-log",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1727400004.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-parallel-writers",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1727400005.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-pkill-prompt",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1727400006.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-code-to-cloud",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "маршрутизация",
+      "hit": 0,
+      "created": 1727400007.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-bg-timeout",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1727400008.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-role-from-head",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "маршрутизация",
+      "hit": 0,
+      "created": 1727400009.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-secrets-in-prompt",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1727400010.0,
+      "run_ref": null
+    },
+    {
+      "id": "dont-exit0-mask",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1727400011.0,
+      "run_ref": null
+    },
+    {
+      "id": "do-scan-secrets",
+      "type": "DO",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1727400012.0,
+      "run_ref": null
+    },
+    {
+      "id": "do-flock-journal",
+      "type": "DO",
+      "кому": "wrapper",
+      "когда": "post-tool",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1727400013.0,
+      "run_ref": null
+    },
+    {
+      "id": "case-dup-id-exit11",
+      "type": "CASE",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1727400014.0,
+      "run_ref": null
+    }
+  ],
+  "aliases": {}
+}
