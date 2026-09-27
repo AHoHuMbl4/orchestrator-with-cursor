@@ -392,7 +392,7 @@ churn-сигнал командующему/владельцу без отказ
 | блок ДО | FRONT_REQUIRED | нет `--front`/`--no-front`, hierarchy≠off | exit 8, `journal_gate_refuse` |
 | блок ДО | обоснование order.md | PreToolUse Write/Edit order.md | deny, если нет `_order_has_basis` (хуки Kimi; иначе чипы/инспектор) |
 | контроль-после | автопрокурор | end роли волны, фронт idle, lockdir | detached `prosecutor-auto-<F>-<n>`, раз в волну |
-| панель | красные чипы `/api/health` | runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn | наблюдение |
+| панель | красные чипы `/api/health` | runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn, advisors_without_scouts (no-front scout = покрытие; чужой front — нет), general_resume_chain (только активные/живые цепочки, окно 1800с) | наблюдение; семантика — MAP.md |
 
 Не покрыто старт-гейтом в sg1 (фолбэк: инспектор + чипы): advisor-факт
 за строкой приказа, «руки — не сдача», HITL.
