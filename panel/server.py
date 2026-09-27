@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -32,7 +33,7 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _guard_lock = threading.Lock()
 _guard_snapshot = {"overflows": [], "poll_s": 2}
 
-# Кэш /api/health: ключ = (mtime journal, mtime fronts.json, mtime fronts/)
+# Кэш /api/health: ключ = (mtime journal, mtime fronts.json, mtime fronts/, HEAD)
 _health_lock = threading.Lock()
 _health_cache = {"key": None, "payload": None, "computed_at": 0.0}
 
@@ -43,8 +44,26 @@ PANEL_FRONT_STATUSES = (
 DEFAULT_WARN_RUNS_PER_FRONT = 60
 
 
+def _kit_head_hash():
+    """Короткий/полный HEAD хэш кита для ключа кэша health; сбой → \"\"."""
+    kit = getattr(orchlib, "KIT_DIR", None) or PANEL_DIR
+    try:
+        r = subprocess.run(
+            ["git", "-C", kit, "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=5,
+        )
+        if r.returncode != 0:
+            return ""
+        return (r.stdout or "").strip()
+    except Exception:
+        return ""
+
+
 def _health_mtime_key(state):
-    """Ключ кэша: mtime journal.jsonl + fronts.json + fronts/."""
+    """Ключ кэша: mtime journal.jsonl + fronts.json + fronts/ + kit HEAD."""
     paths = [
         os.path.join(state, "journal.jsonl"),
         os.path.join(state, "fronts.json"),
@@ -71,11 +90,12 @@ def _health_mtime_key(state):
     except Exception:
         pass
     mt.append(max_inner)
-    return tuple(mt)
+    # HEAD: mask-коммиты меняют wave_no_docs без сдвига mtime journal/fronts
+    return (tuple(mt), _kit_head_hash())
 
 
 def _health_payload():
-    """Шесть счётчиков красных чипов; кэш по mtime journal+fronts."""
+    """Красные чипы health; кэш по mtime journal+fronts и kit HEAD."""
     state = orchlib.find_state_dir()
     key = _health_mtime_key(state)
     with _health_lock:
