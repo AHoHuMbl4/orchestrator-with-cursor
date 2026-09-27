@@ -516,6 +516,28 @@
       "created": 1790542226.7261248,
       "born_at": 1790542226.7261248,
       "run_ref": "FIX2-S1-docs"
+    },
+    {
+      "id": "case-e2e-audit-retro-2",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790543228.018654,
+      "born_at": 1790543228.018654,
+      "run_ref": "prosecutor-auto-F-E2E-ALL-5"
+    },
+    {
+      "id": "case-end-records-front-on-start",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1790543228.018654,
+      "born_at": 1790543228.018654,
+      "run_ref": null
     }
   ],
   "aliases": {}
