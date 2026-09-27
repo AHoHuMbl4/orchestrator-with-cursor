@@ -2200,8 +2200,10 @@ def _last_mask_commit(kit_dir):
 
 RULES_ACTIVE_LIMIT = 25
 RULES_CATEGORY_LIMIT = 20
+# Age-grace C3-DETECT: hit=0 старше N часов без доставки → undelivered/dead.
+RULES_DEAD_AGE_HOURS = 24.0
+# Сироты wave-age (заменены RULES_DEAD_AGE_HOURS); оставлены для lint-имён.
 RULES_DEAD_WAVES = 10
-# Age-grace: hit=0 карточка моложе K волн (wave_ends с ts > born_at||created) ≠ мёртвая.
 RULES_DEAD_AGE_WAVES = 10
 RULES_JEV_TIMEOUT_S = 35.0
 RULES_JEV_SHORTLIST_MAX = 10
@@ -2209,7 +2211,7 @@ RULES_KOMU = frozenset({
     "commander", "general", "colonel", "executor", "wrapper", "panel"})
 RULES_KOGDA = frozenset({
     "decomposition", "launch", "acceptance", "retro",
-    "prompt-submit", "post-tool", "task-active"})
+    "prompt-submit", "post-tool", "task-active", "chip-red"})
 RULES_TYPES = frozenset({"DON'T", "DO", "CASE"})
 
 
@@ -3089,6 +3091,8 @@ def archive_lru(kit_dir=None, state=None):
     """>25 активных → старейшие counters-hit=0 в archive/; hit>0 не архивируется.
 
     hit — из counters/rules-hits.json (стейт), не из manifest.
+    Исключает undelivered + патологический dead + hit=0∧deliveries=0∧opportunity
+    (без порога возраста) — иначе LRU скроет сигнал доставки.
     Возвращает список id, ушедших в archive. Активные после вызова ≤25
     (если хватает hit=0 кандидатов).
     """
@@ -3103,6 +3107,29 @@ def archive_lru(kit_dir=None, state=None):
              if int(hits.get(c.get("id")) or 0) == 0]
     zeros.sort(key=lambda x: (float(x.get("created") or 0),
                               str(x.get("id") or "")))
+    protect = set()
+    chips = {}
+    try:
+        chips = health_red_chips(state=state, kit_dir=kit_dir)
+        protect |= set(chips.get("rules_undelivered") or [])
+        protect |= set(chips.get("rules_dead") or [])
+    except Exception:
+        chips = {}
+    try:
+        st = state if state is not None else find_state_dir()
+        full = _journal_entries_at(st)
+        dcounts = _rules_delivery_counts(full)
+        for c in zeros:
+            cid = c.get("id")
+            if not cid or cid in protect:
+                continue
+            if int(dcounts.get(cid) or 0) != 0:
+                continue
+            if _rules_has_opportunity(
+                    c, full, manifest, other_chips=chips):
+                protect.add(cid)
+    except Exception:
+        pass
     need = len(active) - limit
     moved = []
     arch_root = rules_archive_dir(kit_dir)
@@ -3111,7 +3138,7 @@ def archive_lru(kit_dir=None, state=None):
         if need <= 0:
             break
         cid = c.get("id")
-        if not cid:
+        if not cid or cid in protect:
             continue
         src = _rules_card_file_path(c, kit_dir, archived=False)
         dst = _rules_card_file_path(c, kit_dir, archived=True)
@@ -3237,7 +3264,7 @@ def add_rule_card(тип, категория, кому, когда, части, 
     Формат файла: frontmatter + ## части (≤2 строки/часть).
     части: list[(title, body)] или dict {title: body} (адаптер → list пар).
     Карточка с run_ref гасит rules_no_retro для этой волны (см. _rules_no_retro_ids).
-    born_at — штамп рождения (ts); age-grace rules_dead смотрит born_at||created.
+    born_at — штамп рождения (ts); age-grace undelivered/dead: now−(born_at||created).
     Возвращает id; при невалидных аргументах — ValueError.
     """
     if тип not in RULES_TYPES:
@@ -3972,7 +3999,7 @@ def format_retro_lines(run_id, state=None, kit_dir=None, session=None,
 
 
 def _rules_card_waves_since(waves, created):
-    """Число wave_ends с ts > created (возраст карточки в волнах)."""
+    """Сирота wave-age (C3-DETECT → hours); число wave_ends с ts > created."""
     try:
         created_f = float(created or 0)
     except (TypeError, ValueError):
@@ -3988,28 +4015,176 @@ def _rules_card_waves_since(waves, created):
     return n
 
 
-def _rules_dead_ids(entries, kit_dir=None, state=None):
-    """Активные counters-hit=0 при ≥N=10 волн в журнале.
+def _rules_card_age_ts(card):
+    """born_at если есть, иначе created."""
+    if not isinstance(card, dict):
+        return 0
+    if card.get("born_at") is not None:
+        return card.get("born_at")
+    return card.get("created")
 
-    hit — из counters/rules-hits.json (стейт); manifest.hit игнорируется.
-    Age-grace (K=RULES_DEAD_AGE_WAVES): hit=0 моложе K волн
-    (wave_ends журнала с ts > age_ts) не флагается — новичок ≠ мёртвый.
-    age_ts = born_at если есть, иначе created.
+
+def _rules_age_hours(card, now=None):
+    """Возраст карточки в часах: now − (born_at||created)."""
+    if now is None:
+        now = time.time()
+    try:
+        age_ts = float(_rules_card_age_ts(card) or 0)
+    except (TypeError, ValueError):
+        age_ts = 0.0
+    try:
+        now_f = float(now)
+    except (TypeError, ValueError):
+        now_f = time.time()
+    return (now_f - age_ts) / 3600.0
+
+
+def _rules_delivery_counts(entries):
+    """id → число card_injected в полном журнале."""
+    counts = {}
+    for e in entries or []:
+        if not isinstance(e, dict) or e.get("kind") != "card_injected":
+            continue
+        cid = e.get("card")
+        if not cid:
+            continue
+        counts[cid] = counts.get(cid, 0) + 1
+    return counts
+
+
+def _rules_other_red_active(other_chips):
+    """Есть ли непустой чип кроме rules_undelivered/rules_dead (для chip-red)."""
+    if not isinstance(other_chips, dict):
+        return False
+    for k, v in other_chips.items():
+        if k in ("rules_undelivered", "rules_dead"):
+            continue
+        if v:
+            return True
+    return False
+
+
+def _rules_has_opportunity(card, full_entries, manifest, other_chips=None):
+    """JOIN-контракт возможности доставки (i)/(ii)/(iii).
+
+    (i) после born_at есть card_injected card≠id с journal.kogda == когда
+        кандидата и (manifest[card].кому == кому ИЛИ role_to_komu(role) == кому);
+        совпадение адресов двух карточек в манифесте НЕДОСТАТОЧНО.
+    (ii) когда=launch — start роли→кому после born_at.
+    (iii) когда=chip-red — сейчас есть непустой чип кроме undelivered/dead.
     """
-    waves = _rules_wave_ends(entries)
-    if len(waves) < RULES_DEAD_WAVES:
-        return []
+    if not isinstance(card, dict):
+        return False
+    cid = card.get("id")
+    komu = card.get("кому")
+    kogda = card.get("когда")
+    if not cid or not komu or not kogda:
+        return False
+    try:
+        born = float(_rules_card_age_ts(card) or 0)
+    except (TypeError, ValueError):
+        born = 0.0
+    # (i) sibling inject with matching journal.kogda × address
+    for e in full_entries or []:
+        if not isinstance(e, dict) or e.get("kind") != "card_injected":
+            continue
+        other_id = e.get("card")
+        if not other_id or other_id == cid:
+            continue
+        try:
+            ets = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ets <= born:
+            continue
+        if e.get("kogda") != kogda:
+            continue
+        other_card = _rules_card_by_id(manifest, other_id)
+        other_komu = other_card.get("кому") if other_card else None
+        role_komu = role_to_komu(e.get("role")) if e.get("role") else None
+        if other_komu == komu or role_komu == komu:
+            return True
+    # (ii) launch start
+    if kogda == "launch":
+        for e in full_entries or []:
+            if not isinstance(e, dict) or e.get("kind") != "start":
+                continue
+            try:
+                ets = float(e.get("ts") or 0)
+            except (TypeError, ValueError):
+                continue
+            if ets <= born:
+                continue
+            if role_to_komu(e.get("role")) == komu:
+                return True
+    # (iii) chip-red trigger сейчас
+    if kogda == "chip-red" and _rules_other_red_active(other_chips):
+        return True
+    return False
+
+
+def _rules_classify_hit0(kit_dir=None, state=None, other_chips=None, now=None):
+    """Ветвление hit=0: (undelivered_ids, dead_ids).
+
+    Кандидат = active hit=0 и возраст > RULES_DEAD_AGE_HOURS.
+    (а) доставок 0 и была возможность → undelivered;
+    (б) доставок ≥1 → dead;
+    (в) доставок 0 и возможностей 0 → тишина.
+    Доставки/возможности — полный journal.jsonl (не окно HEALTH_JOURNAL_SCAN_LIMIT);
+    полный проход только если есть hit=0-кандидаты по counters+manifest.
+    """
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    if state is None:
+        state = find_state_dir()
+    if now is None:
+        now = time.time()
     manifest = load_manifest(kit_dir)
     hits = _rules_load_hits(state)
-    dead = []
+    hit0 = []
     for c in _rules_active_cards(manifest):
         cid = c.get("id")
-        if not cid or int(hits.get(cid) or 0) != 0:
+        if not cid:
             continue
-        age_ts = c.get("born_at") if c.get("born_at") is not None else c.get("created")
-        if _rules_card_waves_since(waves, age_ts) < RULES_DEAD_AGE_WAVES:
+        if int(hits.get(cid) or 0) != 0:
             continue
-        dead.append(cid)
+        hit0.append(c)
+    if not hit0:
+        return [], []
+    full = _journal_entries_at(state)
+    deliveries = _rules_delivery_counts(full)
+    undelivered = []
+    dead = []
+    grace = float(RULES_DEAD_AGE_HOURS)
+    for c in hit0:
+        cid = c.get("id")
+        if _rules_age_hours(c, now) <= grace:
+            continue
+        d = int(deliveries.get(cid) or 0)
+        if d >= 1:
+            dead.append(cid)
+        elif _rules_has_opportunity(
+                c, full, manifest, other_chips=other_chips):
+            undelivered.append(cid)
+    return undelivered, dead
+
+
+def _rules_undelivered_ids(entries, kit_dir=None, state=None, other_chips=None):
+    """Активные hit=0 age>grace без доставок при наличии возможности."""
+    undelivered, _dead = _rules_classify_hit0(
+        kit_dir=kit_dir, state=state, other_chips=other_chips)
+    return undelivered
+
+
+def _rules_dead_ids(entries, kit_dir=None, state=None, other_chips=None):
+    """Активные hit=0 age>grace с ≥1 card_injected (патология счётчика).
+
+    hit — из counters/rules-hits.json (стейт); manifest.hit игнорируется.
+    Age-grace: now − (born_at||created) > RULES_DEAD_AGE_HOURS.
+    entries — совместимость API; доставки читаются из полного journal.
+    """
+    _undelivered, dead = _rules_classify_hit0(
+        kit_dir=kit_dir, state=state, other_chips=other_chips)
     return dead
 
 
@@ -4318,6 +4493,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "manifest_category_oversize": [],
         "lint_failures": [],
         # ADDITIVE MARKER: FA-C3 chips
+        "rules_undelivered": [],
         "probes_missing": [],
         "chip_silenced": [],
         "general_resume_chain": [],
@@ -4610,7 +4786,6 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
         try:
             rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
-            rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir, state=state)
             manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
         finally:
             if _prev_no_mig is None:
@@ -4644,6 +4819,38 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             resume_warn = []
 
+        # undelivered/dead после прочих чипов — (iii) chip-red без самозавода
+        other_chips = {
+            "runs_no_front": runs_no_front,
+            "orders_without_basis": orders,
+            "fronts_no_prosecutor": fronts_no_prosecutor,
+            "waves_no_critic": waves_no_critic,
+            "code_waves_no_gitwarden": code_waves_no_gitwarden,
+            "budget_warn": budget_warn,
+            "advisors_without_scouts": advisors_without_scouts,
+            "commander_no_children": commander_no_children,
+            "wave_no_docs": wave_no_docs,
+            "rules_no_retro": rules_no_retro,
+            "manifest_category_oversize": manifest_category_oversize,
+            "lint_failures": lint_failures,
+            "probes_missing": probes,
+            "chip_silenced": silenced,
+            "general_resume_chain": resume_chain,
+            "general_resume_chain_warn": resume_warn,
+        }
+        _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
+        os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
+        try:
+            rules_undelivered, rules_dead = _rules_classify_hit0(
+                kit_dir=kit_dir, state=state, other_chips=other_chips)
+        except Exception:
+            rules_undelivered, rules_dead = [], []
+        finally:
+            if _prev_no_mig2 is None:
+                os.environ.pop("ORCH_RULES_NO_MIGRATE", None)
+            else:
+                os.environ["ORCH_RULES_NO_MIGRATE"] = _prev_no_mig2
+
         return {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
@@ -4658,6 +4865,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "rules_dead": rules_dead,
             "manifest_category_oversize": manifest_category_oversize,
             "lint_failures": lint_failures,
+            "rules_undelivered": rules_undelivered,
             "probes_missing": probes,
             "chip_silenced": silenced,
             "general_resume_chain": resume_chain,

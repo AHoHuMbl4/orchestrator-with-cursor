@@ -929,6 +929,19 @@ def cmd_prompt_submit(engine, fmt):
                     rules_lines.append(ln)
     except Exception as e:
         sys.stderr.write("task-active inject failed: %s\n" % e)
+    # chip-red: при красных чипах — карточки адреса commander×chip-red (C3-DETECT)
+    try:
+        _chips = orchlib.health_red_chips()
+        if any(_chips.get(k) for k in _chips):
+            for ln in orchlib.format_step_inject_lines(
+                    "commander", "chip-red", role="commander",
+                    caller="reground",
+                    extra={"kogda": "chip-red", "role": "commander",
+                           "caller": "reground"}):
+                if ln not in rules_lines:
+                    rules_lines.append(ln)
+    except Exception as e:
+        sys.stderr.write("chip-red inject failed: %s\n" % e)
     if not guard and not nudge and prev == marks and not kit_update:
         # params/compass не менялись — всё равно вклеиваем Kit (всегда)
         base = (head + kit_line) if head else kit_line

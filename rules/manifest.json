@@ -461,6 +461,28 @@
       "created": 1790531692.7805195,
       "born_at": 1790531692.7805195,
       "run_ref": "OWNER-INCIDENT-20260927"
+    },
+    {
+      "id": "dont-ne-glushit-signal-detektora-bez-prichiny",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790534878.5267892,
+      "born_at": 1790534878.5267892,
+      "run_ref": "P16/746a629"
+    },
+    {
+      "id": "dont-kontrakty-dannyh-fixiruj-v-plane-do-starta",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1790534878.6017547,
+      "born_at": 1790534878.6017547,
+      "run_ref": "prosecutor-auto-F-C3-4"
     }
   ],
   "aliases": {}
