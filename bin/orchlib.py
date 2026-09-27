@@ -4026,6 +4026,262 @@ def _rules_category_oversize(kit_dir=None):
             if n > RULES_CATEGORY_LIMIT]
 
 
+# F-C1 D2: вечный генерал — wire-детектор resume-цепочки по фронтам.
+_FRONT_GENERAL_PROMPT_MARK = "роль: meta/front-general.md"
+_GENERAL_FRONT_ID_RE = re.compile(r"Фронт (F-[A-Z0-9]+)")
+_AGENT_WIRE_DIR_RE = re.compile(r"^agent-.+")
+
+
+def find_engine_home():
+    """Корень движка (Kimi): ORCH_ENGINE_HOME | KIMI_CODE_HOME | KIMI_HOME | ~/.kimi-code."""
+    for key in ("ORCH_ENGINE_HOME", "KIMI_CODE_HOME", "KIMI_HOME"):
+        val = os.environ.get(key)
+        if val:
+            return os.path.abspath(os.path.expanduser(val))
+    return os.path.join(os.path.expanduser("~"), ".kimi-code")
+
+
+def _agent_wire_search_roots(state=None):
+    """Каталоги, в которых искать agents/agent-*/wire.jsonl (fail-open).
+
+    Порядок: ORCH_AGENTS_ROOT; state/agents (синтетика); сессии движка
+    ({engine}/sessions/**/session_*/agents), предпочтительно session_id из
+    state/sessions/.
+    """
+    roots = []
+    seen = set()
+
+    def _add(path):
+        if not path:
+            return
+        ap = os.path.abspath(path)
+        if ap in seen:
+            return
+        seen.add(ap)
+        roots.append(ap)
+
+    override = os.environ.get("ORCH_AGENTS_ROOT")
+    if override:
+        _add(override)
+    if state:
+        _add(os.path.join(state, "agents"))
+
+    eng_sessions = os.path.join(find_engine_home(), "sessions")
+    orch_sids = set()
+    if state:
+        try:
+            sdir = os.path.join(state, "sessions")
+            if os.path.isdir(sdir):
+                for name in os.listdir(sdir):
+                    if name.startswith("session_") and os.path.isdir(
+                            os.path.join(sdir, name)):
+                        orch_sids.add(name)
+        except Exception:
+            orch_sids = set()
+    try:
+        if os.path.isdir(eng_sessions):
+            for wd in os.listdir(eng_sessions):
+                wd_path = os.path.join(eng_sessions, wd)
+                if not os.path.isdir(wd_path):
+                    continue
+                try:
+                    children = os.listdir(wd_path)
+                except Exception:
+                    continue
+                for child in children:
+                    if not child.startswith("session_"):
+                        continue
+                    if orch_sids and child not in orch_sids:
+                        continue
+                    _add(os.path.join(wd_path, child, "agents"))
+                # layout без wd-префикса: sessions/session_*/agents
+                if wd.startswith("session_"):
+                    if orch_sids and wd not in orch_sids:
+                        continue
+                    _add(os.path.join(wd_path, "agents"))
+    except Exception:
+        pass
+    # Нет списка orch-сессий — уже добавили все session_*; если orch_sids
+    # отфильтровал всё впустую, второй проход без фильтра не нужен: пусто
+    # → без красного (fail-open). Если orch_sids пуст — фильтр не применялся.
+    return roots
+
+
+def _iter_agent_wire_paths(state=None):
+    """Yield (agent_name, wire_path) для agents/agent-*/wire.jsonl."""
+    for root in _agent_wire_search_roots(state):
+        try:
+            if not os.path.isdir(root):
+                continue
+            for name in sorted(os.listdir(root)):
+                if not _AGENT_WIRE_DIR_RE.match(name):
+                    continue
+                wire = os.path.join(root, name, "wire.jsonl")
+                if os.path.isfile(wire):
+                    yield name, wire
+        except Exception:
+            continue
+
+
+def _wire_prompt_texts(obj):
+    """Тексты промтов из записи wire (turn.prompt.input[].text)."""
+    if not isinstance(obj, dict):
+        return []
+    if obj.get("type") != "turn.prompt":
+        return []
+    texts = []
+    inp = obj.get("input")
+    if isinstance(inp, list):
+        for item in inp:
+            if isinstance(item, dict):
+                t = item.get("text")
+                if isinstance(t, str) and t:
+                    texts.append(t)
+            elif isinstance(item, str) and item:
+                texts.append(item)
+    elif isinstance(inp, str) and inp:
+        texts.append(inp)
+    return texts
+
+
+def _scan_agent_general_fronts(wire_path):
+    """(ordered_fronts, ts_first, ts_last) по wire; пусто → ([], None, None)."""
+    ordered = []
+    seen = set()
+    ts_first = None
+    ts_last = None
+    try:
+        with open(wire_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                except Exception:
+                    continue
+                texts = _wire_prompt_texts(obj)
+                if not texts:
+                    continue
+                ts = obj.get("time")
+                if ts is None:
+                    ts = obj.get("ts") or obj.get("created_at")
+                for text in texts:
+                    if _FRONT_GENERAL_PROMPT_MARK not in text:
+                        continue
+                    m = _GENERAL_FRONT_ID_RE.search(text)
+                    if not m:
+                        continue
+                    front = m.group(1)
+                    if front not in seen:
+                        seen.add(front)
+                        ordered.append(front)
+                        if ts_first is None:
+                            ts_first = ts
+                    ts_last = ts
+    except Exception:
+        return [], None, None
+    return ordered, ts_first, ts_last
+
+
+def general_resume_chain(state=None):
+    """Цепочки resume: агент с >1 distinct фронтом генерала в wire.
+
+    Источник истины — agents/agent-*/wire.jsonl сессий движка (корни из
+    find_engine_home / ORCH_AGENTS_ROOT / state/agents). Недоступно/пусто → [].
+    Элемент: «agent-N:[F-A,F-B] ts=first..last». Fail-open.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        out = []
+        for agent, wire in _iter_agent_wire_paths(state):
+            fronts, ts_first, ts_last = _scan_agent_general_fronts(wire)
+            if len(fronts) <= 1:
+                continue
+            out.append(
+                "%s:[%s] ts=%s..%s" % (
+                    agent,
+                    ",".join(fronts),
+                    ts_first if ts_first is not None else "?",
+                    ts_last if ts_last is not None else "?",
+                )
+            )
+        return out
+    except Exception:
+        return []
+
+
+def general_resume_chain_warn(state=None, entries=None):
+    """WARN-эвристика по journal: один subagent id — start/end с разными front.
+
+    Только fallback, когда wire-корни недоступны/без wire-файлов.
+    Не красный чип. Fail-open.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        # Wire доступен и непуст → warn не нужен (истина в wire).
+        if any(True for _ in _iter_agent_wire_paths(state)):
+            return []
+        if entries is None:
+            path = os.path.join(state, "journal.jsonl")
+            entries = []
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for raw in f:
+                        s = raw.strip()
+                        if not s:
+                            continue
+                        try:
+                            obj = json.loads(s)
+                        except Exception:
+                            continue
+                        if isinstance(obj, dict):
+                            entries.append(obj)
+            except Exception:
+                return []
+        # id → ordered distinct fronts from engine-subagent start with front=
+        by_id = {}
+        ts_first = {}
+        ts_last = {}
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            if e.get("engine") != "engine-subagent":
+                continue
+            if e.get("kind") not in ("start", "end"):
+                continue
+            fr = e.get("front")
+            if not isinstance(fr, str) or not fr.startswith("F-"):
+                continue
+            eid = e.get("id") or ""
+            if not eid:
+                continue
+            lst = by_id.setdefault(eid, [])
+            if fr not in lst:
+                lst.append(fr)
+            ts = e.get("ts")
+            if eid not in ts_first:
+                ts_first[eid] = ts
+            ts_last[eid] = ts
+        out = []
+        for eid, fronts in by_id.items():
+            if len(fronts) <= 1:
+                continue
+            out.append(
+                "journal:%s:[%s] ts=%s..%s" % (
+                    eid,
+                    ",".join(fronts),
+                    ts_first.get(eid) if ts_first.get(eid) is not None else "?",
+                    ts_last.get(eid) if ts_last.get(eid) is not None else "?",
+                )
+            )
+        return out
+    except Exception:
+        return []
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
@@ -4043,6 +4299,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
 
     rules_no_retro / rules_dead / manifest_category_oversize — база rules/
     в kit_dir (хук для /tmp-синтетики).
+
+    general_resume_chain: красный по agents-wire (>1 фронт генерала на агента).
+    general_resume_chain_warn: WARN-журнал-эвристика только если wire недоступен.
     """
     empty = {
         "runs_no_front": [],
@@ -4061,6 +4320,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         # ADDITIVE MARKER: FA-C3 chips
         "probes_missing": [],
         "chip_silenced": [],
+        "general_resume_chain": [],
+        "general_resume_chain_warn": [],
     }
     try:
         if state is None:
@@ -4372,6 +4633,17 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             silenced = []
 
+        # F-C1 D2: general_resume_chain (wire) + warn fallback (journal)
+        try:
+            resume_chain = general_resume_chain(state=state)
+        except Exception:
+            resume_chain = []
+        try:
+            resume_warn = general_resume_chain_warn(
+                state=state, entries=entries)
+        except Exception:
+            resume_warn = []
+
         return {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
@@ -4388,6 +4660,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "lint_failures": lint_failures,
             "probes_missing": probes,
             "chip_silenced": silenced,
+            "general_resume_chain": resume_chain,
+            "general_resume_chain_warn": resume_warn,
         }
     except Exception:
         return empty

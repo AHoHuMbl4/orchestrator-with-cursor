@@ -42,6 +42,9 @@
   .chip-red { background: #fdecea; color: #b71c1c; cursor: pointer;
     margin: 2px 4px 2px 0; user-select: none; }
   .chip-red.zero { background: #eef0f3; color: #6f7b88; }
+  .chip-warn { background: #fff6db; color: #9a7400; cursor: pointer;
+    margin: 2px 4px 2px 0; user-select: none; }
+  .chip-warn.zero { background: #eef0f3; color: #6f7b88; }
   #healthChips { margin: 10px 0 4px; }
   #healthChipDetail { font-size: 12px; color: #5a6572; margin: 4px 0 8px;
     white-space: pre-wrap; }
@@ -312,6 +315,8 @@ const HEALTH_CHIP_LABELS = {
   // ADDITIVE MARKER: FA-C3 chips
   probes_missing: "нет пробы/квитанции",
   chip_silenced: "чип заглушен",
+  general_resume_chain: "resume-цепочка генерала",
+  general_resume_chain_warn: "resume-цепочка (warn)",
 };
 let _healthIds = {};
 let _healthOpen = null;
@@ -326,7 +331,9 @@ async function loadHealthChips(){
     Object.keys(HEALTH_CHIP_LABELS).forEach(k=>{
       const n = counts[k] || 0;
       const sp = document.createElement("span");
-      sp.className = "chip chip-red" + (n ? "" : " zero");
+      const isWarn = k.endsWith("_warn");
+      sp.className = "chip " + (isWarn ? "chip-warn" : "chip-red")
+        + (n ? "" : " zero");
       sp.textContent = HEALTH_CHIP_LABELS[k] + ": " + n;
       sp.onclick = function(){
         const det = document.getElementById("healthChipDetail");
