@@ -2831,6 +2831,22 @@ _RULES_GATE_REFUSALS = frozenset({
     "FRONT_REQUIRED", "FRONT_CLOSED", "BUDGET_HARD",
     "SECRETS_IN_PROMPT", "API_KEY_REQUIRED",
 })
+# exit-коды обёрток при отказе гейта (run-exec / run-cloud).
+_GATE_REFUSE_EXITS = frozenset({5, 6, 7, 8, 9, 11, 12})
+
+
+def _end_is_gate_refuse(exit_code, gates):
+    """True если end — отказ гейта (exit∈_GATE_REFUSE_EXITS или refusal gates)."""
+    try:
+        if exit_code is not None and int(exit_code) in _GATE_REFUSE_EXITS:
+            return True
+    except (TypeError, ValueError):
+        pass
+    if isinstance(gates, list):
+        for g in gates:
+            if isinstance(g, str) and g in _RULES_GATE_REFUSALS:
+                return True
+    return False
 
 
 def _rules_end_is_problem(entry):
@@ -3230,6 +3246,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 "front": st.get("front"),
                 "role": normalize_journal_role(st.get("role")),
                 "gates": e.get("gates") or [],
+                "exit": e.get("exit"),
+                "readonly": bool(st.get("readonly")),
                 "start_ts": st.get("ts"),
                 "entry": e,
             })
@@ -3335,10 +3353,13 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             wave_ends = [x for x in f_ends if _role_is_wave_work(x.get("role"))]
             # Работа, которой нужен критик: не сами критики и не git-warden
             # (ревизия после волны — доктрина, не «волна без критика»).
+            # W0 аддитивно: readonly / gate-refuse тоже не «волна без критиков».
             needs_critic = [
                 x for x in wave_ends
                 if not _role_is_critic(x.get("role"))
                 and not _role_is_gitwarden(x.get("role"))
+                and not x.get("readonly")
+                and not _end_is_gate_refuse(x.get("exit"), x.get("gates"))
             ]
             pros_ends = [x for x in f_ends if _role_is_prosecutor(x.get("role"))]
             if status == "active" and wave_ends and not pros_ends:
