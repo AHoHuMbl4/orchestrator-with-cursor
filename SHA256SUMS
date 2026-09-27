@@ -6,8 +6,8 @@ af27e8f97e9ef32c80ba33b362f3ea482d00eb5ba28c44aef6737c9d7ffa2d38  ./.gitignore
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
-1ee0cdfa3c92c0e052facbc8df83b642759be5d8bee396ed29fde3837d013ebf  ./bin/orch-lint.py
-bd974ff01f892bdda4940dc2733979f3f318aed5be559521392639b67068ca61  ./bin/orchlib.py
+0b993d811d1dda3b80c1ab7de96b8aefe12cb6acd74694272f9c2ae306ee0019  ./bin/orch-lint.py
+fc1f6f1e951e7b7d14f77848346a3a036127db59f37152baac5ca0cd759fc1b1  ./bin/orchlib.py
 011adde9ea1b64434d7d49ec6722e2da3de300699d6b2766f53d7d3a459d3d3a  ./bin/reground.py
 b4a83ab46956afec7cc523f0c41cdb4409b40f2700b4841c3ab2686278d389be  ./bin/run-cloud.py
 146ceb6bbf03b648d80d6612fa141202087dc8d3d04a8357d5346ad476e0df6f  ./bin/run-exec.py
@@ -233,6 +233,7 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
 22fbaea3e7ffb0632cf00c7d74b65bf4a117fa07d280bfb2ad15c64f69f75406  ./skills/orchestration/references/traps.md
+56d320ffdf1643fc16654f3df98fb97c2d258a04db5ff756c5c0323a2f3f6201  ./tests/cause-cleared-born-at.sh
 67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh
