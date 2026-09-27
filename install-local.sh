@@ -11,6 +11,39 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 TARGET="$(pwd)"
 
+# Тест-режим: ORCH_TEST_INSTALL=1 ИЛИ KIT лежит под /tmp|/var/tmp.
+# В тест-режиме не пишем конфиги движков и не трогаем TARGET
+# (ранний выход до любой мутации, включая проверку SHA256SUMS).
+TEST_INSTALL=0
+TEST_REASON=""
+if [ "${ORCH_TEST_INSTALL:-}" = "1" ]; then
+  TEST_INSTALL=1
+  TEST_REASON="ORCH_TEST_INSTALL=1"
+fi
+case "$KIT" in
+  /tmp|/tmp/*|/var/tmp|/var/tmp/*)
+    TEST_INSTALL=1
+    if [ -z "$TEST_REASON" ]; then
+      TEST_REASON="KIT under tmp ($KIT)"
+    else
+      TEST_REASON="$TEST_REASON; KIT under tmp ($KIT)"
+    fi
+    ;;
+esac
+if [ "$TEST_INSTALL" = "1" ]; then
+  for f in \
+    "$HOME/.claude/settings.json" \
+    "$HOME/.codex/hooks.json" \
+    "$HOME/.kimi-code/config.toml"
+  do
+    if [ -e "$f" ]; then
+      [ -r "$f" ] || { echo "ОШИБКА: не читается $f" >&2; exit 1; }
+    fi
+  done
+  echo "TEST INSTALL: хуки/конфиги не тронуты (проверка: $TEST_REASON)"
+  exit 0
+fi
+
 # --global: скилл/хуки Claude и Codex на уровень пользователя (работает во всех папках);
 # .orchestration (params/compass) всегда остаётся per-folder — у каждой папки свои параметры.
 GLOBAL=0
