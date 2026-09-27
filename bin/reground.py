@@ -84,8 +84,11 @@ def _load_params_or_refuse():
 _PENDING_COMPASS_TTL_S = 24 * 3600
 
 
-def _read_pending_compass_flag(path):
-    """Читает pending_compass_guard.json; протухший (>24ч mtime) — игнор+unlink."""
+def _read_pending_compass_payload(path):
+    """Читает pending_compass_guard.json целиком; протухший (>24ч mtime) — unlink+None.
+
+    Возвращает dict ({overflows, ...}) или None. List-форма → {"overflows": list}.
+    """
     try:
         age = time.time() - os.stat(path).st_mtime
     except OSError:
@@ -100,12 +103,32 @@ def _read_pending_compass_flag(path):
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
         if isinstance(payload, dict):
-            return payload.get("overflows")
-        if isinstance(payload, list):
             return payload
+        if isinstance(payload, list):
+            return {"overflows": payload}
     except Exception:
         pass
     return None
+
+
+def _read_pending_compass_flag(path):
+    """Читает pending_compass_guard.json; протухший (>24ч mtime) — игнор+unlink.
+
+    Возвращает список overflows для показа, либо None (нет / TTL / test-флаг).
+    Test-флаг (payload.test или overflows с test) — не для показа; файл остаётся
+    до consume-on-delivery в cmd_prompt_submit.
+    """
+    payload = _read_pending_compass_payload(path)
+    if not payload:
+        return None
+    if payload.get("test"):
+        return None
+    overflows = payload.get("overflows")
+    if not overflows:
+        return None
+    if any(isinstance(o, dict) and o.get("test") for o in overflows):
+        return None
+    return overflows
 
 
 def counter_file(session_id):
