@@ -1847,6 +1847,8 @@ def _last_mask_commit(kit_dir):
 RULES_ACTIVE_LIMIT = 25
 RULES_CATEGORY_LIMIT = 20
 RULES_DEAD_WAVES = 10
+# Age-grace: hit=0 карточка моложе K волн (wave_ends с ts > created) ≠ мёртвая.
+RULES_DEAD_AGE_WAVES = 10
 RULES_JEV_TIMEOUT_S = 35.0
 RULES_JEV_SHORTLIST_MAX = 10
 RULES_KOMU = frozenset({
@@ -3056,10 +3058,29 @@ def format_retro_lines(run_id, state=None, kit_dir=None, session=None,
     return []
 
 
+def _rules_card_waves_since(waves, created):
+    """Число wave_ends с ts > created (возраст карточки в волнах)."""
+    try:
+        created_f = float(created or 0)
+    except (TypeError, ValueError):
+        created_f = 0.0
+    n = 0
+    for w in waves:
+        try:
+            wts = float(w.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if wts > created_f:
+            n += 1
+    return n
+
+
 def _rules_dead_ids(entries, kit_dir=None, state=None):
     """Активные counters-hit=0 при ≥N=10 волн в журнале.
 
     hit — из counters/rules-hits.json (стейт); manifest.hit игнорируется.
+    Age-grace (K=RULES_DEAD_AGE_WAVES): hit=0 с created моложе K волн
+    (wave_ends журнала с ts > created) не флагается — новичок ≠ мёртвый.
     """
     waves = _rules_wave_ends(entries)
     if len(waves) < RULES_DEAD_WAVES:
@@ -3069,8 +3090,11 @@ def _rules_dead_ids(entries, kit_dir=None, state=None):
     dead = []
     for c in _rules_active_cards(manifest):
         cid = c.get("id")
-        if cid and int(hits.get(cid) or 0) == 0:
-            dead.append(cid)
+        if not cid or int(hits.get(cid) or 0) != 0:
+            continue
+        if _rules_card_waves_since(waves, c.get("created")) < RULES_DEAD_AGE_WAVES:
+            continue
+        dead.append(cid)
     return dead
 
 
