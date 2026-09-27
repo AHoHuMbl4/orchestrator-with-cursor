@@ -2030,6 +2030,227 @@ def _rules_card_file_path(card, kit_dir=None, archived=False):
     return os.path.join(base, cat, "%s.md" % cid)
 
 
+def role_to_komu(role):
+    """Каталог роли → уровень RULES_KOMU; неизвестная → None (безадресный).
+
+    meta/front-general→general, meta/front-colonel→colonel, code/*→executor,
+    обёртки/wrapper→wrapper, panel→panel; голый токен из RULES_KOMU — как есть.
+    """
+    if not isinstance(role, str) or not role.strip():
+        return None
+    r = normalize_journal_role(role)
+    if not isinstance(r, str) or not r.strip():
+        return None
+    r = r.replace("\\", "/").strip().lstrip("./")
+    # голый уровень или «wrapper.md»
+    stem = r[:-3] if r.endswith(".md") and "/" not in r else r
+    if stem in RULES_KOMU:
+        return stem
+    if r in RULES_KOMU:
+        return r
+    low = r.lower()
+    base = low.split("/")[-1]
+    if low.startswith("meta/"):
+        if "front-general" in low or base == "front-general.md":
+            return "general"
+        if "front-colonel" in low or base == "front-colonel.md":
+            return "colonel"
+        if "panel" in base or "/panel" in low:
+            return "panel"
+        return None
+    if "wrapper" in base or low.startswith("wrapper/") or "/wrapper/" in low:
+        return "wrapper"
+    if low.startswith("code/"):
+        return "executor"
+    # прочие доменные роли каталога — исполнители
+    if "/" in r and r.endswith(".md"):
+        return "executor"
+    return None
+
+
+_RULES_SECTION_RE = re.compile(
+    r"^##\s+(\S[^\n]*?)\s*$", re.MULTILINE)
+_RULES_KEYFILE_RE = re.compile(
+    r"(?:(?<![A-Za-z0-9_])(?:bin|rules|skills|panel|meta|code|references)"
+    r"/[\w./-]+|[\w.-]+\.(?:py|md|json|sh|key))")
+
+
+def _rules_parse_sections(text):
+    """Разбор ## секций карточки → {имя_нижний: текст}."""
+    if not text:
+        return {}
+    matches = list(_RULES_SECTION_RE.finditer(text))
+    out = {}
+    for i, m in enumerate(matches):
+        name = (m.group(1) or "").strip().lower()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+        # одна-две строки части; forematter до ## игнорируем
+        lines = [ln.strip() for ln in body.splitlines() if ln.strip()
+                 and not ln.strip().startswith("---")]
+        out[name] = "\n".join(lines[:2]).strip()
+    return out
+
+
+def load_card_content(card_id, kit_dir=None):
+    """Карточка по id: path/type/sections + essence/golden/failure. None если нет."""
+    if not card_id:
+        return None
+    manifest = load_manifest(kit_dir)
+    card = _rules_card_by_id(manifest, card_id)
+    if card is None:
+        return None
+    path = _rules_card_file_path(card, kit_dir, archived=bool(card.get("archived")))
+    text = ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        text = ""
+    sections = _rules_parse_sections(text)
+    ctype = card.get("type") or ""
+    essence = (sections.get("правило") or sections.get("кейс")
+               or sections.get("ловушка") or "")
+    golden = (sections.get("золотая ссылка") or sections.get("пример") or "")
+    failure = (sections.get("ловушка") or sections.get("признак")
+               or sections.get("кейс") or "")
+    return {
+        "id": card_id,
+        "type": ctype,
+        "path": path,
+        "кому": card.get("кому"),
+        "когда": card.get("когда"),
+        "категория": card.get("категория"),
+        "sections": sections,
+        "essence": essence,
+        "golden": golden,
+        "failure": failure,
+        "text": text,
+    }
+
+
+def _rules_clip(s, n=80):
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    if len(s) <= n:
+        return s
+    return s[: max(0, n - 1)].rstrip() + "…"
+
+
+def _rules_prompt_keyfiles(prompt_text):
+    if not prompt_text:
+        return []
+    seen = []
+    for m in _RULES_KEYFILE_RE.finditer(prompt_text):
+        tok = m.group(0)
+        if tok not in seen:
+            seen.append(tok)
+    return seen
+
+
+def format_step_inject_lines(komu, kogda, kit_dir=None, state=None, limit=3,
+                             extra=None):
+    """Вклейки шага: 1–3 строк «[rules/<id>] <суть>≤80 → <path>» + record_hit.
+
+    Безадресный komu/kogda или нет совпадений → [].
+    """
+    if komu not in RULES_KOMU or kogda not in RULES_KOGDA:
+        return []
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
+    ids = match_cards(komu, kogda, category=None, kit_dir=kit_dir, limit=limit)
+    lines = []
+    for cid in ids:
+        if len(lines) >= limit:
+            break
+        info = load_card_content(cid, kit_dir=kit_dir)
+        if not info:
+            continue
+        essence = _rules_clip(info.get("essence") or cid, 80)
+        path = info.get("path") or ""
+        lines.append("[rules/%s] %s → %s" % (cid, essence, path))
+        try:
+            record_hit(cid, kit_dir=kit_dir, state=state, extra=extra)
+        except Exception:
+            pass
+    return lines
+
+
+def format_precedent_lines(komu, prompt_text=None, kit_dir=None, state=None,
+                           limit=3, extra=None):
+    """Прецеденты до старта (launch): DO/CASE «прецедент:» + DON'T «осторожно:».
+
+    Адрес DO/CASE: komu×launch. DON'T: тот же адрес и/или ключевые файлы промта
+    в теле карточки. Суммарно ≤limit (дефолт 3). Безадресный → [].
+    """
+    if komu not in RULES_KOMU:
+        return []
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
+    if limit == 0:
+        return []
+    manifest = load_manifest(kit_dir)
+    addr_ids = match_cards(komu, "launch", category=None, kit_dir=kit_dir,
+                           limit=None)
+    do_case = []
+    dont = []
+    for cid in addr_ids:
+        card = _rules_card_by_id(manifest, cid)
+        if not card:
+            continue
+        t = card.get("type")
+        if t in ("DO", "CASE"):
+            do_case.append(cid)
+        elif t == "DON'T":
+            dont.append(cid)
+    # DON'T по ключевым файлам промта (карточки+manifest, не journal/git)
+    keyfiles = _rules_prompt_keyfiles(prompt_text)
+    if keyfiles:
+        have = set(dont) | set(do_case)
+        for card in _rules_active_cards(manifest):
+            if card.get("type") != "DON'T":
+                continue
+            cid = card.get("id")
+            if not cid or cid in have:
+                continue
+            info = load_card_content(cid, kit_dir=kit_dir)
+            blob = ((info or {}).get("text") or "") + " " + " ".join(
+                str(card.get(k) or "") for k in ("id", "категория", "run_ref"))
+            if any(kf in blob for kf in keyfiles):
+                dont.append(cid)
+                have.add(cid)
+    lines = []
+    for cid in do_case:
+        if len(lines) >= limit:
+            break
+        info = load_card_content(cid, kit_dir=kit_dir)
+        if not info:
+            continue
+        ref = _rules_clip(info.get("golden") or info.get("essence") or cid, 120)
+        lines.append("прецедент: %s %s" % (cid, ref))
+        try:
+            record_hit(cid, kit_dir=kit_dir, state=state, extra=extra)
+        except Exception:
+            pass
+    for cid in dont:
+        if len(lines) >= limit:
+            break
+        info = load_card_content(cid, kit_dir=kit_dir)
+        if not info:
+            continue
+        case = _rules_clip(info.get("failure") or info.get("essence") or cid, 120)
+        lines.append("осторожно: %s %s" % (cid, case))
+        try:
+            record_hit(cid, kit_dir=kit_dir, state=state, extra=extra)
+        except Exception:
+            pass
+    return lines
+
+
 def archive_lru(kit_dir=None):
     """>25 активных → старейшие hit=0 в archive/; hit>0 не архивируется.
 
