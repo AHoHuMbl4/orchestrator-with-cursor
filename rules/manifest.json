@@ -8,7 +8,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1727400000.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "dont-freedom-or",
@@ -18,7 +19,8 @@
       "категория": "промты",
       "hit": 0,
       "created": 1727400001.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "dont-trust-summary",
@@ -29,7 +31,8 @@
       "hit": 0,
       "created": 1727400002.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-one-run-many",
@@ -40,7 +43,8 @@
       "hit": 0,
       "created": 1727400003.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-critic-sees-log",
@@ -51,7 +55,8 @@
       "hit": 0,
       "created": 1727400004.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-parallel-writers",
@@ -62,7 +67,8 @@
       "hit": 0,
       "created": 1727400005.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-pkill-prompt",
@@ -72,7 +78,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1727400006.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "dont-code-to-cloud",
@@ -83,7 +90,8 @@
       "hit": 0,
       "created": 1727400007.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-bg-timeout",
@@ -94,7 +102,8 @@
       "hit": 0,
       "created": 1727400008.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-role-from-head",
@@ -104,7 +113,8 @@
       "категория": "маршрутизация",
       "hit": 0,
       "created": 1727400009.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "dont-secrets-in-prompt",
@@ -115,7 +125,8 @@
       "hit": 0,
       "created": 1727400010.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-exit0-mask",
@@ -126,7 +137,8 @@
       "hit": 0,
       "created": 1727400011.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "do-scan-secrets",
@@ -136,7 +148,8 @@
       "категория": "промты",
       "hit": 0,
       "created": 1727400012.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "do-flock-journal",
@@ -147,7 +160,8 @@
       "hit": 0,
       "created": 1727400013.0,
       "run_ref": null,
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "case-dup-id-exit11",
@@ -157,7 +171,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1727400014.0,
-      "run_ref": null
+      "run_ref": null,
+      "born_at": 1790497066.0
     },
     {
       "id": "dont-runtime-hit-in-repo",
@@ -167,7 +182,8 @@
       "категория": "маршрутизация",
       "hit": 0,
       "created": 1790504843.6685367,
-      "run_ref": "F-RULES-R4"
+      "run_ref": "F-RULES-R4",
+      "born_at": 1790504847.0
     },
     {
       "id": "dont-plan-bez-vladelca-uslovnoj-retro-kartoch",
@@ -178,7 +194,8 @@
       "hit": 0,
       "created": 1790505281.2710629,
       "run_ref": "F-RULES-R5-PLAN-C3",
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-test-ustanovka-orch-test-install-kit-pod",
@@ -189,7 +206,8 @@
       "hit": 0,
       "created": 1790509093.3274467,
       "run_ref": "F-DEBTS-DB",
-      "archived": true
+      "archived": true,
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-posle-voln-pravok-fajlov-kita-prinyali-r",
@@ -199,7 +217,8 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1790511171.1926954,
-      "run_ref": "F-DEBTS-DB-W2c"
+      "run_ref": "F-DEBTS-DB-W2c",
+      "born_at": 1790511227.0
     },
     {
       "id": "dont-obertki-sab-progony-iz-cwd-repo-plodyat",
@@ -209,7 +228,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1790513529.9367268,
-      "run_ref": "prosecutor-auto-F-DEBTS-4"
+      "run_ref": "prosecutor-auto-F-DEBTS-4",
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-avtoprokurorskie-id-prosecutor-auto-f-pe",
@@ -219,7 +239,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1790513529.938892,
-      "run_ref": "prosecutor-auto-F-DEBTS-2"
+      "run_ref": "prosecutor-auto-F-DEBTS-2",
+      "born_at": 1790513561.0
     },
     {
       "id": "dont-ne-trebovat-all-chips-green-na-priemke-d",
@@ -229,7 +250,8 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1790514584.3756213,
-      "run_ref": "F-DEBTS-W3R-C"
+      "run_ref": "F-DEBTS-W3R-C",
+      "born_at": 1790514594.0
     },
     {
       "id": "dont-testy-ustanovshchika-tolko-na-tmp-klone",
@@ -240,7 +262,8 @@
       "hit": 0,
       "created": 1790516621.5457234,
       "run_ref": "F-DEBTS-DB6-PLAN3-C1",
-      "archived": true
+      "archived": true,
+      "born_at": 1790518106.0
     },
     {
       "id": "do-klon-tmp-target-proverka",
@@ -251,7 +274,8 @@
       "hit": 0,
       "created": 1790516621.5461733,
       "run_ref": "F-DEBTS-DB6",
-      "archived": true
+      "archived": true,
+      "born_at": 1790518106.0
     },
     {
       "id": "dont-finalnaya-priemka-all-green-zamer-cheste",
@@ -264,7 +288,8 @@
       "run_ref": "F-DEBTS-W4R-A",
       "archived": true,
       "причина": "dead-hit0",
-      "дата": "2026-09-27"
+      "дата": "2026-09-27",
+      "born_at": 1790519692.0
     },
     {
       "id": "dont-finalnaya-priemka-all-green-zamer-cheste-2",
@@ -277,7 +302,8 @@
       "run_ref": "F-DEBTS-W4R-B",
       "archived": true,
       "причина": "dead-hit0",
-      "дата": "2026-09-27"
+      "дата": "2026-09-27",
+      "born_at": 1790519692.0
     },
     {
       "id": "dont-finalnaya-priemka-all-green-zamer-cheste-3",
@@ -290,7 +316,8 @@
       "run_ref": "F-DEBTS-W4R-C",
       "archived": true,
       "причина": "dead-hit0",
-      "дата": "2026-09-27"
+      "дата": "2026-09-27",
+      "born_at": 1790519692.0
     },
     {
       "id": "dont-ne-zapuskat-progony-s-front-f-debts-da-i",
@@ -300,7 +327,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790518063.9768796,
-      "run_ref": "prosecutor-auto-F-DEBTS-6"
+      "run_ref": "prosecutor-auto-F-DEBTS-6",
+      "born_at": 1790518106.0
     },
     {
       "id": "dont-phantom-front-f-debts-da-v-journal-count",
@@ -310,7 +338,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790518063.9772153,
-      "run_ref": "prosecutor-auto-F-DEBTS-7"
+      "run_ref": "prosecutor-auto-F-DEBTS-7",
+      "born_at": 1790518106.0
     },
     {
       "id": "dont-front-strogo-id-fronta-iz-fronts-json-pr",
@@ -320,7 +349,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790519369.7242815,
-      "run_ref": "prosecutor-auto-F-DEBTS-8"
+      "run_ref": "prosecutor-auto-F-DEBTS-8",
+      "born_at": 1790519392.0
     },
     {
       "id": "dont-evristika-puti-vmesto-yavnogo-flaga",
@@ -330,7 +360,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790523968.612103,
-      "run_ref": "INCIDENT-P14-20260927"
+      "run_ref": "INCIDENT-P14-20260927",
+      "born_at": 1790527450.5876489
     },
     {
       "id": "case-put-1-polzovatelya-obyazan-imet-e2e",
@@ -340,7 +371,8 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790523968.6125767,
-      "run_ref": "FIX-P14"
+      "run_ref": "FIX-P14",
+      "born_at": 1790527450.5876489
     },
     {
       "id": "dont-komandir-rabotaet-rukami-vmesto-fronta",
@@ -350,7 +382,30 @@
       "категория": "процессы",
       "hit": 0,
       "created": 1790523968.6129174,
-      "run_ref": "OWNER-REMARK-20260927-hands-off"
+      "run_ref": "OWNER-REMARK-20260927-hands-off",
+      "born_at": 1790527450.5876489
+    },
+    {
+      "id": "dont-chitat-chuzhie-fronts-i-seyat-chuzhie-fid",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790527459.157895,
+      "born_at": 1790527459.157895,
+      "run_ref": "prosecutor-auto-F-FRESH-7"
+    },
+    {
+      "id": "dont-compass-todo-posle-gw-post-ok",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "retro",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790527459.1584263,
+      "born_at": 1790527459.1584263,
+      "run_ref": "prosecutor-auto-F-FRESH-7"
     }
   ],
   "aliases": {}

@@ -1847,7 +1847,7 @@ def _last_mask_commit(kit_dir):
 RULES_ACTIVE_LIMIT = 25
 RULES_CATEGORY_LIMIT = 20
 RULES_DEAD_WAVES = 10
-# Age-grace: hit=0 карточка моложе K волн (wave_ends с ts > created) ≠ мёртвая.
+# Age-grace: hit=0 карточка моложе K волн (wave_ends с ts > born_at||created) ≠ мёртвая.
 RULES_DEAD_AGE_WAVES = 10
 RULES_JEV_TIMEOUT_S = 35.0
 RULES_JEV_SHORTLIST_MAX = 10
@@ -1883,7 +1883,11 @@ def _rules_empty_manifest():
 
 
 def load_manifest(kit_dir=None):
-    """Загрузить rules/manifest.json; нет файла → пустой {cards, aliases}."""
+    """Загрузить rules/manifest.json; нет файла → пустой {cards, aliases}.
+
+    Одноразово проставляет born_at отсутствующим карточкам (migrate_rules_born_at)
+    и сохраняет манифест при изменениях.
+    """
     path = rules_manifest_path(kit_dir)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -1900,7 +1904,13 @@ def load_manifest(kit_dir=None):
     aliases = data.get("aliases")
     if not isinstance(aliases, dict):
         aliases = {}
-    return {"cards": cards, "aliases": aliases}
+    manifest = {"cards": cards, "aliases": aliases}
+    try:
+        if migrate_rules_born_at(kit_dir, manifest=manifest):
+            save_manifest(manifest, kit_dir)
+    except Exception:
+        pass
+    return manifest
 
 
 def save_manifest(manifest, kit_dir=None):
@@ -1924,6 +1934,116 @@ def save_manifest(manifest, kit_dir=None):
         except Exception:
             pass
         raise
+
+
+def _rules_iso_to_ts(iso):
+    """ISO-8601 (%aI / fromisoformat) → unix float; сбой → None."""
+    if not iso or not isinstance(iso, str):
+        return None
+    s = iso.strip()
+    if not s:
+        return None
+    # 2026-09-27T15:46:37+00:00 / ...Z
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        # python 3.7+: fromisoformat
+        from datetime import datetime
+        dt = datetime.fromisoformat(s)
+        return float(dt.timestamp())
+    except Exception:
+        pass
+    try:
+        import calendar
+        from datetime import datetime
+        for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S%z"):
+            try:
+                dt = datetime.strptime(s, fmt)
+                return float(calendar.timegm(dt.utctimetuple())
+                             if dt.tzinfo else dt.timestamp())
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _rules_git_added_ts(path, kit_dir=None):
+    """ts первого добавления файла в git (diff-filter=A); нет → None."""
+    if not path or not os.path.isfile(path):
+        return None
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    try:
+        r = subprocess.run(
+            ["git", "-C", kit_dir, "log", "--diff-filter=A",
+             "--format=%aI", "--", path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=15,
+        )
+        if r.returncode != 0:
+            return None
+        lines = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        if not lines:
+            return None
+        # последняя строка log = самое раннее A? git log без --reverse → newest first
+        # для --diff-filter=A обычно одна запись; берём последнюю (= oldest)
+        return _rules_iso_to_ts(lines[-1])
+    except Exception:
+        return None
+
+
+def migrate_rules_born_at(kit_dir=None, manifest=None):
+    """Один проход: проставить born_at карточкам без поля.
+
+    Источник: git log --diff-filter=A --format=%aI -- <card file>;
+    fallback — mtime файла; затем created; иначе time.time().
+    Возвращает число обновлённых записей. manifest=… — мутировать переданный
+    объект без повторной загрузки (для load_manifest).
+    """
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    own = manifest is None
+    if own:
+        # прямой read без migrate-рекурсии
+        path = rules_manifest_path(kit_dir)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return 0
+        if not isinstance(data, dict):
+            return 0
+        cards = data.get("cards") if isinstance(data.get("cards"), list) else []
+        aliases = data.get("aliases") if isinstance(data.get("aliases"), dict) else {}
+        manifest = {"cards": cards, "aliases": aliases}
+    n = 0
+    for c in manifest.get("cards") or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        if c.get("born_at") is not None:
+            continue
+        ts = None
+        try:
+            fpath = _rules_card_file_path(
+                c, kit_dir, archived=bool(c.get("archived")))
+            ts = _rules_git_added_ts(fpath, kit_dir=kit_dir)
+            if ts is None and os.path.isfile(fpath):
+                ts = float(os.path.getmtime(fpath))
+        except Exception:
+            ts = None
+        if ts is None:
+            try:
+                ts = float(c.get("created") or 0) or None
+            except (TypeError, ValueError):
+                ts = None
+        if ts is None:
+            ts = time.time()
+        c["born_at"] = float(ts)
+        n += 1
+    if own and n:
+        save_manifest(manifest, kit_dir)
+    return n
 
 
 def _rules_card_by_id(manifest, card_id):
@@ -2651,7 +2771,7 @@ def archive_lru(kit_dir=None, state=None):
 def resurrect(card_id, kit_dir=None):
     """Вернуть карточку из archive/ в cards/ при повторе адреса/кейса.
 
-    Снимает archived; created=now. LRU не вызывается здесь (вызывающий
+    Снимает archived; created=born_at=now. LRU не вызывается здесь (вызывающий
     может archive_lru отдельно) — иначе hit=0 сразу уходит обратно.
     Возвращает True если воскрешена.
     """
@@ -2676,7 +2796,9 @@ def resurrect(card_id, kit_dir=None):
             except Exception:
                 pass
     card["archived"] = False
-    card["created"] = time.time()
+    now = time.time()
+    card["created"] = now
+    card["born_at"] = now
     save_manifest(manifest, kit_dir)
     return True
 
@@ -2747,10 +2869,11 @@ def add_rule_card(тип, категория, кому, когда, части, 
                   card_id=None):
     """Родить карточку: rules/cards/<кат>/<id>.md + запись manifest.
 
-    Поля manifest как R1: id/type/кому/когда/категория/hit/created/run_ref.
+    Поля manifest: id/type/кому/когда/категория/hit/created/born_at/run_ref.
     Формат файла: frontmatter + ## части (≤2 строки/часть).
     части: list[(title, body)] или dict {title: body} (адаптер → list пар).
     Карточка с run_ref гасит rules_no_retro для этой волны (см. _rules_no_retro_ids).
+    born_at — штамп рождения (ts); age-grace rules_dead смотрит born_at||created.
     Возвращает id; при невалидных аргументах — ValueError.
     """
     if тип not in RULES_TYPES:
@@ -2787,6 +2910,7 @@ def add_rule_card(тип, категория, кому, когда, части, 
             "category %r has %d active cards (limit %d); "
             "split into a subcategory (aliases) before adding"
             % (категория, active_in_cat, RULES_CATEGORY_LIMIT))
+    now = time.time()
     card = {
         "id": cid,
         "type": тип,
@@ -2794,7 +2918,8 @@ def add_rule_card(тип, категория, кому, когда, части, 
         "когда": когда,
         "категория": категория,
         "hit": 0,
-        "created": time.time(),
+        "created": now,
+        "born_at": now,
         "run_ref": run_ref,
     }
     # файл
@@ -3095,8 +3220,9 @@ def _rules_dead_ids(entries, kit_dir=None, state=None):
     """Активные counters-hit=0 при ≥N=10 волн в журнале.
 
     hit — из counters/rules-hits.json (стейт); manifest.hit игнорируется.
-    Age-grace (K=RULES_DEAD_AGE_WAVES): hit=0 с created моложе K волн
-    (wave_ends журнала с ts > created) не флагается — новичок ≠ мёртвый.
+    Age-grace (K=RULES_DEAD_AGE_WAVES): hit=0 моложе K волн
+    (wave_ends журнала с ts > age_ts) не флагается — новичок ≠ мёртвый.
+    age_ts = born_at если есть, иначе created.
     """
     waves = _rules_wave_ends(entries)
     if len(waves) < RULES_DEAD_WAVES:
@@ -3108,7 +3234,8 @@ def _rules_dead_ids(entries, kit_dir=None, state=None):
         cid = c.get("id")
         if not cid or int(hits.get(cid) or 0) != 0:
             continue
-        if _rules_card_waves_since(waves, c.get("created")) < RULES_DEAD_AGE_WAVES:
+        age_ts = c.get("born_at") if c.get("born_at") is not None else c.get("created")
+        if _rules_card_waves_since(waves, age_ts) < RULES_DEAD_AGE_WAVES:
             continue
         dead.append(cid)
     return dead
