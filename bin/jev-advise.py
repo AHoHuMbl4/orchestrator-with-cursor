@@ -16,7 +16,7 @@ Fail-open: API-недоступность/ошибка → пустой отве
 
   jev-advise.py --list-table
   jev-advise.py --point <id> --caller <front/run-id>
-      [--state-text TEXT | --state-file PATH]
+      [--state TEXT | --state-text TEXT | --state-file PATH]
       [--question id:type:instructions… | --questions-file PATH]
       [--defer-below N] [--confirm-below N] [--yes-at N]
       [--api-url URL] [--key-path PATH] [--session-id ID]
@@ -30,6 +30,7 @@ Fail-open: API-недоступность/ошибка → пустой отве
 from __future__ import print_function
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -61,6 +62,67 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABLE_PATH = os.path.join(REPO_ROOT, "routing", "jev-table.json")
 
 QUESTION_TYPES = frozenset(["choice", "noul", "score"])
+
+
+class _AdviseArgumentParser(argparse.ArgumentParser):
+    """Понятные ошибки: алиасы state + подсказки для unrecognized флагов."""
+
+    def _canon_option_index(self):
+        """option_string → label группы алиасов; flat — все каноны."""
+        opt_to_group = {}
+        flat = []
+        for action in self._actions:
+            opts = list(action.option_strings or [])
+            if not opts:
+                continue
+            # короткие алиасы первыми: --state/--state-text
+            label = "/".join(sorted(opts, key=len))
+            for o in opts:
+                flat.append(o)
+                opt_to_group[o] = label
+        return flat, opt_to_group
+
+    def _hint_unrecognized(self, tokens):
+        flat, opt_to_group = self._canon_option_index()
+        parts = []
+        for flag in tokens:
+            if not flag.startswith("-"):
+                continue
+            matches = difflib.get_close_matches(
+                flag, flat, n=5, cutoff=0.5)
+            groups = []
+            for m in matches:
+                g = opt_to_group[m]
+                if g not in groups:
+                    groups.append(g)
+            if groups:
+                parts.append(
+                    "unrecognized: %s → возможно %s" % (flag, groups[0]))
+            else:
+                parts.append("unrecognized: %s" % flag)
+        return "; ".join(parts) if parts else None
+
+    def error(self, message):
+        msg = message or ""
+        # взаимная исключительность --state/--state-text ↔ --state-file
+        if "not allowed with argument" in msg and (
+                "state-text" in msg or "state-file" in msg or
+                "--state" in msg):
+            msg = "--state/--state-text и --state-file взаимно исключают"
+        elif msg.startswith("unrecognized arguments:"):
+            tokens = msg.split(":", 1)[1].strip().split()
+            hinted = self._hint_unrecognized(tokens)
+            if hinted:
+                msg = hinted
+        elif msg.startswith("ambiguous option:"):
+            # allow_abbrev=False обычно исключает; страховка для префиксов
+            # "ambiguous option: --stat could match --state-text, --state, ..."
+            flag = msg.split(":", 1)[1].strip().split()[0]
+            hinted = self._hint_unrecognized([flag])
+            if hinted:
+                msg = hinted
+        self.print_usage(sys.stderr)
+        self.exit(2, "%s: error: %s\n" % (self.prog, msg))
 
 
 def _mask_secrets(text, key=None):
@@ -353,8 +415,9 @@ def cmd_list_table(table_path):
 
 def main(argv=None):
     orchlib.utf8_stdio()
-    ap = argparse.ArgumentParser(
-        description="Jev Decisions API CLI (fail-open, stdlib)")
+    ap = _AdviseArgumentParser(
+        description="Jev Decisions API CLI (fail-open, stdlib)",
+        allow_abbrev=False)
     ap.add_argument("--list-table", action="store_true",
                     help="напечатать routing/jev-table.json и выйти")
     ap.add_argument("--table-path", default=TABLE_PATH,
@@ -364,7 +427,8 @@ def main(argv=None):
                          "--question/--questions-file (ad-hoc)")
     ap.add_argument("--caller", help="front/run-id вызывающего")
     st = ap.add_mutually_exclusive_group()
-    st.add_argument("--state-text", help="state как строка")
+    st.add_argument("--state-text", "--state", dest="state_text",
+                    help="state как строка (--state — алиас)")
     st.add_argument("--state-file", help="state из файла (текст или JSON)")
     ap.add_argument("--question", action="append", default=[],
                     help="id:type:instructions[::criteria_json] (repeatable)")
