@@ -5304,16 +5304,32 @@ def _orch_lint_diff_weakens(diff_text):
     return False
 
 
+def _orch_lint_cause_text_has_measure(text):
+    """True если текст содержит «CAUSE-CLEARED:» + непустой замер."""
+    for ln in (text or "").splitlines():
+        if "CAUSE-CLEARED:" in ln:
+            rest = ln.split("CAUSE-CLEARED:", 1)[1].strip()
+            if rest:
+                return True
+    return False
+
+
 def _orch_lint_cause_cleared_ok(kit_dir, sha, state=None):
-    """True если у коммита есть доказательство CAUSE-CLEARED (msg+artifact|fallback)."""
+    """True если у коммита есть доказательство CAUSE-CLEARED.
+
+    Порядок: (1) артефакт прогона в state; (2) квитанция rules/causes/<run-id>.md;
+    (3) инлайн «CAUSE-CLEARED: <замер>» в сообщении коммита.
+    """
     msg = _orch_lint_commit_msg(kit_dir, sha) or ""
-    # run-id: «CAUSE-CLEARED:<run-id>» + артефакт/run.log с замером
+    # run-id: «CAUSE-CLEARED:<run-id>» + (1) state artifact | (2) kit receipt
     m = _ORCH_LINT_CAUSE_RUN_RE.search(msg)
     if m:
         run_id = m.group(1).strip()
-        if run_id and _orch_lint_cause_artifact_has_measure(run_id, state=state):
+        if run_id and (
+                _orch_lint_cause_artifact_has_measure(run_id, state=state)
+                or _orch_lint_cause_kit_receipt_has_measure(kit_dir, run_id)):
             return True
-    # Fallback: «CAUSE-CLEARED: <команда + результат>» (пробел после ':') в msg
+    # (3) Fallback: «CAUSE-CLEARED: <команда + результат>» (пробел после ':') в msg
     for ln in msg.splitlines():
         idx = ln.find("CAUSE-CLEARED: ")
         if idx >= 0 and ln[idx + len("CAUSE-CLEARED: "):].strip():
@@ -5344,12 +5360,26 @@ def _orch_lint_cause_artifact_has_measure(run_id, state=None):
                 text = f.read()
         except Exception:
             continue
-        for ln in text.splitlines():
-            if "CAUSE-CLEARED:" in ln:
-                rest = ln.split("CAUSE-CLEARED:", 1)[1].strip()
-                if rest:
-                    return True
+        if _orch_lint_cause_text_has_measure(text):
+            return True
     return False
+
+
+def _orch_lint_cause_kit_receipt_has_measure(kit_dir, run_id):
+    """rules/causes/<run-id>.md содержит «CAUSE-CLEARED:» + непустой замер."""
+    if not kit_dir or not run_id:
+        return False
+    if "/" in run_id or "\\" in run_id or run_id in (".", ".."):
+        return False
+    path = os.path.join(kit_dir, "rules", "causes", "%s.md" % run_id)
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception:
+        return False
+    return _orch_lint_cause_text_has_measure(text)
 
 
 def _orch_lint_cause_cleared_violations(kit_dir, baseline, state=None):

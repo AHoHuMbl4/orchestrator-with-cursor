@@ -25,10 +25,17 @@ git -C "$KIT" config user.email "probe@local"
 git -C "$KIT" config user.name "probe"
 
 # Подтянуть незакоммиченные правки волны (если тест гоняют до commit).
-if ! grep -q 'ORCH_LINT_BASELINE_SHA' "$KIT/bin/orch-lint.py" 2>/dev/null; then
+if ! grep -q 'ORCH_LINT_BASELINE_SHA' "$KIT/bin/orch-lint.py" 2>/dev/null \
+   || ! grep -q '_orch_lint_cause_kit_receipt_has_measure' "$KIT/bin/orchlib.py" 2>/dev/null \
+   || [ ! -f "$KIT/rules/causes/DET-IMPL.md" ]; then
   cp -f "$REPO/bin/orchlib.py" "$KIT/bin/orchlib.py"
   cp -f "$REPO/bin/orch-lint.py" "$KIT/bin/orch-lint.py"
+  mkdir -p "$KIT/rules/causes"
+  if [ -f "$REPO/rules/causes/DET-IMPL.md" ]; then
+    cp -f "$REPO/rules/causes/DET-IMPL.md" "$KIT/rules/causes/DET-IMPL.md"
+  fi
   git -C "$KIT" add bin/orchlib.py bin/orch-lint.py
+  [ -f "$KIT/rules/causes/DET-IMPL.md" ] && git -C "$KIT" add rules/causes/DET-IMPL.md
   git -C "$KIT" commit -qm "wip: sync working tree for probes"
 fi
 
@@ -61,7 +68,9 @@ echo "$OUT_A" | grep -q 'cause-cleared:' || fail "(a) missing cause-cleared in o
 [ "$EC_A" -ne 0 ] || fail "(a) expected exit!=0, got 0"
 pass "(a) weaken without CAUSE-CLEARED → exit $EC_A + cause-cleared"
 
-# --- (б) ослабление + CAUSE-CLEARED:<run-id> + артефакт → гейт молчит ---
+# --- (б) ослабление + CAUSE-CLEARED:<run-id> + квитанция kit → гейт молчит ---
+# Переносимо: пустой ORCHESTRATION_DIR (без state-артефакта). Живой 06848cc
+# закрывается rules/causes/DET-IMPL.md из дерева кита.
 git -C "$KIT" reset --hard HEAD~1 >/dev/null
 python3 - <<PY
 from pathlib import Path
@@ -70,15 +79,17 @@ t = p.read_text(encoding="utf-8")
 p.write_text(t.replace("RULES_ACTIVE_LIMIT = 25", "RULES_ACTIVE_LIMIT = 20", 1), encoding="utf-8")
 PY
 RUN_ID="probe-cause-b"
-ART_DIR="$STATE/sessions/sess-probe/runs/$RUN_ID"
-mkdir -p "$ART_DIR"
-printf 'CAUSE-CLEARED: RULES_ACTIVE_LIMIT 25→20 justified; measure ok\n' > "$ART_DIR/artifact.md"
-git -C "$KIT" add bin/orchlib.py
+mkdir -p "$KIT/rules/causes"
+printf 'CAUSE-CLEARED: RULES_ACTIVE_LIMIT 25→20 justified; measure ok\n' \
+  > "$KIT/rules/causes/${RUN_ID}.md"
+git -C "$KIT" add bin/orchlib.py "rules/causes/${RUN_ID}.md"
 git -C "$KIT" commit -qm "probe(b): weaken with CAUSE-CLEARED:${RUN_ID}"
+EMPTY_B="$(mktemp -d)"
 set +e
-OUT_B="$(run_lint 2>&1)"
+OUT_B="$(ORCHESTRATION_DIR="$EMPTY_B" run_lint 2>&1)"
 EC_B=$?
 set -e
+rm -rf "$EMPTY_B"
 echo "$OUT_B" | grep -q 'cause-cleared:' && fail "(b) still flagged cause-cleared: $OUT_B"
 pass "(b) weaken + CAUSE-CLEARED:${RUN_ID} → no cause-cleared (lint exit $EC_B)"
 
