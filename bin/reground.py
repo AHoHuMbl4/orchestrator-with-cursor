@@ -72,6 +72,66 @@ def emit(fmt, event, text):
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
 
 
+def _event_prompt_text(ev):
+    """Текст пользовательского промта/сообщения из stdin-события хука."""
+    if not isinstance(ev, dict):
+        return ""
+    for key in ("prompt", "text", "content", "message", "body", "user_prompt"):
+        val = ev.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+        if isinstance(val, dict):
+            for k2 in ("text", "content", "prompt"):
+                v2 = val.get(k2)
+                if isinstance(v2, str) and v2.strip():
+                    return v2
+    return ""
+
+
+def _session_role(ev, sid):
+    """Роль сессии/шага: env → session/role → шапка промта события → None."""
+    for env_key in ("ORCH_RULES_ROLE", "ORCH_SESSION_ROLE"):
+        raw = os.environ.get(env_key)
+        if isinstance(raw, str) and raw.strip():
+            return orchlib.normalize_journal_role(raw.strip())
+    try:
+        role_path = os.path.join(orchlib.session_dir(sid), "role")
+        with open(role_path, "r", encoding="utf-8") as f:
+            line = (f.readline() or "").strip()
+        if line:
+            return orchlib.normalize_journal_role(line)
+    except Exception:
+        pass
+    role = orchlib.extract_prompt_role(_event_prompt_text(ev))
+    if role:
+        return orchlib.normalize_journal_role(role)
+    return None
+
+
+def _rules_step_lines(ev, sid, kogda):
+    """1–3 строк вклейки по адресу роли×когда; безадресный → []."""
+    role = _session_role(ev, sid)
+    komu = orchlib.role_to_komu(role)
+    if not komu:
+        return []
+    try:
+        return orchlib.format_step_inject_lines(
+            komu, kogda, extra={"kogda": kogda, "role": role})
+    except Exception as e:
+        sys.stderr.write("rules inject failed: %s\n" % e)
+        return []
+
+
+def _append_rules_lines(text, rules_lines):
+    """Дописать строки карточек к emit-тексту; пустые rules — без изменений."""
+    if not rules_lines:
+        return text
+    block = "\n".join(rules_lines)
+    if text:
+        return text + "\n" + block
+    return block
+
+
 def _load_params_or_refuse():
     """load_params с явным stderr при битом JSON; None → хук выходит без падения хоста."""
     try:
@@ -481,6 +541,11 @@ def cmd_post_tool(engine, fmt):
                     [{"path": os.path.normpath(os.path.abspath(wpath)),
                       "size": size, "limit": limit}]))
 
+    # F-RULES R2: вклейки по адресу роли×post-tool (≤3); безадресный → 0
+    rules_lines = _rules_step_lines(ev, session_id, "post-tool")
+    if rules_lines:
+        parts.append("\n".join(rules_lines))
+
     if parts:
         emit(fmt, "PostToolUse", "\n".join(parts)[:9000])
 
@@ -632,13 +697,19 @@ def cmd_prompt_submit(engine, fmt):
     foreign_prefix = (foreign + "\n") if foreign else ""
     head = kit_prefix + guard_prefix + det_prefix + foreign_prefix
 
+    # F-RULES R2: вклейки по адресу роли×prompt-submit (≤3); mtime-кэш не трогаем
+    rules_lines = _rules_step_lines(ev, sid, "prompt-submit")
+
     if not guard and not nudge and prev == marks and not kit_update:
         # params/compass не менялись — всё равно вклеиваем Kit (всегда)
-        emit(fmt, "UserPromptSubmit", (head + kit_line)[:9500] if head else kit_line[:9500])
+        base = (head + kit_line) if head else kit_line
+        emit(fmt, "UserPromptSubmit",
+             _append_rules_lines(base, rules_lines)[:9500])
         return
     if not nudge and prev == marks and not kit_update:
         # только превышения — громкий блок + Kit без сводки params
-        emit(fmt, "UserPromptSubmit", (head + kit_line)[:9500])
+        emit(fmt, "UserPromptSubmit",
+             _append_rules_lines(head + kit_line, rules_lines)[:9500])
         return
     changed = [n for n in marks if prev.get(n) != marks[n]]
     what = " (изменились: %s)" % ", ".join(changed) if prev else ""
@@ -658,7 +729,8 @@ def cmd_prompt_submit(engine, fmt):
         "с ними. Расхождение с ними — ошибка курса."
     ).format(sid=sid, what=what, summary=orchlib.params_summary(p),
              compass=compass_hint, map_orient=_MAP_ORIENT, kit_line=kit_line)
-    emit(fmt, "UserPromptSubmit", (head + nudge + text)[:9500])
+    emit(fmt, "UserPromptSubmit",
+         _append_rules_lines(head + nudge + text, rules_lines)[:9500])
     try:
         with open(mf, "w", encoding="utf-8") as f:
             json.dump(marks, f)
