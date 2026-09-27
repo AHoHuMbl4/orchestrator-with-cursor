@@ -788,16 +788,34 @@ def compass_overflows(p=None):
 
 
 def format_compass_overflows(overflows):
-    """Громкий блок превышений (по строке на файл). Пустая строка если нет."""
+    """Громкий блок превышений (по строке на файл). Пустая строка если нет.
+
+    Dual-mode:
+    - запись с ключом attempt (refuse pending): «попытка N / в файле M …»
+    - запись только с size (live_ov / heartbeat): прежний текст «size символов при лимите».
+    """
     if not overflows:
         return ""
     lines = []
     for o in overflows:
-        lines.append(
-            "⛔ COMPASS ПРЕВЫШЕН: %s: %d символов при лимите %d. "
-            "Хвост НЕ виден вклейками. Ужми файл: историю — в артефакты, не в compass."
-            % (o["path"], o["size"], o["limit"])
-        )
+        path = o.get("path", "")
+        limit = o.get("limit", 0)
+        if "attempt" in o:
+            n = o.get("attempt", 0)
+            m = o.get("file")
+            if m is None:
+                m = 0
+            lines.append(
+                "⛔ COMPASS ПРЕВЫШЕН: %s: попытка %d / в файле %d символов (лимит %d). "
+                "Хвост НЕ виден вклейками. Ужми файл: историю — в артефакты, не в compass."
+                % (path, n, m, limit)
+            )
+        else:
+            lines.append(
+                "⛔ COMPASS ПРЕВЫШЕН: %s: %d символов при лимите %d. "
+                "Хвост НЕ виден вклейками. Ужми файл: историю — в артефакты, не в compass."
+                % (path, o.get("size", 0), limit)
+            )
     return "\n".join(lines)
 
 
@@ -824,6 +842,11 @@ def emit_pending_compass_guard(sid_or_none, overflows):
     Всегда пишет <state>/pending_compass_guard.json; плюс в сессии:
     sid_or_none задан → в эту сессию; None → во все recent_sessions().
     Ошибки — stderr, не падать.
+
+    Формы overflows:
+    - refuse (write-compass): {path, limit, attempt:N, file:M} — N=размер
+      отказанной записи, M=текущий размер файла (нет файла → 0/null);
+    - live/heartbeat: {path, size, limit} — живой размер файла (как раньше).
     """
     try:
         try:
