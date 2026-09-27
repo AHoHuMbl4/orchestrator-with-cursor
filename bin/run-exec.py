@@ -36,6 +36,7 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   9       — замок front-runs занят; FRONT_LOCK_BUSY
   10      — params.json битый
   11      — id занят живым прогоном (pid); нужен другой id или --force
+  12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
   124     — таймаут
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
@@ -799,6 +800,9 @@ def main():
                          "только аналитика (чтение+выжимка), не командные роли")
     ap.add_argument("--force", action="store_true",
                     help="обойти гард дубль-id (exit 11); гейты 5–9 не затрагивает")
+    ap.add_argument("--allow-unknown-role", action="store_true",
+                    help="обойти валидацию роли по каталогу кита (exit 12); "
+                         "для технического смоука")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
 
@@ -852,10 +856,22 @@ def main():
         log_path = os.path.join(state, "cursor-run-%s.log" % a.id)
         pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
 
-    # Порядок: (а) FRONT_REQUIRED → 8; (б) секрет → 5; (в) exe → 3;
-    # (г) front/bump → 6/7/FRONT_RUNS. Гейт-отказы: journal start+end до return.
+    # Порядок: (а) роль по каталогу → 12; (б) FRONT_REQUIRED → 8; (в) секрет → 5;
+    # (г) exe → 3; (д) front/bump → 6/7/FRONT_RUNS. Гейт-отказы: journal start+end.
     role = orchlib.resolve_run_role(a.role, prompt)
     readonly = bool(a.readonly)
+    if role is not None and not a.allow_unknown_role:
+        role_path = os.path.join(
+            orchlib.KIT_DIR, "skills", "orchestration", "references", "roles",
+            role)
+        if not os.path.isfile(role_path):
+            msg = ("роль не найдена в каталоге кита: %s (проверьте _index.md); "
+                   "для технического смоука — --allow-unknown-role" % role)
+            append_log(log_path, msg)
+            sys.stderr.write(msg + "\n")
+            journal_gate_refuse(
+                a.id, prompt_file, None, role, log_path, 12, readonly=readonly)
+            return 12
     front_out, no_front_reason, front_refuse = orchlib.resolve_front_launch(
         a.front, a.no_front)
     if front_refuse is not None:

@@ -63,6 +63,7 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
   9       — замок front-runs занят; FRONT_LOCK_BUSY
   10      — params.json битый
   11      — id занят живым cloud-прогоном (CREATED/POLLING/RUNNING); --force
+  12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
 """
 import argparse
 import json
@@ -152,6 +153,10 @@ def _add_common_args(parser):
                         help="HTTP socket timeout для всех API-вызовов, сек (дефолт 300)")
     parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS,
                         help="обойти гард дубль-id (exit 11); гейты 5–9 не затрагивает")
+    parser.add_argument("--allow-unknown-role", action="store_true",
+                        default=argparse.SUPPRESS,
+                        help="обойти валидацию роли по каталогу кита (exit 12); "
+                             "для технического смоука")
 
 
 def build_parser():
@@ -205,6 +210,8 @@ def normalize_args(a):
         a.http_timeout = 300.0
     if not hasattr(a, "force"):
         a.force = False
+    if not hasattr(a, "allow_unknown_role"):
+        a.allow_unknown_role = False
     return a
 
 
@@ -730,6 +737,18 @@ def cmd_run(a):
 
     log_path = os.path.join(state, "cloud-%s.log" % a.id)
     role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
+    # Валидация роли до FRONT/API_KEY/HTTP: неизвестная → exit 12.
+    if role is not None and not getattr(a, "allow_unknown_role", False):
+        role_path = os.path.join(
+            orchlib.KIT_DIR, "skills", "orchestration", "references", "roles",
+            role)
+        if not os.path.isfile(role_path):
+            msg = ("роль не найдена в каталоге кита: %s (проверьте _index.md); "
+                   "для технического смоука — --allow-unknown-role" % role)
+            _append_gate_log(log_path, msg)
+            sys.stderr.write(msg + "\n")
+            journal_gate_refuse(a.id, prompt_file, None, role, log_path, 12)
+            return 12
     front_raw = getattr(a, "front", None)
     no_front_raw = getattr(a, "no_front", None)
     front, no_front_reason, front_refuse = orchlib.resolve_front_launch(
