@@ -15,7 +15,7 @@ State — `.orchestration/` в проекте.
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
 - `bin/run-cloud.py` — ключ: `--api-key` > `CURSOR_API_KEY` > `<state>/cursor.key`; лог `<state>/cloud-<id>.log`
 - `bin/run-cloud.py` — `list`: активные агенты; `<state>/cloud-<id>.result.json` (машиночитаемый итог: agent/run/status/result); `<state>/agent-<id>.json` (id для follow-up без ре-парсинга лога)
-- `panel/server.py` — `/api/health`: красные чипы (runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn); кэш по mtime journal+fronts
+- `panel/server.py` — `/api/health`: красные чипы (runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn, advisors_without_scouts, commander_no_children); кэш по mtime journal+fronts; чипы из `orchlib.health_red_chips`
 - `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
