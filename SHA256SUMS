@@ -7,8 +7,8 @@ cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
 9aa6f9e446f9b863e86b0da8b60635e465f061d21cf5c0eb1d6f7bb035383e67  ./bin/orch-lint.py
-58834bcc9d8137b00f8cf8d2e872671a553b0c1453e9bd6ee117072607a1d4c2  ./bin/orchlib.py
-011adde9ea1b64434d7d49ec6722e2da3de300699d6b2766f53d7d3a459d3d3a  ./bin/reground.py
+362057c4387425502d4b43f5cbb56b99d1b6544d514600053ca584a6233efb0c  ./bin/orchlib.py
+df2d934697389653cbf8ff5f66dd0b39ebc9e313aead91f051b49c5cc6f98ce8  ./bin/reground.py
 b4a83ab46956afec7cc523f0c41cdb4409b40f2700b4841c3ab2686278d389be  ./bin/run-cloud.py
 146ceb6bbf03b648d80d6612fa141202087dc8d3d04a8357d5346ad476e0df6f  ./bin/run-exec.py
 394a6b605e58a1e694dc2123dca5590dbb575cd12259999a43f69f2a82a2ee6c  ./bin/session-entry.py
@@ -52,12 +52,14 @@ b1a7d241b126aaef0110b9385b2d98dcc9f974f37e28b0a054eadfaf9e96ed38  ./rules/cards/
 b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/маршрутизация/dont-role-from-head.md
 5e7cafed752e0f74680910aca5d9ab348a8522f7ba68e1be892c08a8a584c4ed  ./rules/cards/маршрутизация/dont-runtime-hit-in-repo.md
 90a38528002cdfbb2546e08c7b022da41efd24fef7813338f9df8d62d24d1a2c  ./rules/cards/приёмка/do-zelenyj-rabotaet-na-poligone-prinyat-vol.md
+f6f599c078ff4e51db01050600ec03bd7b8159a306faaef2f17bcf4ba5bd52bb  ./rules/cards/приёмка/dont-ne-glushit-signal-detektora-bez-prichiny.md
 ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/приёмка/dont-ne-trebovat-all-chips-green-na-priemke-d.md
 178c0ae4685944daf55fac33feded05b4b01f1ec5ea97322f6fc1aeb0a92b032  ./rules/cards/приёмка/dont-posle-voln-pravok-fajlov-kita-prinyali-r.md
 b727cd19b4cfa4b17146a459c695d79201b1cb88006d5dd0605a384e32694769  ./rules/cards/приёмка/dont-priemka-po-nalichiyu-artefakta-fajla-kvi.md
 23494305047209163a20cb6e945ede76ebcc486159c2f447fee3b1eec4992788  ./rules/cards/приёмка/dont-prinimat-volnu-po-nalichiyu-artefakta-il.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
+8b35e4f3601d7d9c66854428f4095098ff9e0763c5b6db1001b332b381124a7a  ./rules/cards/промты/dont-kontrakty-dannyh-fixiruj-v-plane-do-starta.md
 37ea5e7f28fb704b932053321ddf0f09dcf662940e5d71ac86fd32e50f7d4f99  ./rules/cards/процессы/case-put-1-polzovatelya-obyazan-imet-e2e.md
 160fe81dfab75602045b731db4049b47b2197626261e07e5fcb92cf72a0efbe3  ./rules/cards/процессы/dont-chitat-chuzhie-fronts-i-seyat-chuzhie-fid.md
 092f15ffb92567159496fd2bc680f80a21c15c9d05a288c8ad83ab3671e58ab9  ./rules/cards/процессы/dont-compass-todo-posle-gw-post-ok.md
@@ -68,7 +70,7 @@ b727cd19b4cfa4b17146a459c695d79201b1cb88006d5dd0605a384e32694769  ./rules/cards/
 abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/процессы/dont-komandirskaya-volna-bez-fronta-seriya-ru.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-21b15ba148efb1ef84fa2f0e95a0ac628eaeb15f9ce0d429cc024d9d3b6a63c9  ./rules/manifest.json
+26e67ce772914cd0a74b2dd358f0ae55017b0fb54ce4ee1c68a63ec974f53fc3  ./rules/manifest.json
 afa6340dc3a950877b717f8fa1ec74a12e185210083bec8e2fb0c5534620c33a  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 fb7f2d5a9c219bcb7f624e4b6a3463dde3619db8ad02ad0a4d13513c85541f2b  ./skills/orchestration/references/MAP.md
@@ -235,5 +237,6 @@ d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orche
 22fbaea3e7ffb0632cf00c7d74b65bf4a117fa07d280bfb2ad15c64f69f75406  ./skills/orchestration/references/traps.md
 56d320ffdf1643fc16654f3df98fb97c2d258a04db5ff756c5c0323a2f3f6201  ./tests/cause-cleared-born-at.sh
 67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
+e324a2b0cb792f992051867c7cf94dd8c3f48cb114b21f4907963389ddd6d80e  ./tests/test_rules_c3_detect.py
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh
