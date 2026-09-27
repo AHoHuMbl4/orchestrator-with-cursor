@@ -245,6 +245,7 @@ def test_lru_protects_young_pathological_dead():
     os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
     try:
         now = time.time()
+        # Цель — СТАРЕЙШАЯ среди hit=0 при age<grace: без protect уйдёт в moved первой.
         born_young = now - 1 * 3600
         _add(kit, "lru-young-dead", "commander", "acceptance", born_young,
              category="запуск")
@@ -254,10 +255,23 @@ def test_lru_protects_young_pathological_dead():
              "role": "commander", "hit": 1},
         ])
         # counters hit остаётся 0 (патология); age=1ч < RULES_DEAD_AGE_HOURS
+        # filler НОВЕЕ цели (now−30мин − i·мин) — без protect архивировалась бы цель
         cats = ("процессы", "маршрутизация", "промты")
         for i in range(26):
             _add(kit, "fill-ypd-%02d" % i, "executor", "retro",
-                 now - (30 + i) * 3600, category=cats[i % len(cats)])
+                 now - 30 * 60 - i * 60, category=cats[i % len(cats)])
+        # негативный контроль порядка created: цель старейшая → protect обязателен
+        manifest_pre = orchlib.load_manifest(kit, allow_migrate=False)
+        active_pre = [c for c in (manifest_pre.get("cards") or [])
+                      if not c.get("archived")]
+        if len(active_pre) <= 25:
+            _fail("setup: need active>25, got %d" % len(active_pre))
+        by_created = sorted(
+            active_pre,
+            key=lambda c: (float(c.get("created") or 0), str(c.get("id") or "")))
+        if by_created[0].get("id") != "lru-young-dead":
+            _fail("setup: lru-young-dead must be oldest hit0, got %r"
+                  % [c.get("id") for c in by_created[:3]])
         chips = orchlib.health_red_chips(state=state, kit_dir=kit)
         dead = chips.get("rules_dead") or []
         if "lru-young-dead" in dead:
