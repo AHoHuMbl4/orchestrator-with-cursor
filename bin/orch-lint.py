@@ -25,10 +25,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
 
-# Baseline cause-cleared/born_at: HEAD кита до feat-коммита гейта (C3-LINT).
-# Дубль: runs/C3-LINT/baseline.sha в state-сессии волны.
-ORCH_LINT_BASELINE_SHA = "78f1481e7a623cb441564f727b781c3b6eb5a774"
-
 
 def main(argv=None):
     orchlib.utf8_stdio()
@@ -41,8 +37,9 @@ def main(argv=None):
     if kit_dir:
         kit_dir = os.path.abspath(kit_dir)
     # CLI — deep=True (git-walk); health зовёт orch_lint_violations() без deep.
+    # Baseline: orchlib.ORCH_LINT_BASELINE_SHA (единственный источник в коде).
     viols = orchlib.orch_lint_violations(
-        kit_dir=kit_dir, deep=True, baseline=ORCH_LINT_BASELINE_SHA)
+        kit_dir=kit_dir, deep=True, baseline=orchlib.ORCH_LINT_BASELINE_SHA)
     for v in viols:
         sys.stdout.write(v + "\n")
     if viols:

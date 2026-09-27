@@ -4849,21 +4849,11 @@ def _orch_lint_cause_artifact_has_measure(run_id, state=None):
             state = None
     if not state or not os.path.isdir(state):
         return False
-    # sessions/*/runs/<id>/{artifact.md,run.log}
-    sessions = os.path.join(state, "sessions")
-    candidates = []
-    if os.path.isdir(sessions):
-        try:
-            for sid in os.listdir(sessions):
-                base = os.path.join(sessions, sid, "runs", run_id)
-                candidates.append(os.path.join(base, "artifact.md"))
-                candidates.append(os.path.join(base, "run.log"))
-        except Exception:
-            pass
-    # также плоский runs/<id> под state (на случай иной раскладки)
-    candidates.append(os.path.join(state, "runs", run_id, "artifact.md"))
-    candidates.append(os.path.join(state, "runs", run_id, "run.log"))
-    for path in candidates:
+    run_dir = find_run_dir(run_id, state=state)
+    if not run_dir:
+        return False
+    for name in ("artifact.md", "run.log"):
+        path = os.path.join(run_dir, name)
         if not os.path.isfile(path):
             continue
         try:
