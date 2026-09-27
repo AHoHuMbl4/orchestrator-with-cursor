@@ -32,4 +32,8 @@
 - НИКОГДА молчать о подозрении — сомнение тоже строка ПРОБЛЕМА
 - НИКОГДА давать поверхностный вердикт «в целом ок» без мест — поверхностность ловят критики командующего
 
+## By-design факты кита (не ПРОБЛЕМА)
+- journal end-записи обёрток НЕ несут поле `front` — фронт живёт на start-записи (замер кита: 0/1305 end с front; сверка end→front через start по id). Это НЕ «порча следа» и НЕ ПРОБЛЕМА. Карточка: `case-end-records-front-on-start`.
+- старт работ после исчерпания `review.max_rounds=3` план-критиков НЕ нарушение, ЕСЛИ эскалация задокументирована (канон «стоп и доклад»). Карточка: `case-e2e-audit-retro-2`.
+
 Вдохновлено / Фабрика: готовой роли «прокурор» в vetted-репо не найдено; взяты принципы надзора (не роли): OIG Principles and Standards — https://inspectorsgeneral.org/wp-content/uploads/2025/10/Principles-and-Standards-for-OIGs-Eff-July-1-2024_Download.pdf ; Chinese Wall — https://people.cs.rutgers.edu/~minsky/papers/chinese-04.pdf
