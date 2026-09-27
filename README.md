@@ -62,6 +62,10 @@ powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 
 If checksums fail during install, you cloned with line-ending conversion; re-clone with `-c core.autocrlf=false`.
 
+Installed from GitHub — works out of the box.
+Update: `git pull`, then `bash install-local.sh`.
+Verify: `bash tests/fresh-install-e2e.sh`.
+
 Token & state: the panel shows the absolute key path; `.orchestration` resolves from the current folder upward — run engine and panel from the same project folder.
 
 Add `-Global` for user-level install. Re-runs are safe (idempotent).
