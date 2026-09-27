@@ -2370,30 +2370,18 @@ def _rules_type_prefix(тип):
 
 
 def _rules_normalize_parts(части):
-    """части → [(title, body≤2 строк)]. dict / list пар / list строк."""
-    items = []
-    if части is None:
-        return items
-    if isinstance(части, dict):
-        for k, v in части.items():
-            items.append((str(k), v))
-    elif isinstance(части, (list, tuple)):
-        for it in части:
-            if isinstance(it, (list, tuple)) and len(it) >= 2:
-                items.append((str(it[0]), it[1]))
-            elif isinstance(it, dict) and "title" in it:
-                items.append((str(it.get("title")), it.get("body") or it.get("text") or ""))
-            elif isinstance(it, str):
-                items.append((it, ""))
-    else:
-        return items
+    """части → [(title, body≤2 строк)]. Канон: list[(title, body)]; иначе ValueError."""
+    if not isinstance(части, (list, tuple)):
+        raise ValueError("части must be list[(title, body)]")
     out = []
-    for title, body in items:
-        title = (title or "").strip()
+    for it in части:
+        if not (isinstance(it, (list, tuple)) and len(it) >= 2):
+            raise ValueError("части must be list[(title, body)]")
+        title = (str(it[0]) if it[0] is not None else "").strip()
         if not title:
             continue
         lines = []
-        for ln in str(body or "").splitlines():
+        for ln in str(it[1] or "").splitlines():
             s = ln.strip()
             if s:
                 lines.append(s)
@@ -2409,6 +2397,7 @@ def add_rule_card(тип, категория, кому, когда, части, 
 
     Поля manifest как R1: id/type/кому/когда/категория/hit/created/run_ref.
     Формат файла: frontmatter + ## части (≤2 строки/часть).
+    части: list[(title, body)] или dict {title: body} (адаптер → list пар).
     Карточка с run_ref гасит rules_no_retro для этой волны (см. _rules_no_retro_ids).
     Возвращает id; при невалидных аргументах — ValueError.
     """
@@ -2420,6 +2409,8 @@ def add_rule_card(тип, категория, кому, когда, части, 
         raise ValueError("unknown rules когда: %r" % (когда,))
     if not категория or not isinstance(категория, str):
         raise ValueError("категория required")
+    if isinstance(части, dict):
+        части = [(k, v) for k, v in части.items()]
     parts = _rules_normalize_parts(части)
     if not parts:
         raise ValueError("части required")
@@ -2634,7 +2625,10 @@ def _rules_wave_is_problem(verdict, gates):
 
 
 def _rules_wave_exemplary(entries, run_id):
-    """Образцовая приёмка: критики ×3 OK (parent=run_id) + замер в journal."""
+    """Образцовая приёмка: критики ×3 OK (parent=run_id) + замер в journal.
+
+    Замер: kind in (measure, замер) и/или поле measure/замер на связанной записи.
+    """
     if not run_id:
         return False
     starts = _journal_start_index(entries)
@@ -2657,25 +2651,6 @@ def _rules_wave_exemplary(entries, run_id):
         if parent == run_id and _rules_is_critic_role((st or {}).get("role")):
             if _rules_verdict_is_ok(e.get("verdict") or ""):
                 ok_critics += 1
-        # замер: отдельный end с ролью tester / явная пометка measure на волне
-        role = normalize_journal_role((st or {}).get("role")) if st else None
-        if parent == run_id and isinstance(role, str):
-            base = role.replace("\\", "/").split("/")[-1].lower()
-            if base in ("tester.md",) or "замер" in role.lower():
-                if _rules_verdict_is_ok(e.get("verdict") or ""):
-                    has_measure = True
-        if eid == run_id and (e.get("measure") or e.get("замер")):
-            has_measure = True
-    # замер-запись без kind=end уже учтена; если есть явная measure-строка
-    # с текстом — также kind мог быть вложен в end волны с OK + поле
-    if not has_measure:
-        for e in entries:
-            if e.get("kind") == "end" and e.get("id") == run_id:
-                if e.get("measure") or e.get("замер"):
-                    has_measure = True
-                # «замер» как непустой evidence/measure_cmd
-                if e.get("evidence") or e.get("measure_cmd"):
-                    has_measure = True
     return ok_critics >= 3 and has_measure
 
 
