@@ -2329,6 +2329,151 @@ def resurrect(card_id, kit_dir=None):
     return True
 
 
+_RULES_ID_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _rules_slug(text, max_len=40):
+    """ASCII-slug для id карточки."""
+    s = (text or "").strip().lower()
+    # простая транслит-таблица для частых кириллических корней
+    tr = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+        "ж": "zh", "з": "z", "и": "i", "й": "j", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    }
+    out = []
+    for ch in s:
+        if ch in tr:
+            out.append(tr[ch])
+        elif ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch in "-_":
+            out.append(ch)
+        elif ch.isspace() or ch in "/\\.:;,":
+            out.append("-")
+        else:
+            out.append("-")
+    slug = _RULES_ID_SLUG_RE.sub("-", "".join(out)).strip("-")
+    if not slug:
+        slug = "card"
+    return slug[:max_len].strip("-") or "card"
+
+
+def _rules_type_prefix(тип):
+    if тип == "DON'T":
+        return "dont"
+    if тип == "DO":
+        return "do"
+    if тип == "CASE":
+        return "case"
+    return "card"
+
+
+def _rules_normalize_parts(части):
+    """части → [(title, body≤2 строк)]. dict / list пар / list строк."""
+    items = []
+    if части is None:
+        return items
+    if isinstance(части, dict):
+        for k, v in части.items():
+            items.append((str(k), v))
+    elif isinstance(части, (list, tuple)):
+        for it in части:
+            if isinstance(it, (list, tuple)) and len(it) >= 2:
+                items.append((str(it[0]), it[1]))
+            elif isinstance(it, dict) and "title" in it:
+                items.append((str(it.get("title")), it.get("body") or it.get("text") or ""))
+            elif isinstance(it, str):
+                items.append((it, ""))
+    else:
+        return items
+    out = []
+    for title, body in items:
+        title = (title or "").strip()
+        if not title:
+            continue
+        lines = []
+        for ln in str(body or "").splitlines():
+            s = ln.strip()
+            if s:
+                lines.append(s)
+            if len(lines) >= 2:
+                break
+        out.append((title, "\n".join(lines)))
+    return out
+
+
+def add_rule_card(тип, категория, кому, когда, части, run_ref, kit_dir=None,
+                  card_id=None):
+    """Родить карточку: rules/cards/<кат>/<id>.md + запись manifest.
+
+    Поля manifest как R1: id/type/кому/когда/категория/hit/created/run_ref.
+    Формат файла: frontmatter + ## части (≤2 строки/часть).
+    Карточка с run_ref гасит rules_no_retro для этой волны (см. _rules_no_retro_ids).
+    Возвращает id; при невалидных аргументах — ValueError.
+    """
+    if тип not in RULES_TYPES:
+        raise ValueError("unknown rules type: %r" % (тип,))
+    if кому not in RULES_KOMU:
+        raise ValueError("unknown rules кому: %r" % (кому,))
+    if когда not in RULES_KOGDA:
+        raise ValueError("unknown rules когда: %r" % (когда,))
+    if not категория or not isinstance(категория, str):
+        raise ValueError("категория required")
+    parts = _rules_normalize_parts(части)
+    if not parts:
+        raise ValueError("части required")
+    manifest = load_manifest(kit_dir)
+    if card_id:
+        cid = str(card_id).strip()
+    else:
+        seed = parts[0][1] or parts[0][0] or категория
+        base = "%s-%s" % (_rules_type_prefix(тип), _rules_slug(seed))
+        cid = base
+        n = 2
+        while _rules_card_by_id(manifest, cid) is not None:
+            cid = "%s-%d" % (base, n)
+            n += 1
+    if _rules_card_by_id(manifest, cid) is not None:
+        raise ValueError("card id already exists: %s" % cid)
+    card = {
+        "id": cid,
+        "type": тип,
+        "кому": кому,
+        "когда": когда,
+        "категория": категория,
+        "hit": 0,
+        "created": time.time(),
+        "run_ref": run_ref,
+    }
+    # файл
+    path = _rules_card_file_path(card, kit_dir, archived=False)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fm = [
+        "---",
+        "id: %s" % cid,
+        "type: %s" % тип,
+        "кому: %s" % кому,
+        "когда: %s" % когда,
+        "категория: %s" % категория,
+    ]
+    if run_ref:
+        fm.append("run-ref: %s" % run_ref)
+    fm.append("---")
+    body = []
+    for title, text in parts:
+        body.append("")
+        body.append("## %s" % title)
+        if text:
+            body.append(text)
+    raw = "\n".join(fm + body) + "\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw)
+    manifest.setdefault("cards", []).append(card)
+    save_manifest(manifest, kit_dir)
+    return cid
+
+
 def _rules_end_is_problem(entry):
     """end с PROBLEMS/BLOCKED в verdict или непустым gates (гейт-отказ)."""
     if not isinstance(entry, dict) or entry.get("kind") != "end":
@@ -2383,6 +2528,184 @@ def _rules_no_retro_ids(entries, kit_dir=None):
         if ref == wid:
             return []
     return [wid]
+
+
+def _rules_manifest_has_run_ref(run_id, kit_dir=None):
+    """Есть ли в manifest карточка с run_ref/run-ref == run_id."""
+    if not run_id:
+        return False
+    manifest = load_manifest(kit_dir)
+    for c in manifest.get("cards") or []:
+        if not isinstance(c, dict):
+            continue
+        ref = c.get("run_ref") or c.get("run-ref")
+        if ref == run_id:
+            return True
+    return False
+
+
+def _rules_is_critic_role(role):
+    r = normalize_journal_role(role)
+    if not isinstance(r, str) or not r:
+        return False
+    low = r.replace("\\", "/").lower()
+    base = low.split("/")[-1]
+    return (
+        base in ("code-reviewer.md", "fact-checker.md")
+        or "code-reviewer" in low
+        or "fact-checker" in low
+    )
+
+
+def _rules_verdict_is_ok(verdict):
+    if not isinstance(verdict, str):
+        return False
+    v = verdict.strip()
+    if not v.startswith("Вердикт:"):
+        return False
+    rest = v[len("Вердикт:"):].strip()
+    if rest == "OK":
+        return True
+    return (rest.startswith("OK")
+            and "PROBLEMS" not in rest
+            and "BLOCKED" not in rest)
+
+
+def _rules_verdict_is_problem(verdict):
+    if not isinstance(verdict, str):
+        return False
+    return "PROBLEMS" in verdict or "BLOCKED" in verdict
+
+
+def find_run_log(run_id, state=None, session=None, log_path=None):
+    """Путь к логу волны: явный / sessions/.../run.log / cursor-run-<id>.log."""
+    if log_path:
+        return log_path
+    if not run_id:
+        return None
+    if state is None:
+        state = find_state_dir()
+    candidates = []
+    if session:
+        candidates.append(
+            os.path.join(state, "sessions", session, "runs", run_id, "run.log"))
+    # любой sessions/*/runs/<id>/run.log
+    sess_root = os.path.join(state, "sessions")
+    if os.path.isdir(sess_root):
+        try:
+            for sid in os.listdir(sess_root):
+                p = os.path.join(sess_root, sid, "runs", run_id, "run.log")
+                candidates.append(p)
+        except Exception:
+            pass
+    candidates.append(os.path.join(state, "cursor-run-%s.log" % run_id))
+    candidates.append(os.path.join(state, "runs", run_id, "run.log"))
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return p
+    return candidates[0] if candidates else None
+
+
+def _rules_wave_meta(run_id, state=None, session=None, log_path=None):
+    """(verdict, gates) волны: journal_log_meta(log) → fallback journal end."""
+    path = find_run_log(run_id, state=state, session=session, log_path=log_path)
+    verdict, gates = None, []
+    if path and os.path.isfile(path):
+        verdict, gates = journal_log_meta(path)
+    if verdict is not None or gates:
+        return verdict, gates if isinstance(gates, list) else []
+    # fallback: end-запись журнала
+    if state is None:
+        state = find_state_dir()
+    for e in reversed(_journal_entries_at(state)):
+        if e.get("kind") == "end" and e.get("id") == run_id:
+            v = e.get("verdict")
+            g = e.get("gates") or []
+            if not isinstance(g, list):
+                g = []
+            return v, g
+    return None, []
+
+
+def _rules_wave_is_problem(verdict, gates):
+    if isinstance(gates, list) and gates:
+        return True
+    return _rules_verdict_is_problem(verdict or "")
+
+
+def _rules_wave_exemplary(entries, run_id):
+    """Образцовая приёмка: критики ×3 OK (parent=run_id) + замер в journal."""
+    if not run_id:
+        return False
+    starts = _journal_start_index(entries)
+    ok_critics = 0
+    has_measure = False
+    for e in entries:
+        kind = e.get("kind")
+        eid = e.get("id")
+        if kind in ("measure", "замер"):
+            if eid == run_id or e.get("run") == run_id or e.get("run_ref") == run_id:
+                has_measure = True
+            continue
+        if kind != "end":
+            continue
+        st = starts.get(eid) if eid else None
+        parent = (st or {}).get("parent") if st else None
+        if e.get("measure") or e.get("замер"):
+            if eid == run_id or parent == run_id or e.get("run_ref") == run_id:
+                has_measure = True
+        if parent == run_id and _rules_is_critic_role((st or {}).get("role")):
+            if _rules_verdict_is_ok(e.get("verdict") or ""):
+                ok_critics += 1
+        # замер: отдельный end с ролью tester / явная пометка measure на волне
+        role = normalize_journal_role((st or {}).get("role")) if st else None
+        if parent == run_id and isinstance(role, str):
+            base = role.replace("\\", "/").split("/")[-1].lower()
+            if base in ("tester.md",) or "замер" in role.lower():
+                if _rules_verdict_is_ok(e.get("verdict") or ""):
+                    has_measure = True
+        if eid == run_id and (e.get("measure") or e.get("замер")):
+            has_measure = True
+    # замер-запись без kind=end уже учтена; если есть явная measure-строка
+    # с текстом — также kind мог быть вложен в end волны с OK + поле
+    if not has_measure:
+        for e in entries:
+            if e.get("kind") == "end" and e.get("id") == run_id:
+                if e.get("measure") or e.get("замер"):
+                    has_measure = True
+                # «замер» как непустой evidence/measure_cmd
+                if e.get("evidence") or e.get("measure_cmd"):
+                    has_measure = True
+    return ok_critics >= 3 and has_measure
+
+
+def format_retro_lines(run_id, state=None, kit_dir=None, session=None,
+                       log_path=None):
+    """Строки ретро-шага волны (конец волны / подкоманда retro).
+
+    PROBLEMS/гейт без карточки run_ref → требование DON'T (чип — через health).
+    Волна без ошибок → [] (чип чист); образцовая ×3 OK+замер → подсказка DO/CASE.
+    """
+    if not run_id:
+        return []
+    if state is None:
+        state = find_state_dir()
+    verdict, gates = _rules_wave_meta(
+        run_id, state=state, session=session, log_path=log_path)
+    if _rules_wave_is_problem(verdict, gates):
+        if _rules_manifest_has_run_ref(run_id, kit_dir=kit_dir):
+            return []
+        # чип красный через health_red_chips/_rules_no_retro_ids при end в journal
+        return [
+            "ретро: заведи DON'T-карточку rules/cards/... (run %s)" % run_id
+        ]
+    # без ошибок — чип всегда чист; образцовая → подсказка (НЕ красный)
+    entries = _journal_entries_at(state)
+    if _rules_wave_exemplary(entries, run_id):
+        return [
+            "ретро: подумай о DO/CASE-карточке rules/cards/... (run %s)" % run_id
+        ]
+    return []
 
 
 def _rules_dead_ids(entries, kit_dir=None):
