@@ -4,15 +4,19 @@
 # ~/.kimi-code. Без python ставятся только скиллы (хуки/панель/скрипты пропускаются
 # с явным предупреждением).
 #
-# Запуск из рабочей папки: bash /путь/к/orchestration-kit/install-local.sh
+# Запуск: bash /путь/к/orchestration-kit/install-local.sh
+#         или: cd клон && bash install-local.sh
+# По умолчанию TARGET=$HOME (не cwd и не KIT). Переопределение: TARGET=/path bash …
 # Повторный запуск безопасен (идемпотентен, чужие настройки не трогает).
 set -euo pipefail
 
 KIT="$(cd "$(dirname "$0")" && pwd)"
-TARGET="$(pwd)"
+# Дефолт — $HOME: «клон → cd клон → bash install-local.sh» ставит хуки/state в HOME,
+# не мутируя репо кита. Явный TARGET=… перекрывает.
+TARGET="${TARGET:-$HOME}"
 
-# Якорь песочницы: тесты установщика — только на /tmp-клоне.
-ORCH_INSTALL_SANDBOX_HINT='тесты установщика — только на /tmp-клоне (git clone → установка с TARGET туда)'
+# Якорь песочницы / подсказка при отказе гарда TARGET-в-репо.
+ORCH_INSTALL_SANDBOX_HINT='не указывайте TARGET внутри репо кита; по умолчанию TARGET=$HOME'
 
 # audit — home-canonical, cwd-независимо
 _orch_install_audit_log_path() {
@@ -102,13 +106,15 @@ if [ "$TEST_INSTALL" = "1" ]; then
   exit 0
 fi
 
-# Гард: TARGET == KIT или TARGET внутри KIT → отказ (репо кита не цель установки).
+# Гард: явный TARGET == KIT или TARGET внутри KIT → отказ (репо кита не цель установки).
+# При дефолте TARGET=$HOME гард не срабатывает — установка из клона идёт в HOME.
 # Исключение — ORCH_TEST_INSTALL=1 (ранний выход выше). $1 не задаёт TARGET (только --global).
 KIT_DIR="$KIT"
 case "$TARGET" in
   "$KIT_DIR"|"$KIT_DIR"/*)
     echo "ОШИБКА: нельзя устанавливать оркестрацию в репо кита (TARGET=$TARGET, KIT=$KIT_DIR)" >&2
-    echo "$ORCH_INSTALL_SANDBOX_HINT"
+    echo "Подсказка: TARGET=\$HOME (это значение по умолчанию) или другой каталог вне репо." >&2
+    echo "$ORCH_INSTALL_SANDBOX_HINT" >&2
     exit 1
     ;;
 esac

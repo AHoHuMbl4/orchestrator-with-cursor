@@ -19,7 +19,7 @@ e393dba59fd5533ce455514541fd185b1516035094e15803a7a28fcaa8deae9b  ./compass.md
 2f9f7f7ba64391d105958b71a8af27d76ca97dcd9f96930b49dfd9ad7e9cfed2  ./hooks/claude-settings.snippet.json
 fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-config.snippet.toml
 69d2c970b633a9d072a18d90de2eb9ad2bdeea0c7b3670dc59fd5f263d422bfd  ./install-local.ps1
-e3e23499d4e9accb605c616581ef35a54b6b4bfa487d7d2464f8ac863c45a0bf  ./install-local.sh
+4dda61c1810f08e7145f5959b01d90502617601d2cdcd3941bdfa5fdcf7ce9d7  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
 0458135fe23f86bf98ad1b1a8e198e5e28f8471f292461d8a47c7911c6a82229  ./panel/index.html
