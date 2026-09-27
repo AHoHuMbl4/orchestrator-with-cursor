@@ -62,7 +62,9 @@ powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 
 If checksums fail during install, you cloned with line-ending conversion; re-clone with `-c core.autocrlf=false`.
 
-Installed from GitHub — works out of the box.
+Installed from GitHub — works out of the box (`TARGET` defaults to `$HOME`;
+install from the clone folder is fine). Test mode (no engine config writes):
+only `ORCH_TEST_INSTALL=1`.
 Update: `git pull`, then `bash install-local.sh`.
 Verify: `bash tests/fresh-install-e2e.sh`.
 
@@ -209,12 +211,12 @@ Plugin-marketplace packaging (one-command install via
 
 ## Scope: all sessions or one folder?
 
-By default the installer targets **this folder** (Claude Code and Codex get
-skill/hooks/command only here; Kimi is always user-level). With `--global`,
-Claude/Codex parts go to the **user level** (`~/.claude`, `~/.codex`) — skill
-and hooks work in **every session in any folder** on this machine. Params
-(`.orchestration/`) stay per-folder on purpose: each project keeps its own
-batch settings and compass template.
+By default `TARGET=$HOME` (not cwd, not the kit clone) — Claude/Codex skills
+and hooks land under `~/.claude` / `~/.agents`; Kimi is always user-level.
+Override: `TARGET=/path bash install-local.sh`. With `--global`, Claude/Codex
+parts are forced to the **user level** (`~/.claude`, `~/.codex`) even if
+`TARGET` is set elsewhere. Project state (`.orchestration/`) resolves from the
+working folder upward — each project keeps its own batch settings and compass.
 
 ```bash
 bash orchestration-kit/install-local.sh --global

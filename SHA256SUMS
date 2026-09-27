@@ -1,7 +1,7 @@
 13080c40e45b9d8f35ff08ded09f348692bacb58543b76b9cee45edf955930c9  ./.gitattributes
 af27e8f97e9ef32c80ba33b362f3ea482d00eb5ba28c44aef6737c9d7ffa2d38  ./.gitignore
 49940a63fdf2a387217e25809bd999ad5425be081f31e171f105b5bc097b9647  ./PROJECT.md
-7559c98f1494e86c15cce6c5a72544bf701e3a4a5f67d86a1e5cbe0e1d229706  ./README.md
+2c6aa90333e8325dc1ecebcb567d31f8074da0105a84ee23916f4c4f84476f32  ./README.md
 4f97826e91d8bcfcb1a3757fb3b443bb31816362828fe6224364f92437b6b474  ./README.ru.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
@@ -63,7 +63,7 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b2d98d5f96cfa1e450bac9e7d55c6ef24f6590e5f11c422886098cb31055abbc  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
-859a65fcae5758168370d8f4c7c0bb6888c353520c5619c5ae898ea8611e4d32  ./skills/orchestration/references/MAP.md
+ebc936c7e374c521d57d9109cde7a6b213c561337f07464ced8b563f50c1e374  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
 98b852277afd1f597b87112833ba8b88d27f2f260ebbfabdb5880e1bf64e94f8  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md

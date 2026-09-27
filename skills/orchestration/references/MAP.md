@@ -26,7 +26,7 @@ State — `.orchestration/` в проекте.
 - `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
 - `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
-- `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel
+- `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel; по умолчанию `TARGET=$HOME` (установка из папки клона из коробки); тест-режим только при явном `ORCH_TEST_INSTALL=1` (конфиги движков не трогает)
 - `uninstall.sh` / `uninstall.ps1` — снятие установки
 - `SHA256SUMS` — целостность дистрибутива кита
 - `commands/claude-orch-menu.md` — источник `/orch-menu` для Claude (install → `orch-menu.md`)
