@@ -378,6 +378,74 @@ def _tool_write_path(ev):
     return None
 
 
+# ADDITIVE MARKER: F-C4-B null-series
+_NULL_SERIES_SWALLOW_RE = re.compile(r">\s*/dev/null")
+_NULL_SERIES_SHELL_TOOLS = frozenset({"Bash", "Shell", "bash", "shell"})
+
+
+def _null_series_path(sid):
+    """Session-файл счётчика серии >/dev/null в ORCHESTRATION_DIR."""
+    return os.path.join(orchlib.session_dir(sid), "null_series.json")
+
+
+def _read_null_series(sid):
+    try:
+        with open(_null_series_path(sid), "r", encoding="utf-8") as f:
+            return int(json.load(f).get("series", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _write_null_series(sid, n):
+    path = _null_series_path(sid)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"series": int(n)}, f)
+
+
+def _tool_command_of(ev):
+    """command из tool_input (Bash/Shell); иначе пустая строка."""
+    ti = ev.get("tool_input") or ev.get("toolInput") or ev.get("input") or {}
+    if isinstance(ti, str):
+        return ti
+    if isinstance(ti, dict):
+        cmd = ti.get("command") or ti.get("cmd") or ""
+        return cmd if isinstance(cmd, str) else ""
+    return ""
+
+
+def _command_swallows_output(cmd):
+    """True если stdout/stderr глушатся в /dev/null; редирект в файл — False."""
+    if not isinstance(cmd, str) or not cmd:
+        return False
+    return bool(_NULL_SERIES_SWALLOW_RE.search(cmd))
+
+
+def _bump_null_series_from_event(ev, sid):
+    """PostToolUse: Bash/Shell + >/dev/null → series++; иначе Bash/Shell → 0."""
+    tool = ev.get("tool_name") or ev.get("toolName") or ev.get("tool") or ""
+    if str(tool).strip() not in _NULL_SERIES_SHELL_TOOLS:
+        return
+    cmd = _tool_command_of(ev)
+    if _command_swallows_output(cmd):
+        _write_null_series(sid, _read_null_series(sid) + 1)
+    else:
+        # без глушения, в т.ч. >file.log / >/tmp/x.log — сброс
+        _write_null_series(sid, 0)
+
+
+def _null_series_nudge_line(sid):
+    """Строка нуджа при series>3; иначе None."""
+    n = _read_null_series(sid)
+    if n <= 3:
+        return None
+    return (
+        "Замеры с проглоченным выводом: %d подряд — вывод проверяемых "
+        "команд не глушить (кейс F-C4: 3 критика не стартовали "
+        "незамеченным)" % n
+    )
+
+
 def _tool_input_path(ev):
     """Путь из tool_input (file_path/path), без фильтра по имени инструмента."""
     ti = ev.get("tool_input") or ev.get("toolInput") or {}
@@ -686,6 +754,12 @@ def cmd_post_tool(engine, fmt):
     if rules_lines:
         parts.append("\n".join(rules_lines))
 
+    # ADDITIVE MARKER: F-C4-B null-series
+    try:
+        _bump_null_series_from_event(ev, session_id)
+    except Exception as e:
+        sys.stderr.write("null-series bump failed: %s\n" % e)
+
     if parts:
         emit(fmt, "PostToolUse", "\n".join(parts)[:9000])
 
@@ -909,6 +983,13 @@ def cmd_prompt_submit(engine, fmt):
             "prompt.run.md|artifact.md или нет валидной квитанции "
             "§3 (probe-receipt.md); снятие только валидной квитанцией; "
             "не гаси чип фильтром (chip_silenced)" % rid)
+    # ADDITIVE MARKER: F-C4-B null-series
+    try:
+        _ns_line = _null_series_nudge_line(sid)
+        if _ns_line:
+            det_lines.append(_ns_line)
+    except Exception as e:
+        sys.stderr.write("null-series nudge failed: %s\n" % e)
     det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""

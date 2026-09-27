@@ -8,7 +8,7 @@ b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advi
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
 9aa6f9e446f9b863e86b0da8b60635e465f061d21cf5c0eb1d6f7bb035383e67  ./bin/orch-lint.py
 fee93d125d95db1b590732ab00e579ce462cd6e4686f37599f71797b04e90006  ./bin/orchlib.py
-df2d934697389653cbf8ff5f66dd0b39ebc9e313aead91f051b49c5cc6f98ce8  ./bin/reground.py
+daa5be8ee3f536af1fb1e0d2b6f8f4e5d77fe7652b8425672cbb1832b2b490f1  ./bin/reground.py
 b4a83ab46956afec7cc523f0c41cdb4409b40f2700b4841c3ab2686278d389be  ./bin/run-cloud.py
 146ceb6bbf03b648d80d6612fa141202087dc8d3d04a8357d5346ad476e0df6f  ./bin/run-exec.py
 394a6b605e58a1e694dc2123dca5590dbb575cd12259999a43f69f2a82a2ee6c  ./bin/session-entry.py
@@ -23,8 +23,8 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 4dda61c1810f08e7145f5959b01d90502617601d2cdcd3941bdfa5fdcf7ce9d7  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-8fcfb68c02af64be8d97afc30df31b6ac94d001c7cd5633106fd14ba8ebce863  ./panel/index.html
-cff20f80c728d572b312dc1e130d39c767dfa0f3084ae7aafaaa2afbfe312553  ./panel/server.py
+7bb2f58b67d10179923b50d47abce647f8344ce7725f8edcd47ae6f846cd23fd  ./panel/index.html
+5b31e14937c224b0e2921847110bae39213debc8982d58b7b8fa224851db8184  ./panel/server.py
 aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./params.json
 0ff1972b0bc43a0cc970462afe6cf6a5529fd1371c54fbb93bbb0f14891aaf7a  ./routing/jev-table.json
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./rules/archive/.gitkeep
@@ -57,6 +57,7 @@ ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/
 178c0ae4685944daf55fac33feded05b4b01f1ec5ea97322f6fc1aeb0a92b032  ./rules/cards/приёмка/dont-posle-voln-pravok-fajlov-kita-prinyali-r.md
 b727cd19b4cfa4b17146a459c695d79201b1cb88006d5dd0605a384e32694769  ./rules/cards/приёмка/dont-priemka-po-nalichiyu-artefakta-fajla-kvi.md
 23494305047209163a20cb6e945ede76ebcc486159c2f447fee3b1eec4992788  ./rules/cards/приёмка/dont-prinimat-volnu-po-nalichiyu-artefakta-il.md
+d3d59a9b250f03e116449676ee7fcc112c9cc9a23254401764837aba44a4807c  ./rules/cards/приёмка/dont-zamer-na-glaz-ne-tot-kod.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
 8b35e4f3601d7d9c66854428f4095098ff9e0763c5b6db1001b332b381124a7a  ./rules/cards/промты/dont-kontrakty-dannyh-fixiruj-v-plane-do-starta.md
@@ -70,12 +71,12 @@ b727cd19b4cfa4b17146a459c695d79201b1cb88006d5dd0605a384e32694769  ./rules/cards/
 abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/процессы/dont-komandirskaya-volna-bez-fronta-seriya-ru.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-26e67ce772914cd0a74b2dd358f0ae55017b0fb54ce4ee1c68a63ec974f53fc3  ./rules/manifest.json
-afa6340dc3a950877b717f8fa1ec74a12e185210083bec8e2fb0c5534620c33a  ./skills/orchestration/SKILL.md
+720424259a4a88ed5907df6ceb69dedb40c542231b9d9f55a928fd1b03c73d4c  ./rules/manifest.json
+d34449e4259f14dbdac63b620019265e452e1eac54c9a8b6a4546f631858c34c  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 fb7f2d5a9c219bcb7f624e4b6a3463dde3619db8ad02ad0a4d13513c85541f2b  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
-acb98e450414469b7fdd3af95e8764338e6346bafb485652bdfc9538ebd42274  ./skills/orchestration/references/planning.md
+191a1feaffec02d13931859b6129d96a5f41f9a408d1cb044013ad560e22e7c0  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
 fa20ccabe8bd59108f1cd5bfeff28e613e67a789b07477ce7340d110c75bb782  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md

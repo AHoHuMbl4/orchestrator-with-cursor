@@ -494,6 +494,17 @@
       "created": 1790535662.9493442,
       "born_at": 1790535662.9493442,
       "run_ref": "F-C1"
+    },
+    {
+      "id": "dont-zamer-na-glaz-ne-tot-kod",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790536620.5369477,
+      "born_at": 1790536620.5369477,
+      "run_ref": "F-C4-CASE-20260927"
     }
   ],
   "aliases": {}
