@@ -6,7 +6,7 @@ af27e8f97e9ef32c80ba33b362f3ea482d00eb5ba28c44aef6737c9d7ffa2d38  ./.gitignore
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
-19214e652bb3466df5ce5d10b8ff8c96435e79fe9841c1d8feaf90ba9bd1cd13  ./bin/orchlib.py
+8908d38e0f92098d0908b17f7673952f76395c8684f4f431cd6d1e7d39e3859c  ./bin/orchlib.py
 c4fa137d8c9057fdece7366545221342d84fe7b3fc48eac3fd0e3c8dd55e2370  ./bin/reground.py
 b4a83ab46956afec7cc523f0c41cdb4409b40f2700b4841c3ab2686278d389be  ./bin/run-cloud.py
 146ceb6bbf03b648d80d6612fa141202087dc8d3d04a8357d5346ad476e0df6f  ./bin/run-exec.py
@@ -55,12 +55,14 @@ ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
 37ea5e7f28fb704b932053321ddf0f09dcf662940e5d71ac86fd32e50f7d4f99  ./rules/cards/процессы/case-put-1-polzovatelya-obyazan-imet-e2e.md
+160fe81dfab75602045b731db4049b47b2197626261e07e5fcb92cf72a0efbe3  ./rules/cards/процессы/dont-chitat-chuzhie-fronts-i-seyat-chuzhie-fid.md
+092f15ffb92567159496fd2bc680f80a21c15c9d05a288c8ad83ab3671e58ab9  ./rules/cards/процессы/dont-compass-todo-posle-gw-post-ok.md
 2c6bc049c3db317a967f9dfc8a13b007894aa689e5346e6b42e5c74c089df45f  ./rules/cards/процессы/dont-evristika-puti-vmesto-yavnogo-flaga.md
 9dfa55fe483ac1a1279bd9ea8d8f28ec30fd0814a6a76846e8cb00e18f8d62eb  ./rules/cards/процессы/dont-front-strogo-id-fronta-iz-fronts-json-pr.md
 28cdd8f373ade8547b102ca6d1e269fead79cce36258fa6a661ce78495d9cd0d  ./rules/cards/процессы/dont-komandir-rabotaet-rukami-vmesto-fronta.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-b2d98d5f96cfa1e450bac9e7d55c6ef24f6590e5f11c422886098cb31055abbc  ./rules/manifest.json
+ece060c4ba02f3dc99728615956e9941a16f58a999e5854b2f8ca078984987f3  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 ebc936c7e374c521d57d9109cde7a6b213c561337f07464ced8b563f50c1e374  ./skills/orchestration/references/MAP.md
@@ -225,5 +227,6 @@ f6f9d8c9e933d4612984af3aab5eabfe6d199bde399ccc21f2c131a4acf22934  ./skills/orche
 d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orchestration/references/roles/trends/technology-radar-facilitator.md
 42a17931cabf0216a6b8d365893d49b9abc36c69d4860da84c0b99c9248f7834  ./skills/orchestration/references/roles/trends/тренд-аналитик.md
 22fbaea3e7ffb0632cf00c7d74b65bf4a117fa07d280bfb2ad15c64f69f75406  ./skills/orchestration/references/traps.md
+67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh
