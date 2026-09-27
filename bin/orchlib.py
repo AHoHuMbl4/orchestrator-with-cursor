@@ -1658,6 +1658,42 @@ def _role_is_coder(role):
 
 # Честный потолок скана журнала для чипов панели (S4).
 HEALTH_JOURNAL_SCAN_LIMIT = 5000
+# Окно вокруг advisor↔scout без parent (cloud OR-ветка); не путать со scan_limit.
+ADVISOR_SCOUT_WINDOW_S = 3600
+
+_EXECUTOR_CHILD_EXCLUDE = frozenset({
+    "code/docs-keeper.md",
+    "code/simplicity-warden.md",
+    "meta/raw-brief-synthesizer.md",
+})
+
+
+def _role_is_colonel(role):
+    role = normalize_journal_role(role)
+    if not isinstance(role, str) or not role:
+        return False
+    return (role == "meta/front-colonel.md"
+            or role.endswith("front-colonel.md"))
+
+
+def _role_is_executor_child(role):
+    """Доменный исполнитель под полковником (не свита / не командир)."""
+    if not _role_is_wave_work(role):
+        return False
+    if _role_is_critic(role) or _role_is_gitwarden(role):
+        return False
+    r = normalize_journal_role(role)
+    if not isinstance(r, str) or not r:
+        return False
+    if r in _EXECUTOR_CHILD_EXCLUDE:
+        return False
+    if r.startswith("meta/front-"):
+        return False
+    return True
+
+
+def _journal_parent_empty(parent):
+    return parent is None or parent == ""
 
 
 def _journal_start_index(entries):
@@ -1670,7 +1706,7 @@ def _journal_start_index(entries):
 
 
 def health_red_chips(state=None, scan_limit=None):
-    """Шесть счётчиков красных чипов панели + списки id.
+    """Восемь счётчиков красных чипов панели + списки id.
 
     Скан journal — последние HEALTH_JOURNAL_SCAN_LIMIT строк (константа).
 
@@ -1686,6 +1722,8 @@ def health_red_chips(state=None, scan_limit=None):
         "waves_no_critic": [],
         "code_waves_no_gitwarden": [],
         "budget_warn": [],
+        "advisors_without_scouts": [],
+        "commander_no_children": [],
     }
     try:
         if state is None:
@@ -1756,6 +1794,8 @@ def health_red_chips(state=None, scan_limit=None):
         waves_no_critic = []
         code_waves_no_gitwarden = []
         budget_warn = []
+        advisors_without_scouts = []
+        commander_no_children = []
 
         ends_with_meta = []
         for e in entries:
@@ -1773,6 +1813,57 @@ def health_red_chips(state=None, scan_limit=None):
                 "start_ts": st.get("ts"),
                 "entry": e,
             })
+
+        # P4: advisors_without_scouts — advisor-run id без web-scout.
+        scout_starts = []
+        advisor_starts = []
+        for e in entries:
+            if e.get("kind") != "start":
+                continue
+            rid = e.get("id")
+            if not rid:
+                continue
+            role = normalize_journal_role(e.get("role"))
+            if role == "meta/opportunity-advisor.md":
+                advisor_starts.append(e)
+            elif role == "meta/web-scout.md":
+                scout_starts.append(e)
+
+        for adv in advisor_starts:
+            aid = adv.get("id")
+            ats = adv.get("ts")
+            afront = adv.get("front")
+            found = False
+            for sc in scout_starts:
+                # 1) parent-путь
+                if sc.get("parent") == aid:
+                    found = True
+                    break
+                # 2) OR cloud без parent в окне + same front
+                if sc.get("engine") != "cloud":
+                    continue
+                if not _journal_parent_empty(sc.get("parent")):
+                    continue
+                sts = sc.get("ts")
+                if ats is None or sts is None:
+                    continue
+                try:
+                    delta = abs(float(sts) - float(ats))
+                except (TypeError, ValueError):
+                    continue
+                if delta > ADVISOR_SCOUT_WINDOW_S:
+                    continue
+                if sc.get("front") != afront:
+                    continue
+                found = True
+                break
+            if not found:
+                advisors_without_scouts.append(aid)
+
+        ended_ids = set()
+        for e in entries:
+            if e.get("kind") == "end" and e.get("id"):
+                ended_ids.add(e["id"])
 
         for fr in data.get("fronts") or []:
             if not isinstance(fr, dict):
@@ -1846,6 +1937,37 @@ def health_red_chips(state=None, scan_limit=None):
                 if hit and fid not in budget_warn:
                     budget_warn.append(fid)
 
+            # P5: commander_no_children — active front, ended colonel без executor.
+            if status == "active":
+                f_starts = [
+                    e for e in entries
+                    if e.get("kind") == "start" and e.get("front") == fid
+                ]
+                has_wave = any(
+                    _role_is_wave_work(e.get("role")) for e in f_starts
+                )
+                if has_wave:
+                    colonels = [
+                        e for e in f_starts
+                        if _role_is_colonel(e.get("role")) and e.get("id")
+                    ]
+                    for col in colonels:
+                        cid = col["id"]
+                        if cid not in ended_ids:
+                            continue  # mid-flight — не флаг
+                        has_exec = False
+                        for e in entries:
+                            if e.get("kind") != "start":
+                                continue
+                            if e.get("parent") != cid:
+                                continue
+                            if _role_is_executor_child(e.get("role")):
+                                has_exec = True
+                                break
+                        if not has_exec and fid not in commander_no_children:
+                            commander_no_children.append(fid)
+                            break
+
         return {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
@@ -1853,6 +1975,8 @@ def health_red_chips(state=None, scan_limit=None):
             "waves_no_critic": waves_no_critic,
             "code_waves_no_gitwarden": code_waves_no_gitwarden,
             "budget_warn": budget_warn,
+            "advisors_without_scouts": advisors_without_scouts,
+            "commander_no_children": commander_no_children,
         }
     except Exception:
         return empty
