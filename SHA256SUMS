@@ -40,7 +40,8 @@ f37b294297b506f7c2362ef5541fd8891506e22f78139e27bfa9356e05529061  ./rules/cards/
 ba13b1b047dad67e4c4c3479fba670868bf8dee0dbfb39e6bb91c75eba32dff4  ./rules/cards/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste-3.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-0fbcf18d0a90b2177f1a5298f00bb7ca7be10efc11da7e7ae120bb67018a507f  ./rules/manifest.json
+9dfa55fe483ac1a1279bd9ea8d8f28ec30fd0814a6a76846e8cb00e18f8d62eb  ./rules/cards/процессы/dont-front-strogo-id-fronta-iz-fronts-json-pr.md
+a71017c3aacfd2c5094014a6914ba24e9c943c674fe138d409e44b58ac0eb3a1  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 859a65fcae5758168370d8f4c7c0bb6888c353520c5619c5ae898ea8611e4d32  ./skills/orchestration/references/MAP.md

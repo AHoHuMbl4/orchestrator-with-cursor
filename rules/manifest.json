@@ -302,6 +302,16 @@
       "hit": 0,
       "created": 1790518063.9772153,
       "run_ref": "prosecutor-auto-F-DEBTS-7"
+    },
+    {
+      "id": "dont-front-strogo-id-fronta-iz-fronts-json-pr",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "launch",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790519369.7242815,
+      "run_ref": "prosecutor-auto-F-DEBTS-8"
     }
   ],
   "aliases": {}
