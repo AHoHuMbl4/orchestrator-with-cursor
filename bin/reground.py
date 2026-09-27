@@ -11,7 +11,8 @@
   post-tool      — счётчик/таймер на каждый tool call (Claude/Codex/Kimi)
   pre-tool       — PreToolUse: deny Write/Edit в compass; гейт order.md
                    (обоснование подход:/без советников) — exit 2
-  subagent-start — SubagentStart → journal kind=start (engine-subagent)
+  subagent-start — SubagentStart → journal kind=start (engine-subagent);
+                   генерал фронта: front=F-X + emit предупреждения и карточек
   subagent-stop  — SubagentStop → journal kind=end (engine-subagent)
   heartbeat      — wall-clock для Kimi SessionHeartbeat (60-секундный тик)
   retro          — ретро-шаг волны: --run-id → DON'T-требование / DO/CASE-подсказка
@@ -28,11 +29,17 @@
 """
 import json
 import os
+import re
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
+
+# Окно «недавнего Stop» чужого генерала (мин); согласовано с heartbeat наблюдателя.
+SUBAGENT_RESUME_WINDOW_MIN = 30
+_FRONT_GENERAL_ROLE = "meta/front-general.md"
+_FRONT_ID_RE = re.compile(r"Фронт (F-[A-Z0-9]+)")
 
 NUDGE_TEXT = (
     "СВЕРКА КУРСА: ты — оркестратор. Твои правила: исполнение через "
@@ -462,8 +469,149 @@ def _subagent_name(ev):
     return "unknown"
 
 
+def _extract_general_front(prompt_text):
+    """F-X если шапка «роль: meta/front-general.md» и «Фронт F-…»; иначе None."""
+    if not prompt_text:
+        return None
+    role = orchlib.extract_prompt_role(prompt_text)
+    if orchlib.normalize_journal_role(role) != _FRONT_GENERAL_ROLE:
+        return None
+    m = _FRONT_ID_RE.search(prompt_text)
+    return m.group(1) if m else None
+
+
+def _foreign_resume_detail(front_x):
+    """Детали сигнала resume чужого фронта, или '' если нет / fail-open снаружи.
+
+    Смотрит engine-subagent окна с полем front: живое (start без end) или
+    Stop моложе SUBAGENT_RESUME_WINDOW_MIN для F-Y≠F-X.
+    """
+    entries = orchlib.journal_read(limit=5000)
+    now = time.time()
+    window_s = SUBAGENT_RESUME_WINDOW_MIN * 60
+    # id → стек незакрытых (front, start_ts); end закрывает верх стека
+    stacks = {}
+    hits = []  # (ts, detail_text)
+
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        if e.get("engine") != "engine-subagent":
+            continue
+        eid = e.get("id") or ""
+        kind = e.get("kind")
+        if kind == "start":
+            fr = e.get("front")
+            if isinstance(fr, str) and fr.startswith("F-"):
+                stacks.setdefault(eid, []).append((fr, float(e.get("ts") or 0)))
+        elif kind == "end":
+            stack = stacks.get(eid)
+            if not stack:
+                continue
+            fr, _start_ts = stack.pop()
+            if fr == front_x:
+                continue
+            end_ts = float(e.get("ts") or 0)
+            age_s = now - end_ts
+            if 0 <= age_s < window_s:
+                n_min = int(age_s // 60)
+                hits.append((
+                    end_ts,
+                    "остановлено %d мин назад — это resume чужого фронта "
+                    "%s: ЗАПРЕЩЕНО, найми нового генерала" % (n_min, fr),
+                ))
+
+    for _eid, stack in stacks.items():
+        for fr, start_ts in stack:
+            if fr != front_x:
+                hits.append((
+                    start_ts,
+                    "живое окно %s — это resume чужого фронта: ЗАПРЕЩЕНО, "
+                    "найми нового генерала" % fr,
+                ))
+
+    if not hits:
+        return ""
+    hits.sort(key=lambda x: x[0], reverse=True)
+    return hits[0][1]
+
+
+def cmd_subagent_start(fmt):
+    """SubagentStart: journal kind=start; генерал → front + emit (fail-open)."""
+    ev = {}
+    try:
+        ev = read_stdin_json()
+    except Exception:
+        ev = {}
+    try:
+        name = orchlib.safe_name(_subagent_name(ev))
+    except Exception:
+        name = "unknown"
+    prompt = ""
+    try:
+        prompt = _event_prompt_text(ev)
+    except Exception:
+        prompt = ""
+    front = None
+    try:
+        front = _extract_general_front(prompt)
+    except Exception:
+        front = None
+
+    entry = {
+        "kind": "start",
+        "id": "subagent:" + name,
+        "engine": "engine-subagent",
+        "parent": session_id_of(ev),
+        "ts": time.time(),
+        "extra": {"event": ev},
+    }
+    if front:
+        entry["front"] = front
+    try:
+        orchlib.journal_append(entry)
+    except Exception:
+        pass
+
+    if not front:
+        return 0
+
+    # EMIT: предупреждение + commander×launch + general×launch (R2B#2)
+    detail = ""
+    try:
+        detail = _foreign_resume_detail(front) or ""
+    except Exception:
+        detail = ""
+    warn = (
+        "ГЕНЕРАЛ ФРОНТА %s: новый фронт = новый генерал; "
+        "resume = только то же имя фронта." % front
+    )
+    if detail:
+        warn = warn + " " + detail
+    parts = [warn]
+    try:
+        cmd_lines = orchlib.format_step_inject_lines(
+            "commander", "launch", role=None)
+        if cmd_lines:
+            parts.append("\n".join(cmd_lines))
+    except Exception as e:
+        sys.stderr.write("subagent-start commander inject failed: %s\n" % e)
+    try:
+        gen_lines = orchlib.format_step_inject_lines(
+            "general", "launch", role=_FRONT_GENERAL_ROLE)
+        if gen_lines:
+            parts.append("\n".join(gen_lines))
+    except Exception as e:
+        sys.stderr.write("subagent-start general inject failed: %s\n" % e)
+    try:
+        emit(fmt, "SubagentStart", "\n".join(parts))
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_subagent_lifecycle(kind):
-    """kind: start|end — запись в journal; ошибки тихие."""
+    """kind: end — запись в journal; ошибки тихие. (start → cmd_subagent_start)"""
     try:
         ev = read_stdin_json()
         name = orchlib.safe_name(_subagent_name(ev))
@@ -846,7 +994,7 @@ def main():
         elif cmd == "pre-tool":
             return cmd_pre_tool(engine, fmt)
         elif cmd == "subagent-start":
-            return cmd_subagent_lifecycle("start")
+            return cmd_subagent_start(fmt)
         elif cmd == "subagent-stop":
             return cmd_subagent_lifecycle("end")
         elif cmd == "prompt-submit":
