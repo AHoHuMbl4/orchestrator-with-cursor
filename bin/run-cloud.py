@@ -781,13 +781,18 @@ def cmd_run(a):
     journal_start(a.id, prompt_file, front, role, engine="cloud",
                   no_front_reason=no_front_reason)
 
-    # F-RULES R2: прецеденты в КОПИЮ промта (не оригинал), до HTTP-двигателя
+    # F-RULES R2/R4: tried-before + прецеденты в КОПИЮ промта, до HTTP-двигателя
     komu = orchlib.role_to_komu(role)
     prec_lines = []
     if komu:
         try:
-            prec_lines = orchlib.format_precedent_lines(
-                komu, prompt_text=prompt, extra={"kogda": "launch", "role": role})
+            extra = {"kogda": "launch", "role": role, "caller": "run-cloud"}
+            tried = orchlib.format_tried_before_lines(
+                komu, role=role, caller="run-cloud", extra=extra,
+                task_hint=(prompt or "")[:160])
+            prec = orchlib.format_precedent_lines(
+                komu, prompt_text=prompt, extra=extra)
+            prec_lines = (tried + prec)[:3]
         except Exception as e:
             sys.stderr.write("precedent inject failed: %s\n" % e)
             prec_lines = []

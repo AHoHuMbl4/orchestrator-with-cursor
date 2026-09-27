@@ -912,13 +912,19 @@ def main():
 
     if not a.no_reground_line:
         prompt += REGROUND_LINE.format(path=prompt_abs)
-    # F-RULES R2: прецеденты в КОПИЮ промта (не оригинал), до двигателя
+    # F-RULES R2/R4: tried-before + прецеденты в КОПИЮ промта, до двигателя
     komu = orchlib.role_to_komu(role)
     prec_lines = []
     if komu:
         try:
-            prec_lines = orchlib.format_precedent_lines(
-                komu, prompt_text=prompt, extra={"kogda": "launch", "role": role})
+            extra = {"kogda": "launch", "role": role, "caller": "run-exec"}
+            tried = orchlib.format_tried_before_lines(
+                komu, role=role, caller="run-exec", extra=extra,
+                task_hint=(prompt or "")[:160])
+            prec = orchlib.format_precedent_lines(
+                komu, prompt_text=prompt, extra=extra)
+            # суммарно ≤3 строк (tried-before сначала)
+            prec_lines = (tried + prec)[:3]
         except Exception as e:
             sys.stderr.write("precedent inject failed: %s\n" % e)
             prec_lines = []

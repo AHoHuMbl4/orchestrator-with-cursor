@@ -118,7 +118,8 @@ def _rules_step_lines(ev, sid, kogda):
         return []
     try:
         return orchlib.format_step_inject_lines(
-            komu, kogda, extra={"kogda": kogda, "role": role})
+            komu, kogda, role=role, caller="reground",
+            extra={"kogda": kogda, "role": role, "caller": "reground"})
     except Exception as e:
         sys.stderr.write("rules inject failed: %s\n" % e)
         return []
