@@ -193,28 +193,51 @@ def test_lru_protects():
     os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
     try:
         now = time.time()
-        # (1) undelivered-кандидат age>grace
+        # (1) undelivered age>grace — СТАРЕЙШИЙ hit=0: без protect уйдёт в moved первым.
         born_old = now - 25 * 3600
         _add(kit, "lru-undeliv", "commander", "decomposition", born_old,
              category="запуск")
         _add(kit, "lru-sib", "commander", "decomposition", born_old - 10,
              category="запуск")
+        # (2) age=1ч, deliveries=0, opportunity (sibling inject) — тоже защищён;
+        # старше filler → без protect во второй слот moved.
+        born_young = now - 1 * 3600
+        _add(kit, "lru-young", "commander", "decomposition", born_young,
+             category="запуск")
+        # sibling inject ПОСЛЕ born_young (и born_old): opportunity для обеих проб
         _append_journal(state, [
-            {"kind": "card_injected", "card": "lru-sib", "ts": born_old + 5,
+            {"kind": "card_injected", "card": "lru-sib", "ts": born_young + 5,
              "kogda": "decomposition", "role": "commander", "hit": 1},
         ])
         _write_json(os.path.join(state, "counters", "rules-hits.json"),
                     {"lru-sib": 1})
-        # (2) age=1ч, deliveries=0, opportunity есть — тоже защищён
-        born_young = now - 1 * 3600
-        _add(kit, "lru-young", "commander", "decomposition", born_young,
-             category="запуск")
         # наполняем >25 активных hit=0 (кроме sibling с hit=1);
-        # категории чередуем — RULES_CATEGORY_LIMIT=20
+        # filler НОВЕЕ защищаемых (now−30мин − i·мин) — без protect ушли бы они
         cats = ("процессы", "маршрутизация", "промты")
         for i in range(26):
             _add(kit, "filler-%02d" % i, "executor", "retro",
-                 now - (30 + i) * 3600, category=cats[i % len(cats)])
+                 now - 30 * 60 - i * 60, category=cats[i % len(cats)])
+        # негативный контроль: среди hit=0 старейшие — защищаемые → protect обязателен
+        manifest_pre = orchlib.load_manifest(kit, allow_migrate=False)
+        active_pre = [c for c in (manifest_pre.get("cards") or [])
+                      if not c.get("archived")]
+        if len(active_pre) <= 25:
+            _fail("setup: need active>25, got %d" % len(active_pre))
+        hits_pre = {}
+        hp = os.path.join(state, "counters", "rules-hits.json")
+        if os.path.isfile(hp):
+            with open(hp, encoding="utf-8") as f:
+                hits_pre = json.load(f) or {}
+        zeros_pre = [c for c in active_pre
+                     if int(hits_pre.get(c.get("id")) or 0) == 0]
+        zeros_pre.sort(key=lambda c: (float(c.get("created") or 0),
+                                      str(c.get("id") or "")))
+        need = len(active_pre) - 25
+        protect_ids = {"lru-undeliv", "lru-young"}
+        first_need = {c.get("id") for c in zeros_pre[:need]}
+        if not protect_ids.issubset(first_need):
+            _fail("setup: protected must be in oldest hit0 need-window, got %r"
+                  % [c.get("id") for c in zeros_pre[:need + 2]])
         chips = orchlib.health_red_chips(state=state, kit_dir=kit)
         und = chips.get("rules_undelivered") or []
         if "lru-undeliv" not in und:
