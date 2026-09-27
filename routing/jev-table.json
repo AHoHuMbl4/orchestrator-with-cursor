@@ -31,15 +31,17 @@
     {
       "id": "need-split",
       "type": "Noul",
-      "yes_at": 0.6,
+      "yes_at": 0.55,
+      "_comment": "кейсы 0.58 давали ложный defer",
       "instructions": "нужно ли делить эту задачу дальше или достаточно одного исполнителя",
       "fallback": "командир решает сам; defer → консервативно делить"
     },
     {
       "id": "split-quality",
       "type": "Score",
-      "defer_below": 0.5,
-      "confirm_below": 0.75,
+      "defer_below": 0.35,
+      "confirm_below": 0.6,
+      "_comment": "хорошие сплиты сидели в conf 0.18–0.46, ни одного confident-reject",
       "instructions": "оценить качество декомпозиции перед фиксацией",
       "criteria": [
         "куски зависимы / дыры в покрытии критерия",
