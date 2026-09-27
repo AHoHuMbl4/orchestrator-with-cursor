@@ -1913,15 +1913,18 @@ def _rules_active_cards(manifest):
     return out
 
 
-def match_cards(komu, kogda, category=None, kit_dir=None, limit=3):
+def match_cards(komu, kogda, category=None, kit_dir=None, limit=3,
+                state=None):
     """Список id по адресу (кому×когда×[категория]); hit desc, created asc.
 
+    hit — из counters/rules-hits.json (стейт), не из manifest.
     Алиас W0: match по старой категории включает подкатегории из aliases.
     Безадресный / нет совпадений → []. Потолок доставки — limit (дефолт 3).
     """
     if komu not in RULES_KOMU or kogda not in RULES_KOGDA:
         return []
     manifest = load_manifest(kit_dir)
+    hits = _rules_load_hits(state)
     cats = _rules_expand_categories(category, manifest.get("aliases"))
     matched = []
     for c in _rules_active_cards(manifest):
@@ -1934,7 +1937,7 @@ def match_cards(komu, kogda, category=None, kit_dir=None, limit=3):
             if cc not in cats:
                 continue
         matched.append(c)
-    matched.sort(key=lambda x: (-int(x.get("hit") or 0),
+    matched.sort(key=lambda x: (-int(hits.get(x.get("id")) or 0),
                                 float(x.get("created") or 0),
                                 str(x.get("id") or "")))
     if limit is not None:
@@ -1984,9 +1987,11 @@ def _rules_save_hits(hits, state=None):
 
 
 def record_hit(card_id, kit_dir=None, state=None, extra=None):
-    """Инкремент hit: journal card_injected + counters/rules-hits.json + manifest.
+    """Инкремент hit в стейте: counters/rules-hits.json + journal card_injected.
 
-    Возвращает новый hit или None если id не найден.
+    Источник правды hit — только `.orchestration/counters/rules-hits.json`.
+    rules/manifest.json не читаем и не пишем (поле manifest.hit игнорируется).
+    Возвращает новый hit или None если id не найден в manifest.
     """
     if not card_id:
         return None
@@ -1996,11 +2001,9 @@ def record_hit(card_id, kit_dir=None, state=None, extra=None):
     card = _rules_card_by_id(manifest, card_id)
     if card is None:
         return None
-    hit = int(card.get("hit") or 0) + 1
-    card["hit"] = hit
-    save_manifest(manifest, kit_dir)
     hits = _rules_load_hits(state)
-    hits[card_id] = int(hits.get(card_id) or 0) + 1
+    hit = int(hits.get(card_id) or 0) + 1
+    hits[card_id] = hit
     _rules_save_hits(hits, state)
     entry = {
         "kind": "card_injected",
@@ -2550,19 +2553,22 @@ def format_precedent_lines(komu, prompt_text=None, kit_dir=None, state=None,
     return lines
 
 
-def archive_lru(kit_dir=None):
-    """>25 активных → старейшие hit=0 в archive/; hit>0 не архивируется.
+def archive_lru(kit_dir=None, state=None):
+    """>25 активных → старейшие counters-hit=0 в archive/; hit>0 не архивируется.
 
+    hit — из counters/rules-hits.json (стейт), не из manifest.
     Возвращает список id, ушедших в archive. Активные после вызова ≤25
     (если хватает hit=0 кандидатов).
     """
     manifest = load_manifest(kit_dir)
+    hits = _rules_load_hits(state)
     active = _rules_active_cards(manifest)
     limit = RULES_ACTIVE_LIMIT
     if len(active) <= limit:
         return []
-    # кандидаты: hit==0, старейшие created сначала
-    zeros = [c for c in active if int(c.get("hit") or 0) == 0]
+    # кандидаты: counters-hit==0, старейшие created сначала
+    zeros = [c for c in active
+             if int(hits.get(c.get("id")) or 0) == 0]
     zeros.sort(key=lambda x: (float(x.get("created") or 0),
                               str(x.get("id") or "")))
     need = len(active) - limit
@@ -2990,16 +2996,21 @@ def format_retro_lines(run_id, state=None, kit_dir=None, session=None,
     return []
 
 
-def _rules_dead_ids(entries, kit_dir=None):
-    """Активные hit=0 при ≥N=10 волн в журнале."""
+def _rules_dead_ids(entries, kit_dir=None, state=None):
+    """Активные counters-hit=0 при ≥N=10 волн в журнале.
+
+    hit — из counters/rules-hits.json (стейт); manifest.hit игнорируется.
+    """
     waves = _rules_wave_ends(entries)
     if len(waves) < RULES_DEAD_WAVES:
         return []
     manifest = load_manifest(kit_dir)
+    hits = _rules_load_hits(state)
     dead = []
     for c in _rules_active_cards(manifest):
-        if int(c.get("hit") or 0) == 0 and c.get("id"):
-            dead.append(c["id"])
+        cid = c.get("id")
+        if cid and int(hits.get(cid) or 0) == 0:
+            dead.append(cid)
     return dead
 
 
@@ -3323,7 +3334,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                             break
 
         rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
-        rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir)
+        rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir, state=state)
         manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
 
         return {
