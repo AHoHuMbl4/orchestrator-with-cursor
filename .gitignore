@@ -7,3 +7,11 @@ __pycache__/
 .orchestration/prompt-*.run.md
 .orchestration/discovered.json
 .orchestration/cursor.key
+.agents/
+.claude/
+.codex/
+panel.sh
+panel.log
+.agents
+.claude
+.codex
