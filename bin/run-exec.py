@@ -912,6 +912,18 @@ def main():
 
     if not a.no_reground_line:
         prompt += REGROUND_LINE.format(path=prompt_abs)
+    # F-RULES R2: прецеденты в КОПИЮ промта (не оригинал), до двигателя
+    komu = orchlib.role_to_komu(role)
+    prec_lines = []
+    if komu:
+        try:
+            prec_lines = orchlib.format_precedent_lines(
+                komu, prompt_text=prompt, extra={"kogda": "launch", "role": role})
+        except Exception as e:
+            sys.stderr.write("precedent inject failed: %s\n" % e)
+            prec_lines = []
+    if prec_lines:
+        prompt = prompt.rstrip() + "\n\n" + "\n".join(prec_lines) + "\n"
     with open(run_prompt_file, "w", encoding="utf-8") as f:
         f.write(prompt)
 

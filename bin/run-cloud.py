@@ -781,6 +781,26 @@ def cmd_run(a):
     journal_start(a.id, prompt_file, front, role, engine="cloud",
                   no_front_reason=no_front_reason)
 
+    # F-RULES R2: прецеденты в КОПИЮ промта (не оригинал), до HTTP-двигателя
+    komu = orchlib.role_to_komu(role)
+    prec_lines = []
+    if komu:
+        try:
+            prec_lines = orchlib.format_precedent_lines(
+                komu, prompt_text=prompt, extra={"kogda": "launch", "role": role})
+        except Exception as e:
+            sys.stderr.write("precedent inject failed: %s\n" % e)
+            prec_lines = []
+    run_prompt = prompt
+    if prec_lines:
+        run_prompt = prompt.rstrip() + "\n\n" + "\n".join(prec_lines) + "\n"
+    run_prompt_file = os.path.join(state, "prompt-%s.run.md" % a.id)
+    try:
+        with open(run_prompt_file, "w", encoding="utf-8") as f:
+            f.write(run_prompt)
+    except Exception as e:
+        sys.stderr.write("prompt.run write failed: %s\n" % e)
+
     extra = {}
     if a.body_file:
         with open(a.body_file, "r", encoding="utf-8") as f:
@@ -790,7 +810,7 @@ def cmd_run(a):
     lf = logf(state, a)
     log_write(lf, "=== %s run\n" % utc_stamp())
     body = dict(extra)
-    body["prompt"] = prompt_body(prompt)
+    body["prompt"] = prompt_body(run_prompt)
     ids = {}
     if a.agent_id:
         out = call("POST", "/v1/agents/%s/runs" % a.agent_id, key, body,
