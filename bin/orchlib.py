@@ -1561,10 +1561,18 @@ def _journal_entries_at(state):
     return out
 
 
+# Грейс детектора «волна без прокурора»: не флагать, пока с earliest
+# wave-work start в окне прошло меньше этого числа секунд (P11).
+WAVES_WITHOUT_PROSECUTOR_GRACE_S = 180
+
+
 def waves_without_prosecutor(state=None, window_runs=30):
     """id active-фронтов, где в окне start-записей есть работа, но нет прокурора.
 
     Окно: последние window_runs kind==start с front==fid. Тихие ошибки → [].
+    Грейс P11: не флагать, пока с earliest wave-work start в окне прошло
+    < WAVES_WITHOUT_PROSECUTOR_GRACE_S и прокурора нет (новые start грейс
+    не продлевают). Прокурор: start в окне или end после якоря.
     """
     try:
         if state is None:
@@ -1577,6 +1585,8 @@ def waves_without_prosecutor(state=None, window_runs=30):
             window_runs = 0
         data = _load_fronts_at(state)
         journal = _journal_entries_at(state)
+        starts_by_id = _journal_start_index(journal)
+        now = time.time()
         out = []
         for fr in data.get("fronts") or []:
             if not isinstance(fr, dict):
@@ -1596,13 +1606,48 @@ def waves_without_prosecutor(state=None, window_runs=30):
                 starts = []
             worked = False
             has_pros = False
+            earliest_work_ts = None
             for e in starts:
                 role = e.get("role")
                 if _role_is_prosecutor(role):
                     has_pros = True
                 if _role_is_wave_work(role):
                     worked = True
+                    try:
+                        ts = float(e.get("ts"))
+                    except (TypeError, ValueError):
+                        continue
+                    if earliest_work_ts is None or ts < earliest_work_ts:
+                        earliest_work_ts = ts
+            # Прокурор по end после якоря: роль с парного start или с end.
+            if worked and not has_pros and earliest_work_ts is not None:
+                for e in journal:
+                    if e.get("kind") != "end":
+                        continue
+                    try:
+                        ets = float(e.get("ts"))
+                    except (TypeError, ValueError):
+                        continue
+                    if ets < earliest_work_ts:
+                        continue
+                    rid = e.get("id")
+                    st = starts_by_id.get(rid) if rid else None
+                    if st is not None:
+                        if st.get("front") != fid:
+                            continue
+                        role = st.get("role")
+                    else:
+                        if e.get("front") != fid:
+                            continue
+                        role = e.get("role")
+                    if _role_is_prosecutor(role):
+                        has_pros = True
+                        break
             if worked and not has_pros:
+                if (earliest_work_ts is not None
+                        and (now - earliest_work_ts)
+                        < WAVES_WITHOUT_PROSECUTOR_GRACE_S):
+                    continue
                 out.append(fid)
         return out
     except Exception:
