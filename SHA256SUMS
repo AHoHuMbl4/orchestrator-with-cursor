@@ -34,6 +34,9 @@ ac646c8b9e467180b51201e43d942799b552ef835d01c4bdfba43f247379cf4c  ./rules/archiv
 b284076acb0f1e9808e0fe7105d5eea3c4d26b29793569a38ef706cf4057703f  ./rules/archive/маршрутизация/dont-code-to-cloud.md
 1b1fb218f3cbe3e0a3c4f266eade05522d4fcc07e040d48dd996a3db11e6d7d6  ./rules/archive/приёмка/dont-critic-sees-log.md
 65364fa2f1b4bc1247f80acea52fdadebaee805e524575269071b1bb12edc6ca  ./rules/archive/приёмка/dont-exit0-mask.md
+f37b294297b506f7c2362ef5541fd8891506e22f78139e27bfa9356e05529061  ./rules/archive/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste-2.md
+ba13b1b047dad67e4c4c3479fba670868bf8dee0dbfb39e6bb91c75eba32dff4  ./rules/archive/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste-3.md
+9ead259a816abbe45873e00d87748b02d3b4efbb3a2aa0c7d561c794aece3cbb  ./rules/archive/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste.md
 85ddb465a0b777c261e70484441568412449836961dc67f4e0dc1b14391728e0  ./rules/archive/приёмка/dont-trust-summary.md
 6672a5da28d9deb49b519a742723f3104843a08e6a27bdd967fc6e5f8eb983e4  ./rules/archive/промты/dont-secrets-in-prompt.md
 4613fe7068719c261dc082bcde951ebea95d8b88e24e10e3ff02eec32eeda459  ./rules/archive/процессы/do-flock-journal.md
@@ -47,9 +50,6 @@ fb124fc3b21f464d04cab958ce83a2c5253e91ac1f60d1e0ab5b00202f9db3cf  ./rules/cards/
 b1a7d241b126aaef0110b9385b2d98dcc9f974f37e28b0a054eadfaf9e96ed38  ./rules/cards/запуск/dont-prompt-argv.md
 b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/маршрутизация/dont-role-from-head.md
 5e7cafed752e0f74680910aca5d9ab348a8522f7ba68e1be892c08a8a584c4ed  ./rules/cards/маршрутизация/dont-runtime-hit-in-repo.md
-f37b294297b506f7c2362ef5541fd8891506e22f78139e27bfa9356e05529061  ./rules/cards/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste-2.md
-ba13b1b047dad67e4c4c3479fba670868bf8dee0dbfb39e6bb91c75eba32dff4  ./rules/cards/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste-3.md
-9ead259a816abbe45873e00d87748b02d3b4efbb3a2aa0c7d561c794aece3cbb  ./rules/cards/приёмка/dont-finalnaya-priemka-all-green-zamer-cheste.md
 ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/приёмка/dont-ne-trebovat-all-chips-green-na-priemke-d.md
 178c0ae4685944daf55fac33feded05b4b01f1ec5ea97322f6fc1aeb0a92b032  ./rules/cards/приёмка/dont-posle-voln-pravok-fajlov-kita-prinyali-r.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
@@ -57,7 +57,7 @@ ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/
 9dfa55fe483ac1a1279bd9ea8d8f28ec30fd0814a6a76846e8cb00e18f8d62eb  ./rules/cards/процессы/dont-front-strogo-id-fronta-iz-fronts-json-pr.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-a71017c3aacfd2c5094014a6914ba24e9c943c674fe138d409e44b58ac0eb3a1  ./rules/manifest.json
+0d683d5e0dcc9a7986611aedaf3356c99e7194b5014fc54f7400b23af9133d1c  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 859a65fcae5758168370d8f4c7c0bb6888c353520c5619c5ae898ea8611e4d32  ./skills/orchestration/references/MAP.md
