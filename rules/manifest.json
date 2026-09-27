@@ -179,6 +179,16 @@
       "hit": 0,
       "created": 1790509093.3274467,
       "run_ref": "F-DEBTS-DB"
+    },
+    {
+      "id": "dont-posle-voln-pravok-fajlov-kita-prinyali-r",
+      "type": "DON'T",
+      "кому": "executor",
+      "когда": "retro",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790511171.1926954,
+      "run_ref": "F-DEBTS-DB-W2c"
     }
   ],
   "aliases": {}

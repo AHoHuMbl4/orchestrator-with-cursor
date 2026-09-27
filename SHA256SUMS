@@ -6,7 +6,7 @@ d81bde5fb7506ed8388cb38d403a3e0999f925b092df8bf8edffb87a08f6284b  ./README.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
-6e0d30232163a93c1d286178f95b5580c2d453fa0091cb2d3f1d8a89b18973b8  ./bin/orchlib.py
+bdc4595414bdfdb35cc108b3bf72f07048777025c2dfe4cd919338d918f788a7  ./bin/orchlib.py
 c4fa137d8c9057fdece7366545221342d84fe7b3fc48eac3fd0e3c8dd55e2370  ./bin/reground.py
 b4a83ab46956afec7cc523f0c41cdb4409b40f2700b4841c3ab2686278d389be  ./bin/run-cloud.py
 146ceb6bbf03b648d80d6612fa141202087dc8d3d04a8357d5346ad476e0df6f  ./bin/run-exec.py
@@ -38,6 +38,7 @@ b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/
 1b1fb218f3cbe3e0a3c4f266eade05522d4fcc07e040d48dd996a3db11e6d7d6  ./rules/cards/приёмка/dont-critic-sees-log.md
 65364fa2f1b4bc1247f80acea52fdadebaee805e524575269071b1bb12edc6ca  ./rules/cards/приёмка/dont-exit0-mask.md
 85ddb465a0b777c261e70484441568412449836961dc67f4e0dc1b14391728e0  ./rules/cards/приёмка/dont-trust-summary.md
+178c0ae4685944daf55fac33feded05b4b01f1ec5ea97322f6fc1aeb0a92b032  ./rules/cards/приёмка/dont-posle-voln-pravok-fajlov-kita-prinyali-r.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
 6672a5da28d9deb49b519a742723f3104843a08e6a27bdd967fc6e5f8eb983e4  ./rules/cards/промты/dont-secrets-in-prompt.md
@@ -45,7 +46,7 @@ b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/
 69ef0192a6bd5c45db5492f910f702ddad88d5e1556dd70af78fde5d4bc221c4  ./rules/cards/процессы/dont-one-run-many.md
 828899104d2cad985b5cafc9f4bb33926e8f21e784df942e8337a37bbd5db1cd  ./rules/cards/процессы/dont-parallel-writers.md
 7f23f57f21963da4bebc250841b9c0cd4d4970a360399e32e0b7dba52487d4c8  ./rules/cards/процессы/dont-plan-bez-vladelca-uslovnoj-retro-kartoch.md
-ebaed7de5a32374d848243c6ea488e5f27428d8c610ef252da188f002dabf33a  ./rules/manifest.json
+1338693fe91557bf06eb0de1df21e33ed813f2895238b9a21d6eeca48ea6b595  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 859a65fcae5758168370d8f4c7c0bb6888c353520c5619c5ae898ea8611e4d32  ./skills/orchestration/references/MAP.md
