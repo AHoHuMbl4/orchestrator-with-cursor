@@ -1706,11 +1706,61 @@ def _journal_start_index(entries):
 
 
 # Механическая маска значимости для чипа wave_no_docs (git pathspec).
+# :(glob) обязателен для bin/*.py: без него git трактует * рекурсивно (как **).
 WAVE_DOCS_MASK_PATHSPECS = (
-    "bin/*.py",
+    ":(glob)bin/*.py",
     "panel/server.py",
     "skills/orchestration/**",
 )
+
+
+def _git_version_tuple():
+    """(major, minor) установленного git или None."""
+    try:
+        r = subprocess.run(
+            ["git", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    m = re.search(r"(\d+)\.(\d+)", r.stdout or "")
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)))
+
+
+def _wave_docs_mask_pathspecs(kit_dir):
+    """Pathspecs маски; на git<2.29 — fallback os.listdir для bin/*.py."""
+    specs = list(WAVE_DOCS_MASK_PATHSPECS)
+    ver = _git_version_tuple()
+    if ver is not None and ver >= (2, 29):
+        return specs
+    # :(glob) с 2.29; старше — явные пути верхнего уровня bin/*.py.
+    sys.stderr.write(
+        "orchlib: git<2.29: :(glob) unavailable; "
+        "falling back to os.listdir bin/*.py for wave_no_docs mask\n"
+    )
+    out = []
+    for spec in specs:
+        if spec == ":(glob)bin/*.py":
+            bin_dir = os.path.join(kit_dir, "bin")
+            try:
+                names = os.listdir(bin_dir)
+            except OSError:
+                names = []
+            for name in sorted(names):
+                if name.endswith(".py") and os.path.isfile(
+                    os.path.join(bin_dir, name)
+                ):
+                    out.append(os.path.join("bin", name))
+        else:
+            out.append(spec)
+    return out
 
 
 def _last_mask_commit(kit_dir):
@@ -1721,7 +1771,7 @@ def _last_mask_commit(kit_dir):
         r = subprocess.run(
             [
                 "git", "-C", kit_dir, "log", "-1", "--format=%ct %h", "--",
-            ] + list(WAVE_DOCS_MASK_PATHSPECS),
+            ] + _wave_docs_mask_pathspecs(kit_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
@@ -1757,7 +1807,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     если маркера в окне нет — список пуст (история до гейта не шум).
     Отказы самого гейта (FRONT_REQUIRED в gates) не считаются нарушением.
 
-    wave_no_docs: mask-коммит (bin/*.py, panel/server.py,
+    wave_no_docs: mask-коммит (:(glob)bin/*.py, panel/server.py,
     skills/orchestration/**) новее последнего local docs-keeper end —
     список с %h mask-коммита. kit_dir=None → KIT_DIR (хук для /tmp-синтетики).
     """
