@@ -1802,6 +1802,8 @@ def _last_mask_commit(kit_dir):
 RULES_ACTIVE_LIMIT = 25
 RULES_CATEGORY_LIMIT = 20
 RULES_DEAD_WAVES = 10
+RULES_JEV_TIMEOUT_S = 35.0
+RULES_JEV_SHORTLIST_MAX = 10
 RULES_KOMU = frozenset({
     "general", "colonel", "executor", "wrapper", "panel"})
 RULES_KOGDA = frozenset({
@@ -2148,11 +2150,137 @@ def _rules_prompt_keyfiles(prompt_text):
     return seen
 
 
-def format_step_inject_lines(komu, kogda, kit_dir=None, state=None, limit=3,
-                             extra=None):
-    """Вклейки шага: 1–3 строк «[rules/<id>] <суть>≤80 → <path>» + record_hit.
+def _rules_card_oneliner(card_id, kit_dir=None):
+    """Однострочник кандидата для criteria Choice rules-apply."""
+    info = load_card_content(card_id, kit_dir=kit_dir)
+    if not info:
+        return card_id
+    ctype = info.get("type") or ""
+    essence = _rules_clip(info.get("essence") or card_id, 80)
+    cat = info.get("категория") or ""
+    if cat:
+        return "%s [%s] %s" % (ctype, cat, essence)
+    return "%s %s" % (ctype, essence)
 
-    Безадресный komu/kogda или нет совпадений → [].
+
+def _jev_advise_base_cmd():
+    """argv-префикс jev-advise; ORCH_JEV_ADVISE — путь к моку/заглушке."""
+    override = (os.environ.get("ORCH_JEV_ADVISE") or "").strip()
+    path = override or os.path.join(KIT_DIR, "bin", "jev-advise.py")
+    if path.endswith(".py"):
+        return [sys.executable, path]
+    return [path]
+
+
+def _rules_run_jev_advise(point_id, caller, state_text, questions,
+                          timeout_s=None):
+    """subprocess jev-advise; fail-open → (None, reason). Успех → (dict, None)."""
+    if timeout_s is None:
+        timeout_s = RULES_JEV_TIMEOUT_S
+    qpath = None
+    try:
+        fd, qpath = tempfile.mkstemp(prefix="jev-q.", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(questions, f, ensure_ascii=False)
+        cmd = _jev_advise_base_cmd() + [
+            "--point", str(point_id),
+            "--caller", str(caller or "rules"),
+            "--state-text", str(state_text or ""),
+            "--questions-file", qpath,
+        ]
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=float(timeout_s),
+        )
+        if (r.stderr or "").strip():
+            sys.stderr.write("jev-advise %s stderr: %s\n" % (
+                point_id, (r.stderr or "").strip()[:500]))
+        if r.returncode != 0:
+            sys.stderr.write(
+                "jev-advise %s exit %s (fail-open)\n" % (
+                    point_id, r.returncode))
+            return None, "exit %s" % r.returncode
+        out = (r.stdout or "").strip()
+        if not out:
+            return None, "empty stdout"
+        try:
+            data = json.loads(out.splitlines()[-1])
+        except Exception as e:
+            return None, "bad json: %s" % e
+        if not isinstance(data, dict):
+            return None, "non-object"
+        return data, None
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(
+            "jev-advise %s timeout (fail-open)\n" % point_id)
+        return None, "timeout"
+    except Exception as e:
+        sys.stderr.write(
+            "jev-advise %s error: %s (fail-open)\n" % (point_id, e))
+        return None, str(e)
+    finally:
+        if qpath:
+            try:
+                os.unlink(qpath)
+            except Exception:
+                pass
+
+
+def _rules_ids_from_choice_advice(advice, candidate_ids, limit=3):
+    """Choice advice → 1–3 id из шорт-листа; defer/absent → []."""
+    if not isinstance(advice, dict):
+        return []
+    if advice.get("action") == "defer" or advice.get("band") in (
+            "low", "absent"):
+        return []
+    cands = [c for c in candidate_ids if c]
+    cand_set = set(cands)
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
+    if limit == 0:
+        return []
+    probs = advice.get("probabilities")
+    if isinstance(probs, dict) and probs:
+        ranked = []
+        for cid, p in probs.items():
+            if cid not in cand_set:
+                continue
+            try:
+                ranked.append((cid, float(p)))
+            except Exception:
+                continue
+        ranked.sort(key=lambda x: (
+            -x[1], cands.index(x[0]) if x[0] in cands else 999))
+        out = [cid for cid, _ in ranked[:limit]]
+        if out:
+            return out
+    choice = advice.get("choice")
+    if isinstance(choice, list):
+        return [c for c in choice if c in cand_set][:limit]
+    if isinstance(choice, str) and choice in cand_set:
+        return [choice]
+    return []
+
+
+def select_rule_card_ids(komu, kogda, category=None, kit_dir=None, limit=3,
+                         state_text=None, caller=None, role=None,
+                         task_hint=None):
+    """Трёхступенчатый выбор id карточек для вклейки (Э2 / F-RULES R4).
+
+    После сужения адреса (кому×когда×категория; Jev базу НЕ видит),
+    n = |кандидаты|:
+      - n==0 → [] , Jev нет
+      - n≤3 → вставить все (≤limit), Jev НЕ вызывать
+      - 4≤n≤10 → jev-advise точку rules-apply → 1–3 id
+      - n>10 → топ-10 по hit (тай-брейк как match_cards) → ступень 4≤n≤10
+
+    defer ответа Choice → без вставки ([]). Ошибка/таймаут jev → []
+    (fail-open; вызывающий не падает).
     """
     if komu not in RULES_KOMU or kogda not in RULES_KOGDA:
         return []
@@ -2160,9 +2288,54 @@ def format_step_inject_lines(komu, kogda, kit_dir=None, state=None, limit=3,
         limit = 3 if limit is None else max(0, int(limit))
     except Exception:
         limit = 3
-    ids = match_cards(komu, kogda, category=None, kit_dir=kit_dir, limit=limit)
+    if limit == 0:
+        return []
+    candidates = match_cards(
+        komu, kogda, category=category, kit_dir=kit_dir, limit=None)
+    n = len(candidates)
+    if n == 0:
+        return []
+    if n <= 3:
+        return candidates[:limit]
+    shortlist = candidates
+    if n > RULES_JEV_SHORTLIST_MAX:
+        shortlist = candidates[:RULES_JEV_SHORTLIST_MAX]
+    # 4≤n≤10 (или урезанный топ-10): Choice rules-apply
+    criteria = {}
+    for cid in shortlist:
+        criteria[cid] = _rules_card_oneliner(cid, kit_dir=kit_dir)
+    st = state_text
+    if not st:
+        parts = ["шаг: %s" % kogda, "роль: %s" % (role or komu)]
+        hint = _rules_clip(task_hint or "", 160)
+        if hint:
+            parts.append(hint)
+        st = "; ".join(parts)
+    questions = {
+        "rules-apply": {
+            "type": "choice",
+            "instructions": (
+                "выбрать 1–3 карточки rules для вклейки на этом шаге"),
+            "criteria": criteria,
+        }
+    }
+    data, err = _rules_run_jev_advise(
+        "rules-apply", caller or "rules-apply", st, questions)
+    if err or not data:
+        return []
+    advice = (data.get("advice") or {}).get("rules-apply")
+    return _rules_ids_from_choice_advice(advice, shortlist, limit=limit)
+
+
+def _rules_format_inject_for_ids(ids, kit_dir=None, state=None, limit=3,
+                                 extra=None):
+    """Строки вклейки Э1 + record_hit для списка id."""
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
     lines = []
-    for cid in ids:
+    for cid in ids or []:
         if len(lines) >= limit:
             break
         info = load_card_content(cid, kit_dir=kit_dir)
@@ -2178,12 +2351,37 @@ def format_step_inject_lines(komu, kogda, kit_dir=None, state=None, limit=3,
     return lines
 
 
-def format_precedent_lines(komu, prompt_text=None, kit_dir=None, state=None,
-                           limit=3, extra=None):
-    """Прецеденты до старта (launch): DO/CASE «прецедент:» + DON'T «осторожно:».
+def format_step_inject_lines(komu, kogda, kit_dir=None, state=None, limit=3,
+                             extra=None, role=None, task_hint=None,
+                             caller=None):
+    """Вклейки шага: 1–3 строк «[rules/<id>] <суть>≤80 → <path>» + record_hit.
 
-    Адрес DO/CASE: komu×launch. DON'T: тот же адрес и/или ключевые файлы промта
-    в теле карточки. Суммарно ≤limit (дефолт 3). Безадресный → [].
+    Выбор id — select_rule_card_ids (лестница Э2). Безадресный / пусто → [].
+    """
+    if komu not in RULES_KOMU or kogda not in RULES_KOGDA:
+        return []
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
+    extra = dict(extra) if isinstance(extra, dict) else {}
+    role = role or extra.get("role")
+    caller = caller or extra.get("caller") or "step-inject"
+    ids = select_rule_card_ids(
+        komu, kogda, category=None, kit_dir=kit_dir, limit=limit,
+        role=role, task_hint=task_hint, caller=caller)
+    return _rules_format_inject_for_ids(
+        ids, kit_dir=kit_dir, state=state, limit=limit, extra=extra)
+
+
+def format_tried_before_lines(komu, kit_dir=None, state=None, limit=3,
+                              extra=None, role=None, task_hint=None,
+                              caller=None, state_text=None):
+    """Noul tried-before перед launch-прецедентами (fail-open).
+
+    Категории прошлых попыток адреса = категории DON'T/CASE на komu×launch.
+    yes → «уже пробовали (категория X) — см. карточки» + DON'T/CASE категории;
+    no/defer/fail → [].
     """
     if komu not in RULES_KOMU:
         return []
@@ -2196,6 +2394,107 @@ def format_precedent_lines(komu, prompt_text=None, kit_dir=None, state=None,
     manifest = load_manifest(kit_dir)
     addr_ids = match_cards(komu, "launch", category=None, kit_dir=kit_dir,
                            limit=None)
+    cats = []
+    cat_cards = {}
+    for cid in addr_ids:
+        card = _rules_card_by_id(manifest, cid)
+        if not card:
+            continue
+        if card.get("type") not in ("DON'T", "CASE"):
+            continue
+        cat = card.get("категория")
+        if not cat:
+            continue
+        if cat not in cat_cards:
+            cat_cards[cat] = []
+            cats.append(cat)
+        cat_cards[cat].append(cid)
+    if not cats:
+        return []
+    extra = dict(extra) if isinstance(extra, dict) else {}
+    role = role or extra.get("role") or komu
+    st = state_text
+    if not st:
+        parts = [
+            "роль: %s" % role,
+            "категории прошлых попыток: %s" % ", ".join(cats),
+        ]
+        hint = _rules_clip(task_hint or "", 160)
+        if hint:
+            parts.append(hint)
+        st = "; ".join(parts)
+    questions = {
+        "tried-before": {
+            "type": "noul",
+            "instructions": (
+                "пробовали ли такой подход раньше по категориям: %s"
+                % ", ".join(cats)),
+        }
+    }
+    data, err = _rules_run_jev_advise(
+        "tried-before",
+        caller or extra.get("caller") or "tried-before",
+        st, questions)
+    if err or not data:
+        return []
+    advice = (data.get("advice") or {}).get("tried-before") or {}
+    if advice.get("action") != "yes" and advice.get("band") != "yes":
+        return []
+    lines = []
+    for cat in cats:
+        if len(lines) >= limit:
+            break
+        lines.append(
+            "уже пробовали (категория %s) — см. карточки" % cat)
+        for cid in cat_cards.get(cat) or []:
+            if len(lines) >= limit:
+                break
+            info = load_card_content(cid, kit_dir=kit_dir)
+            if not info:
+                continue
+            ctype = info.get("type") or ""
+            if ctype == "DON'T":
+                case = _rules_clip(
+                    info.get("failure") or info.get("essence") or cid, 120)
+                lines.append("осторожно: %s %s" % (cid, case))
+            else:
+                ref = _rules_clip(
+                    info.get("golden") or info.get("essence") or cid, 120)
+                lines.append("прецедент: %s %s" % (cid, ref))
+            try:
+                record_hit(cid, kit_dir=kit_dir, state=state, extra=extra)
+            except Exception:
+                pass
+    return lines[:limit]
+
+
+def format_precedent_lines(komu, prompt_text=None, kit_dir=None, state=None,
+                           limit=3, extra=None):
+    """Прецеденты до старта (launch): DO/CASE «прецедент:» + DON'T «осторожно:».
+
+    Адрес DO/CASE: komu×launch. DON'T: тот же адрес и/или ключевые файлы промта
+    в теле карточки. Суммарно ≤limit (дефолт 3). Безадресный → [].
+    Выбор адресных id — select_rule_card_ids (лестница Э2); keyfile-DON'T
+    дополняются поверх (Э1), без повторного Jev.
+    """
+    if komu not in RULES_KOMU:
+        return []
+    try:
+        limit = 3 if limit is None else max(0, int(limit))
+    except Exception:
+        limit = 3
+    if limit == 0:
+        return []
+    manifest = load_manifest(kit_dir)
+    extra = dict(extra) if isinstance(extra, dict) else {}
+    # шорт-лист через лестницу (n≤3 без Jev; 4–10 → rules-apply)
+    addr_ids = select_rule_card_ids(
+        komu, "launch", category=None, kit_dir=kit_dir, limit=None,
+        role=extra.get("role"), caller=extra.get("caller") or "precedent",
+        task_hint=_rules_clip(prompt_text or "", 160) or None)
+    # limit=None в select → внутри станет 3; для прецедентов нужен полный
+    # шорт-лист типов — при n≤3 select вернёт всех; при Jev — 1–3.
+    # Добираем адресные id без обхода лестницы нельзя; используем результат.
     do_case = []
     dont = []
     for cid in addr_ids:
@@ -2427,6 +2726,14 @@ def add_rule_card(тип, категория, кому, когда, части, 
             n += 1
     if _rules_card_by_id(manifest, cid) is not None:
         raise ValueError("card id already exists: %s" % cid)
+    active_in_cat = sum(
+        1 for c in _rules_active_cards(manifest)
+        if c.get("категория") == категория)
+    if active_in_cat >= RULES_CATEGORY_LIMIT:
+        raise ValueError(
+            "category %r has %d active cards (limit %d); "
+            "split into a subcategory (aliases) before adding"
+            % (категория, active_in_cat, RULES_CATEGORY_LIMIT))
     card = {
         "id": cid,
         "type": тип,
