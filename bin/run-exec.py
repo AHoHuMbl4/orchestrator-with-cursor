@@ -35,6 +35,7 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   8       — нет --front/--no-front при hierarchy≠off; FRONT_REQUIRED
   9       — замок front-runs занят; FRONT_LOCK_BUSY
   10      — params.json битый
+  11      — id занят живым прогоном (pid); нужен другой id или --force
   124     — таймаут
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
@@ -570,6 +571,22 @@ def resolve_run_paths(state, run_id, session=None):
             os.path.join(state, "cursor-run-%s.pid" % run_id))
 
 
+def check_duplicate_id_guard(state, run_id, session=None, force=False):
+    """Отказ exit 11, если pid-файл есть и процесс жив. --force обходит только этот гард."""
+    if force:
+        return None
+    _log_path, pid_path = resolve_run_paths(state, run_id, session)
+    if not os.path.isfile(pid_path):
+        return None
+    pid = read_pid_file(pid_path)
+    if pid is None or not pid_alive(pid):
+        return None
+    sys.stderr.write(
+        "id %s занят живым прогоном (pid %s); используйте другой id или --force\n"
+        % (run_id, pid))
+    return 11
+
+
 def read_pid_file(pid_path):
     try:
         with open(pid_path, "r", encoding="utf-8") as f:
@@ -780,6 +797,8 @@ def main():
     ap.add_argument("--readonly", action="store_true",
                     help="барьер A: --mode plan; journal readonly=true; "
                          "только аналитика (чтение+выжимка), не командные роли")
+    ap.add_argument("--force", action="store_true",
+                    help="обойти гард дубль-id (exit 11); гейты 5–9 не затрагивает")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
 
@@ -799,6 +818,11 @@ def main():
         return cmd_status(state, a.id, a.session)
     if not a.id:
         ap.error("--id обязателен (кроме --list)")
+
+    # Гард дубль-id: после --status/--list, до создания процессов.
+    dup_rc = check_duplicate_id_guard(state, a.id, a.session, force=a.force)
+    if dup_rc is not None:
+        return dup_rc
 
     os.makedirs(state, exist_ok=True)
 
