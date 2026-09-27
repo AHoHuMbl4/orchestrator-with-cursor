@@ -261,7 +261,10 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1790518063.9756746,
-      "run_ref": "F-DEBTS-W4R-A"
+      "run_ref": "F-DEBTS-W4R-A",
+      "archived": true,
+      "причина": "dead-hit0",
+      "дата": "2026-09-27"
     },
     {
       "id": "dont-finalnaya-priemka-all-green-zamer-cheste-2",
@@ -271,7 +274,10 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1790518063.9762363,
-      "run_ref": "F-DEBTS-W4R-B"
+      "run_ref": "F-DEBTS-W4R-B",
+      "archived": true,
+      "причина": "dead-hit0",
+      "дата": "2026-09-27"
     },
     {
       "id": "dont-finalnaya-priemka-all-green-zamer-cheste-3",
@@ -281,7 +287,10 @@
       "категория": "приёмка",
       "hit": 0,
       "created": 1790518063.9765747,
-      "run_ref": "F-DEBTS-W4R-C"
+      "run_ref": "F-DEBTS-W4R-C",
+      "archived": true,
+      "причина": "dead-hit0",
+      "дата": "2026-09-27"
     },
     {
       "id": "dont-ne-zapuskat-progony-s-front-f-debts-da-i",
