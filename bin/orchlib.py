@@ -2357,6 +2357,8 @@ def migrate_rules_born_at(kit_dir=None, manifest=None):
 
     Источник: git log --diff-filter=A --format=%aI -- <card file>;
     fallback — mtime файла; затем created; иначе time.time().
+    При первой простановке также пишет migrated_at=ts (born_at иммутабелен;
+    дальнейшие переносы/resurrect обновляют только migrated_at).
     Возвращает число обновлённых записей. manifest=… — мутировать переданный
     объект без повторной загрузки (для load_manifest).
     """
@@ -2399,6 +2401,7 @@ def migrate_rules_born_at(kit_dir=None, manifest=None):
         if ts is None:
             ts = time.time()
         c["born_at"] = float(ts)
+        c["migrated_at"] = float(ts)
         n += 1
     if own and n:
         save_manifest(manifest, kit_dir)
@@ -3133,8 +3136,9 @@ def archive_lru(kit_dir=None, state=None):
 def resurrect(card_id, kit_dir=None):
     """Вернуть карточку из archive/ в cards/ при повторе адреса/кейса.
 
-    Снимает archived; created=born_at=now. LRU не вызывается здесь (вызывающий
-    может archive_lru отдельно) — иначе hit=0 сразу уходит обратно.
+    Снимает archived; born_at и created не меняет (иммутабельны); пишет
+    migrated_at=now. LRU не вызывается здесь (вызывающий может archive_lru
+    отдельно) — иначе hit=0 сразу уходит обратно.
     Возвращает True если воскрешена.
     """
     if not card_id:
@@ -3158,9 +3162,7 @@ def resurrect(card_id, kit_dir=None):
             except Exception:
                 pass
     card["archived"] = False
-    now = time.time()
-    card["created"] = now
-    card["born_at"] = now
+    card["migrated_at"] = time.time()
     save_manifest(manifest, kit_dir)
     return True
 
@@ -4671,11 +4673,296 @@ def _orch_lint_card_shas(card, kit_dir):
     return found
 
 
-def orch_lint_violations(kit_dir=None):
+# --- orch-lint deep: cause-cleared + born_at history (C3-LINT) --------------
+# Baseline = HEAD до feat-коммита гейта; коммиты строго после baseline.
+ORCH_LINT_BASELINE_SHA = "78f1481e7a623cb441564f727b781c3b6eb5a774"
+_ORCH_LINT_SCOPED = ("bin/orchlib.py", "bin/orch-lint.py")
+_ORCH_LINT_DETECTOR_NAMES = (
+    "rules_dead", "rules_undelivered", "rules_no_retro", "health_red_chips",
+    "_rules_wave_ends", "RULES_DEAD_AGE_HOURS", "RULES_DEAD_WAVES",
+    "RULES_ACTIVE_LIMIT", "probes_missing", "chip_silenced", "lint_failures",
+)
+_ORCH_LINT_CONST_ASSIGN_RE = re.compile(
+    r"^([A-Z][A-Z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*(?:#.*)?$")
+_ORCH_LINT_GRACE_LIMIT_NAME_RE = re.compile(
+    r"(?:GRACE|LIMIT|HOURS|WAVES|AGE)")
+_ORCH_LINT_CHIP_KEY_RE = re.compile(r'^"([a-z][a-z0-9_]*)"\s*:')
+_ORCH_LINT_CAUSE_RUN_RE = re.compile(r"CAUSE-CLEARED:([^\s:]+)")
+
+
+def _orch_lint_git(kit_dir, args, timeout=60):
+    try:
+        r = subprocess.run(
+            ["git", "-C", kit_dir] + list(args),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=timeout,
+        )
+        if r.returncode != 0:
+            return None
+        return r.stdout or ""
+    except Exception:
+        return None
+
+
+def _orch_lint_commits_after(kit_dir, baseline, paths):
+    """SHA коммитов строго после baseline, затрагивающих paths (oldest first)."""
+    if not baseline or not kit_dir:
+        return []
+    out = _orch_lint_git(
+        kit_dir,
+        ["rev-list", "--reverse", "%s..HEAD" % baseline, "--"] + list(paths),
+    )
+    if out is None:
+        return []
+    return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
+
+def _orch_lint_commit_msg(kit_dir, sha):
+    out = _orch_lint_git(kit_dir, ["log", "-1", "--format=%B", sha])
+    return out if out is not None else ""
+
+
+def _orch_lint_commit_diff(kit_dir, sha, paths):
+    """Unified diff коммита vs первый родитель (scoped paths)."""
+    out = _orch_lint_git(
+        kit_dir,
+        ["diff", "%s^" % sha, sha, "--"] + list(paths),
+        timeout=120,
+    )
+    return out if out is not None else ""
+
+
+def _orch_lint_split_diff_sides(diff_text):
+    """Вернуть (minus_lines, plus_lines) без префикса -/+, без заголовков."""
+    minus, plus = [], []
+    for raw in (diff_text or "").splitlines():
+        if not raw:
+            continue
+        if raw.startswith("+++") or raw.startswith("---"):
+            continue
+        if raw.startswith("@@"):
+            continue
+        if raw.startswith("-"):
+            minus.append(raw[1:])
+        elif raw.startswith("+"):
+            plus.append(raw[1:])
+    return minus, plus
+
+
+def _orch_lint_const_map(lines):
+    """NAME -> numeric value из строк присваивания констант."""
+    out = {}
+    for ln in lines:
+        s = ln.strip()
+        m = _ORCH_LINT_CONST_ASSIGN_RE.match(s)
+        if not m:
+            continue
+        name, val = m.group(1), m.group(2)
+        try:
+            out[name] = float(val) if "." in val else int(val)
+        except ValueError:
+            continue
+    return out
+
+
+def _orch_lint_is_limit_const(name):
+    """LIMIT-константа (рост = усиление, не ослабление)."""
+    return "LIMIT" in (name or "")
+
+
+def _orch_lint_diff_weakens(diff_text):
+    """True если scoped-дифф ослабляет зону детекторов (контракт C3-LINT)."""
+    minus, plus = _orch_lint_split_diff_sides(diff_text)
+    minus_text = "\n".join(minus)
+    plus_text = "\n".join(plus)
+    # 1) имя детектора исчезло из «-» (нет в «+») — удаление/замена.
+    #    Чистый перенос: токен есть и в «-», и в «+» — не ослабление.
+    for name in _ORCH_LINT_DETECTOR_NAMES:
+        if name in minus_text and name not in plus_text:
+            return True
+    # 2) числовая константа детектора изменилась (любое), кроме роста LIMIT.
+    old_c = _orch_lint_const_map(minus)
+    new_c = _orch_lint_const_map(plus)
+    watch = set(_ORCH_LINT_DETECTOR_NAMES) | set(old_c) | set(new_c)
+    for name in watch:
+        if name not in old_c or name not in new_c:
+            continue
+        if old_c[name] == new_c[name]:
+            continue
+        # рост LIMIT — усиление, не ослабление; иначе любое изменение = ослабление
+        if _orch_lint_is_limit_const(name) and new_c[name] > old_c[name]:
+            continue
+        # изменение константы из списка детекторов или grace/limit-паттерна
+        if (name in _ORCH_LINT_DETECTOR_NAMES
+                or _ORCH_LINT_GRACE_LIMIT_NAME_RE.search(name)):
+            return True
+    # 3) новая grace/limit-константа в зоне детекторов
+    for name, _val in new_c.items():
+        if name in old_c:
+            continue
+        if _ORCH_LINT_GRACE_LIMIT_NAME_RE.search(name):
+            return True
+    # 4) удалён ключ чипа из health-словаря ("chip": в «-», нет в «+»)
+    old_keys = set()
+    new_keys = set()
+    for ln in minus:
+        m = _ORCH_LINT_CHIP_KEY_RE.match(ln.strip())
+        if m:
+            old_keys.add(m.group(1))
+    for ln in plus:
+        m = _ORCH_LINT_CHIP_KEY_RE.match(ln.strip())
+        if m:
+            new_keys.add(m.group(1))
+    removed = old_keys - new_keys
+    # чип-ключи = известные детекторные имена в snake_case
+    chipish = set(n for n in _ORCH_LINT_DETECTOR_NAMES if n[:1].islower())
+    if removed & chipish:
+        return True
+    return False
+
+
+def _orch_lint_cause_cleared_ok(kit_dir, sha, state=None):
+    """True если у коммита есть доказательство CAUSE-CLEARED (msg+artifact|fallback)."""
+    msg = _orch_lint_commit_msg(kit_dir, sha) or ""
+    # run-id: «CAUSE-CLEARED:<run-id>» + артефакт/run.log с замером
+    m = _ORCH_LINT_CAUSE_RUN_RE.search(msg)
+    if m:
+        run_id = m.group(1).strip()
+        if run_id and _orch_lint_cause_artifact_has_measure(run_id, state=state):
+            return True
+    # Fallback: «CAUSE-CLEARED: <команда + результат>» (пробел после ':') в msg
+    for ln in msg.splitlines():
+        idx = ln.find("CAUSE-CLEARED: ")
+        if idx >= 0 and ln[idx + len("CAUSE-CLEARED: "):].strip():
+            return True
+    return False
+
+
+def _orch_lint_cause_artifact_has_measure(run_id, state=None):
+    """artifact.md|run.log прогона содержат «CAUSE-CLEARED:» + непустой замер."""
+    if not run_id:
+        return False
+    if state is None:
+        try:
+            state = find_state_dir()
+        except Exception:
+            state = None
+    if not state or not os.path.isdir(state):
+        return False
+    # sessions/*/runs/<id>/{artifact.md,run.log}
+    sessions = os.path.join(state, "sessions")
+    candidates = []
+    if os.path.isdir(sessions):
+        try:
+            for sid in os.listdir(sessions):
+                base = os.path.join(sessions, sid, "runs", run_id)
+                candidates.append(os.path.join(base, "artifact.md"))
+                candidates.append(os.path.join(base, "run.log"))
+        except Exception:
+            pass
+    # также плоский runs/<id> под state (на случай иной раскладки)
+    candidates.append(os.path.join(state, "runs", run_id, "artifact.md"))
+    candidates.append(os.path.join(state, "runs", run_id, "run.log"))
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except Exception:
+            continue
+        for ln in text.splitlines():
+            if "CAUSE-CLEARED:" in ln:
+                rest = ln.split("CAUSE-CLEARED:", 1)[1].strip()
+                if rest:
+                    return True
+    return False
+
+
+def _orch_lint_cause_cleared_violations(kit_dir, baseline, state=None):
+    """Нарушения cause-cleared для коммитов после baseline по scoped-путям."""
+    viols = []
+    for sha in _orch_lint_commits_after(kit_dir, baseline, _ORCH_LINT_SCOPED):
+        diff = _orch_lint_commit_diff(kit_dir, sha, _ORCH_LINT_SCOPED)
+        if not diff or not _orch_lint_diff_weakens(diff):
+            continue
+        if _orch_lint_cause_cleared_ok(kit_dir, sha, state=state):
+            continue
+        short = sha[:12] if len(sha) > 12 else sha
+        viols.append(
+            "cause-cleared: commit %s weakens detector zone without CAUSE-CLEARED"
+            % short)
+    return viols
+
+
+def _orch_lint_manifest_at(kit_dir, rev):
+    """Разобрать rules/manifest.json на ревизии rev; None если нет/битый."""
+    out = _orch_lint_git(
+        kit_dir, ["show", "%s:rules/manifest.json" % rev], timeout=30)
+    if out is None or not out.strip():
+        return None
+    try:
+        data = json.loads(out)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _orch_lint_born_at_map(manifest):
+    """id -> born_at для карточек, у которых поле задано."""
+    out = {}
+    if not manifest:
+        return out
+    for c in manifest.get("cards") or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        if c.get("born_at") is None:
+            continue
+        out[c["id"]] = c.get("born_at")
+    return out
+
+
+def _orch_lint_born_at_equal(a, b):
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return a == b
+
+
+def _orch_lint_born_at_violations(kit_dir, baseline):
+    """born_at value→value restamp в rules/manifest.json после baseline."""
+    viols = []
+    for sha in _orch_lint_commits_after(
+            kit_dir, baseline, ("rules/manifest.json",)):
+        parent = _orch_lint_manifest_at(kit_dir, "%s^" % sha)
+        cur = _orch_lint_manifest_at(kit_dir, sha)
+        if parent is None or cur is None:
+            continue
+        old_m = _orch_lint_born_at_map(parent)
+        new_m = _orch_lint_born_at_map(cur)
+        for cid, old_v in old_m.items():
+            if cid not in new_m:
+                continue
+            new_v = new_m[cid]
+            if _orch_lint_born_at_equal(old_v, new_v):
+                continue
+            short = sha[:12] if len(sha) > 12 else sha
+            viols.append(
+                "born_at: card %s restamped in commit %s" % (cid, short))
+    return viols
+
+
+def orch_lint_violations(kit_dir=None, state=None, deep=False,
+                         baseline=None):
     """Список нарушений инвариантов rules/roles; [] = чисто.
 
     Проверяет: поля manifest, hit числом, дубли id, файлы↔manifest,
     роли _index↔файлы, живые SHA-ссылки в карточках.
+    deep=True: + cause-cleared (git-walk scoped) и born_at-история
+    rules/manifest.json после baseline. deep=False (дефолт) — лёгкий subset
+    для health_red_chips (без git-walk); CLI orch-lint передаёт deep=True.
     """
     if kit_dir is None:
         kit_dir = KIT_DIR
@@ -4760,4 +5047,16 @@ def orch_lint_violations(kit_dir=None):
             if not _orch_lint_git_sha_alive(sha, kit_dir):
                 viols.append(
                     "sha: card %s references dead sha %s" % (c.get("id"), sha))
+    # --- deep: cause-cleared + born_at history ---
+    if deep:
+        bl = baseline if baseline is not None else ORCH_LINT_BASELINE_SHA
+        try:
+            viols.extend(
+                _orch_lint_cause_cleared_violations(kit_dir, bl, state=state))
+        except Exception as e:
+            viols.append("cause-cleared: check error (%s)" % e)
+        try:
+            viols.extend(_orch_lint_born_at_violations(kit_dir, bl))
+        except Exception as e:
+            viols.append("born_at: check error (%s)" % e)
     return viols

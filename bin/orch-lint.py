@@ -8,6 +8,8 @@
   - файлы карточек соответствуют манифесту (и наоборот)
   - роли: _index.md ↔ файлы на диске
   - SHA-ссылки в карточках (золотая ссылка / пример) живы в git кита
+  - deep: cause-cleared (ослабление детекторов без CAUSE-CLEARED) и
+    иммутабельность born_at в истории rules/manifest.json после baseline
 
 Выход: список нарушений в stdout (по строке); exit 1 при любом, 0 если чисто.
 
@@ -23,6 +25,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
 
+# Baseline cause-cleared/born_at: HEAD кита до feat-коммита гейта (C3-LINT).
+# Дубль: runs/C3-LINT/baseline.sha в state-сессии волны.
+ORCH_LINT_BASELINE_SHA = "78f1481e7a623cb441564f727b781c3b6eb5a774"
+
 
 def main(argv=None):
     orchlib.utf8_stdio()
@@ -34,7 +40,9 @@ def main(argv=None):
     kit_dir = args.kit_dir
     if kit_dir:
         kit_dir = os.path.abspath(kit_dir)
-    viols = orchlib.orch_lint_violations(kit_dir=kit_dir)
+    # CLI — deep=True (git-walk); health зовёт orch_lint_violations() без deep.
+    viols = orchlib.orch_lint_violations(
+        kit_dir=kit_dir, deep=True, baseline=ORCH_LINT_BASELINE_SHA)
     for v in viols:
         sys.stdout.write(v + "\n")
     if viols:
