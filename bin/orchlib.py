@@ -3135,7 +3135,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     runs_no_front: только после активации гейта FRONT_REQUIRED в окне скана.
     Активация = ts первой end-записи с маркером FRONT_REQUIRED в gates;
     если маркера в окне нет — список пуст (история до гейта не шум).
-    Отказы самого гейта (FRONT_REQUIRED в gates) не считаются нарушением.
+    Отказы гейта (_end_is_gate_refuse: exit∈_GATE_REFUSE_EXITS или
+    маркеры _RULES_GATE_REFUSALS) не считаются нарушением.
 
     wave_no_docs: mask-коммит (:(glob)bin/*.py, panel/server.py,
     skills/orchestration/**) новее последнего local docs-keeper end —
@@ -3190,7 +3191,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         starts_by_id = _journal_start_index(entries)
         # 1. runs_no_front: end без фронта ПОСЛЕ активации гейта FRONT_REQUIRED.
         # Активация = первый end с FRONT_REQUIRED в gates в окне; иначе [].
-        # Отказы гейта (тот же маркер) — работа гейта, не нарушение.
+        # Отказы гейта (_end_is_gate_refuse) — работа гейта, не нарушение.
         gate_on_ts = None
         for e in entries:
             if e.get("kind") != "end":
@@ -3208,7 +3209,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 if ets is None or ets < gate_on_ts:
                     continue
                 gates = e.get("gates") or []
-                if isinstance(gates, list) and "FRONT_REQUIRED" in gates:
+                if _end_is_gate_refuse(e.get("exit"), gates):
                     continue  # отказ гейта — не нарушение
                 rid = e.get("id")
                 st = starts_by_id.get(rid) if rid else None
@@ -3396,16 +3397,18 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 if coder_after:
                     code_waves_no_gitwarden.append(fid)
 
-            for x in f_ends:
-                gates = x.get("gates") or []
-                hit = False
-                if isinstance(gates, list):
-                    for g in gates:
-                        if isinstance(g, str) and "FRONT_BUDGET_WARN" in g:
-                            hit = True
-                            break
-                if hit and fid not in budget_warn:
-                    budget_warn.append(fid)
+            # budget_warn: только active (канон после normalize/миграции).
+            if normalize_front_status(status) == "active":
+                for x in f_ends:
+                    gates = x.get("gates") or []
+                    hit = False
+                    if isinstance(gates, list):
+                        for g in gates:
+                            if isinstance(g, str) and "FRONT_BUDGET_WARN" in g:
+                                hit = True
+                                break
+                    if hit and fid not in budget_warn:
+                        budget_warn.append(fid)
 
             # P5: commander_no_children — active front, ended colonel без executor.
             if status == "active":
