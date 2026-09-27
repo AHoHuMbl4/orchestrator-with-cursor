@@ -417,6 +417,17 @@
       "created": 1790529724.9242673,
       "born_at": 1790529724.9242673,
       "run_ref": "OWNER-INCIDENT-20260927-fresh-hands"
+    },
+    {
+      "id": "dont-komandirskaya-volna-bez-fronta-seriya-ru",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "launch",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790530759.3610525,
+      "born_at": 1790530759.3610525,
+      "run_ref": "CASE-F-C2-20260927"
     }
   ],
   "aliases": {}

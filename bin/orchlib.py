@@ -1885,6 +1885,129 @@ def commander_hands_active(sid, p=None, state=None, now=None):
         return False
 
 
+# --- детектор «командирская волна без фронта» (F-C2) -----------------------
+COMMANDER_NO_FRONT_SERIES = 3
+COMMANDER_NO_FRONT_WINDOW_RUNS = 10
+COMMANDER_NO_FRONT_MASK_RE = re.compile(
+    r"(?i)\b(smoke|смоук|e2e|замер|probe|проба|checkpoint|чекпоинт|"
+    r"read-?only|audit|аудит|scout|разведка)\b"
+)
+COMMANDER_NO_FRONT_BLOCK = (
+    "⛔ КОМАНДИРСКАЯ ВОЛНА БЕЗ ФРОНТА: %d запусков --no-front при живой "
+    "иерархии (%s) — серия = волна: подними фронт (fronts.json+генерал+приказ) "
+    "или зафиксируй решение владельца. Фикс = фронт. Смоук/замер/разведка — "
+    "помечай причину."
+)
+
+
+def format_commander_no_front_block(series):
+    """Текст громкого блока по списку из commander_no_front_series (≤350)."""
+    if not series:
+        return ""
+    ids = []
+    for item in series:
+        rid = item.get("id") if isinstance(item, dict) else None
+        if rid is not None:
+            ids.append(str(rid))
+    ids_s = ",".join(ids) if ids else "?"
+    msg = COMMANDER_NO_FRONT_BLOCK % (len(series), ids_s)
+    if len(msg) > 350:
+        msg = msg[:349] + "…"
+    return msg
+
+
+def commander_no_front_series(sid=None, state=None, p=None, now=None):
+    """Серия unmasked --no-front в окне обёрток при живой иерархии.
+
+    Возвращает список {id, reason, ts} при len >= COMMANDER_NO_FRONT_SERIES,
+    иначе []. Субагент (extra.event.session_id==sid) и hierarchy=off /
+    нет живых фронтов → [].
+    """
+    try:
+        if now is None:
+            now = time.time()
+        if state is None:
+            state = find_state_dir()
+        if p is None:
+            try:
+                p = load_params()
+            except Exception:
+                p = DEFAULTS
+        # скоупинг: сессия субагента по extra.event.session_id (НЕ по parent —
+        # parent у SubagentStart = sid командующего). Kimi пишет event.session_id
+        # = parent (хук в контексте командующего) — это не сессия субагента.
+        if sid:
+            for e in _journal_entries_at(state):
+                if e.get("kind") != "start":
+                    continue
+                if e.get("engine") != "engine-subagent":
+                    continue
+                extra = e.get("extra") or {}
+                ev = extra.get("event") if isinstance(extra, dict) else None
+                if not isinstance(ev, dict):
+                    continue
+                esid = ev.get("session_id") or ev.get("sessionId")
+                if esid is None or str(esid) != str(sid):
+                    continue
+                parent = e.get("parent")
+                if parent is not None and str(parent) == str(sid):
+                    continue
+                return []
+        hier = (p.get("orchestration") or {}).get("hierarchy")
+        if hier == "off":
+            return []
+        fronts_file = os.path.join(state, "fronts.json")
+        if not os.path.exists(fronts_file):
+            return []
+        data = _load_fronts_at(state)
+        alive = False
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            if fr.get("status") in ("active", "stalled", "proposed"):
+                alive = True
+                break
+        if not alive:
+            return []
+        starts = []
+        for e in _journal_entries_at(state):
+            if e.get("kind") != "start":
+                continue
+            if e.get("engine") not in ("local", "cloud"):
+                continue
+            starts.append(e)
+        window = starts[-COMMANDER_NO_FRONT_WINDOW_RUNS:]
+        # серия = подряд идущие unmasked no-front; --front / маска / hierarchy-off
+        # / пустая причина разрывают волну (см. приёмку (c)).
+        best = []
+        cur = []
+        for e in window:
+            reason = e.get("no_front_reason")
+            ok = False
+            if reason is not None:
+                if not isinstance(reason, str):
+                    reason = str(reason)
+                if (reason.strip()
+                        and reason.strip() != "hierarchy-off"
+                        and not COMMANDER_NO_FRONT_MASK_RE.search(reason)):
+                    ok = True
+            if ok:
+                cur.append({
+                    "id": e.get("id"),
+                    "reason": reason,
+                    "ts": e.get("ts"),
+                })
+                if len(cur) > len(best):
+                    best = list(cur)
+            else:
+                cur = []
+        if len(best) >= COMMANDER_NO_FRONT_SERIES:
+            return best
+        return []
+    except Exception:
+        return []
+
+
 def is_order_md_path(path, state=None):
     """True, если path — fronts/*/order.md или fronts/*/colonels/*/order.md."""
     if not isinstance(path, str) or not path.strip():

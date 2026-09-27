@@ -714,7 +714,7 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    # префикс: kit_update → compass-guard → hands → детекторы → чужой state
+    # префикс: kit_update → compass-guard → hands → NOFRONT → детекторы → чужой state
     kit_prefix = kit_update if kit_update else ""
     guard_prefix = (guard + "\n") if guard else ""
     hands_prefix = ""
@@ -723,6 +723,14 @@ def cmd_prompt_submit(engine, fmt):
             hands_prefix = orchlib.COMMANDER_HANDS_BLOCK + "\n"
     except Exception as e:
         sys.stderr.write("commander_hands failed: %s\n" % e)
+    nofront_prefix = ""
+    try:
+        _nf_series = orchlib.commander_no_front_series(sid=sid, p=p)
+        if _nf_series:
+            nofront_prefix = (
+                orchlib.format_commander_no_front_block(_nf_series) + "\n")
+    except Exception as e:
+        sys.stderr.write("commander_no_front failed: %s\n" % e)
     det_lines = []
     try:
         bad_orders = orchlib.orders_without_basis()
@@ -744,7 +752,8 @@ def cmd_prompt_submit(engine, fmt):
     det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""
-    head = kit_prefix + guard_prefix + hands_prefix + det_prefix + foreign_prefix
+    head = (kit_prefix + guard_prefix + hands_prefix + nofront_prefix
+            + det_prefix + foreign_prefix)
 
     # F-RULES R2: вклейки по адресу роли×prompt-submit (≤3); mtime-кэш не трогаем
     rules_lines = _rules_step_lines(ev, sid, "prompt-submit")
