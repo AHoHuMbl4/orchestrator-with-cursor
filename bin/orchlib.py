@@ -1718,6 +1718,9 @@ def health_red_chips(state=None, scan_limit=None):
                 st = starts_by_id.get(rid) if rid else None
                 if not st:
                     continue
+                # SubagentStart (engine-subagent / id subagent:*) — не обёртка.
+                if st.get("engine") == "engine-subagent":
+                    continue
                 if st.get("front") is not None:
                     continue
                 if st.get("no_front_reason"):
@@ -1744,6 +1747,7 @@ def health_red_chips(state=None, scan_limit=None):
                 "front": st.get("front"),
                 "role": normalize_journal_role(st.get("role")),
                 "gates": e.get("gates") or [],
+                "start_ts": st.get("ts"),
                 "entry": e,
             })
 
@@ -1766,22 +1770,34 @@ def health_red_chips(state=None, scan_limit=None):
             idle = not live
 
             wave_ends = [x for x in f_ends if _role_is_wave_work(x.get("role"))]
+            # Работа, которой нужен критик: не сами критики и не git-warden
+            # (ревизия после волны — доктрина, не «волна без критика»).
+            needs_critic = [
+                x for x in wave_ends
+                if not _role_is_critic(x.get("role"))
+                and not _role_is_gitwarden(x.get("role"))
+            ]
             pros_ends = [x for x in f_ends if _role_is_prosecutor(x.get("role"))]
             if status == "active" and wave_ends and not pros_ends:
                 fronts_no_prosecutor.append(fid)
 
             if idle and wave_ends:
-                last_critic_ts = None
-                for x in f_ends:
-                    if _role_is_critic(x.get("role")):
-                        last_critic_ts = x["entry"].get("ts")
-                after_critic = [
-                    x for x in wave_ends
-                    if last_critic_ts is None
-                    or (x["entry"].get("ts") or 0) > last_critic_ts
-                ]
-                if after_critic:
-                    waves_no_critic.append(fid)
+                # Критик того же front (role fact-checker/code-reviewer).
+                # Сравниваем start_ts исполнителя с end_ts последнего критика:
+                # длинный colonel, стартовавший до критиков, не ложный плюс.
+                # Только active: done/закрытые — не красный чип «волна сейчас».
+                if status == "active":
+                    last_critic_ts = None
+                    for x in f_ends:
+                        if _role_is_critic(x.get("role")):
+                            last_critic_ts = x["entry"].get("ts")
+                    after_critic = [
+                        x for x in needs_critic
+                        if last_critic_ts is None
+                        or (x.get("start_ts") or 0) > last_critic_ts
+                    ]
+                    if after_critic:
+                        waves_no_critic.append(fid)
 
                 last_gw_ts = None
                 for x in f_ends:
