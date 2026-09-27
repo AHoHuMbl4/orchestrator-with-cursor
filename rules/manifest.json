@@ -220,6 +220,16 @@
       "hit": 0,
       "created": 1790513529.938892,
       "run_ref": "prosecutor-auto-F-DEBTS-2"
+    },
+    {
+      "id": "dont-ne-trebovat-all-chips-green-na-priemke-d",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790514584.3756213,
+      "run_ref": "F-DEBTS-W3R-C"
     }
   ],
   "aliases": {}
