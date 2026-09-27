@@ -321,6 +321,36 @@
       "hit": 0,
       "created": 1790519369.7242815,
       "run_ref": "prosecutor-auto-F-DEBTS-8"
+    },
+    {
+      "id": "dont-evristika-puti-vmesto-yavnogo-flaga",
+      "type": "DON'T",
+      "кому": "wrapper",
+      "когда": "launch",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790523968.612103,
+      "run_ref": "INCIDENT-P14-20260927"
+    },
+    {
+      "id": "case-put-1-polzovatelya-obyazan-imet-e2e",
+      "type": "CASE",
+      "кому": "general",
+      "когда": "launch",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790523968.6125767,
+      "run_ref": "FIX-P14"
+    },
+    {
+      "id": "dont-komandir-rabotaet-rukami-vmesto-fronta",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790523968.6129174,
+      "run_ref": "OWNER-REMARK-20260927-hands-off"
     }
   ],
   "aliases": {}

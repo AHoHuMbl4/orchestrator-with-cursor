@@ -54,10 +54,13 @@ ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/
 178c0ae4685944daf55fac33feded05b4b01f1ec5ea97322f6fc1aeb0a92b032  ./rules/cards/приёмка/dont-posle-voln-pravok-fajlov-kita-prinyali-r.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
+37ea5e7f28fb704b932053321ddf0f09dcf662940e5d71ac86fd32e50f7d4f99  ./rules/cards/процессы/case-put-1-polzovatelya-obyazan-imet-e2e.md
+2c6bc049c3db317a967f9dfc8a13b007894aa689e5346e6b42e5c74c089df45f  ./rules/cards/процессы/dont-evristika-puti-vmesto-yavnogo-flaga.md
 9dfa55fe483ac1a1279bd9ea8d8f28ec30fd0814a6a76846e8cb00e18f8d62eb  ./rules/cards/процессы/dont-front-strogo-id-fronta-iz-fronts-json-pr.md
+28cdd8f373ade8547b102ca6d1e269fead79cce36258fa6a661ce78495d9cd0d  ./rules/cards/процессы/dont-komandir-rabotaet-rukami-vmesto-fronta.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
-0d683d5e0dcc9a7986611aedaf3356c99e7194b5014fc54f7400b23af9133d1c  ./rules/manifest.json
+b2d98d5f96cfa1e450bac9e7d55c6ef24f6590e5f11c422886098cb31055abbc  ./rules/manifest.json
 0d544ba16be88e66b5c9622044c27590b97886a755f7e345c452948d7cdc294d  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 859a65fcae5758168370d8f4c7c0bb6888c353520c5619c5ae898ea8611e4d32  ./skills/orchestration/references/MAP.md
