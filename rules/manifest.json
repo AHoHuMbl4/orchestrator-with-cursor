@@ -239,7 +239,8 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1790516621.5457234,
-      "run_ref": "F-DEBTS-DB6-PLAN3-C1"
+      "run_ref": "F-DEBTS-DB6-PLAN3-C1",
+      "archived": true
     },
     {
       "id": "do-klon-tmp-target-proverka",
@@ -249,7 +250,58 @@
       "категория": "запуск",
       "hit": 0,
       "created": 1790516621.5461733,
-      "run_ref": "F-DEBTS-DB6"
+      "run_ref": "F-DEBTS-DB6",
+      "archived": true
+    },
+    {
+      "id": "dont-finalnaya-priemka-all-green-zamer-cheste",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790518063.9756746,
+      "run_ref": "F-DEBTS-W4R-A"
+    },
+    {
+      "id": "dont-finalnaya-priemka-all-green-zamer-cheste-2",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790518063.9762363,
+      "run_ref": "F-DEBTS-W4R-B"
+    },
+    {
+      "id": "dont-finalnaya-priemka-all-green-zamer-cheste-3",
+      "type": "DON'T",
+      "кому": "colonel",
+      "когда": "acceptance",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790518063.9765747,
+      "run_ref": "F-DEBTS-W4R-C"
+    },
+    {
+      "id": "dont-ne-zapuskat-progony-s-front-f-debts-da-i",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "retro",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790518063.9768796,
+      "run_ref": "prosecutor-auto-F-DEBTS-6"
+    },
+    {
+      "id": "dont-phantom-front-f-debts-da-v-journal-count",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "retro",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790518063.9772153,
+      "run_ref": "prosecutor-auto-F-DEBTS-7"
     }
   ],
   "aliases": {}
