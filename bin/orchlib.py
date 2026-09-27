@@ -1797,8 +1797,401 @@ def _last_mask_commit(kit_dir):
     return (ct, h)
 
 
+# --- rules cards (F-RULES R1) -----------------------------------------------
+
+RULES_ACTIVE_LIMIT = 25
+RULES_CATEGORY_LIMIT = 20
+RULES_DEAD_WAVES = 10
+RULES_KOMU = frozenset({
+    "general", "colonel", "executor", "wrapper", "panel"})
+RULES_KOGDA = frozenset({
+    "decomposition", "launch", "acceptance", "retro",
+    "prompt-submit", "post-tool"})
+RULES_TYPES = frozenset({"DON'T", "DO", "CASE"})
+
+
+def rules_dir(kit_dir=None):
+    """Путь к <kit>/rules (карточки + manifest + archive)."""
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    return os.path.join(kit_dir, "rules")
+
+
+def rules_manifest_path(kit_dir=None):
+    return os.path.join(rules_dir(kit_dir), "manifest.json")
+
+
+def rules_cards_dir(kit_dir=None):
+    return os.path.join(rules_dir(kit_dir), "cards")
+
+
+def rules_archive_dir(kit_dir=None):
+    return os.path.join(rules_dir(kit_dir), "archive")
+
+
+def _rules_empty_manifest():
+    return {"cards": [], "aliases": {}}
+
+
+def load_manifest(kit_dir=None):
+    """Загрузить rules/manifest.json; нет файла → пустой {cards, aliases}."""
+    path = rules_manifest_path(kit_dir)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return _rules_empty_manifest()
+    except Exception:
+        return _rules_empty_manifest()
+    if not isinstance(data, dict):
+        return _rules_empty_manifest()
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        cards = []
+    aliases = data.get("aliases")
+    if not isinstance(aliases, dict):
+        aliases = {}
+    return {"cards": cards, "aliases": aliases}
+
+
+def save_manifest(manifest, kit_dir=None):
+    """Атомарно записать rules/manifest.json."""
+    path = rules_manifest_path(kit_dir)
+    root = rules_dir(kit_dir)
+    os.makedirs(root, exist_ok=True)
+    payload = {
+        "cards": list(manifest.get("cards") or []),
+        "aliases": dict(manifest.get("aliases") or {}),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    fd, tmp = tempfile.mkstemp(prefix="manifest.", suffix=".json", dir=root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(raw)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+        raise
+
+
+def _rules_card_by_id(manifest, card_id):
+    for c in manifest.get("cards") or []:
+        if isinstance(c, dict) and c.get("id") == card_id:
+            return c
+    return None
+
+
+def _rules_expand_categories(category, aliases):
+    """Категория + алиасы подкатегорий (W0: старая → делегирует в под)."""
+    if not category:
+        return None
+    out = [category]
+    if isinstance(aliases, dict):
+        kids = aliases.get(category)
+        if isinstance(kids, list):
+            for k in kids:
+                if isinstance(k, str) and k and k not in out:
+                    out.append(k)
+    return out
+
+
+def _rules_active_cards(manifest):
+    """Активные = не archived."""
+    out = []
+    for c in manifest.get("cards") or []:
+        if not isinstance(c, dict):
+            continue
+        if c.get("archived"):
+            continue
+        if c.get("id"):
+            out.append(c)
+    return out
+
+
+def match_cards(komu, kogda, category=None, kit_dir=None, limit=3):
+    """Список id по адресу (кому×когда×[категория]); hit desc, created asc.
+
+    Алиас W0: match по старой категории включает подкатегории из aliases.
+    Безадресный / нет совпадений → []. Потолок доставки — limit (дефолт 3).
+    """
+    if komu not in RULES_KOMU or kogda not in RULES_KOGDA:
+        return []
+    manifest = load_manifest(kit_dir)
+    cats = _rules_expand_categories(category, manifest.get("aliases"))
+    matched = []
+    for c in _rules_active_cards(manifest):
+        if c.get("кому") != komu:
+            continue
+        if c.get("когда") != kogda:
+            continue
+        if cats is not None:
+            cc = c.get("категория")
+            if cc not in cats:
+                continue
+        matched.append(c)
+    matched.sort(key=lambda x: (-int(x.get("hit") or 0),
+                                float(x.get("created") or 0),
+                                str(x.get("id") or "")))
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except Exception:
+            limit = 3
+        if limit >= 0:
+            matched = matched[:limit]
+    return [c["id"] for c in matched if c.get("id")]
+
+
+def _rules_hits_path(state=None):
+    if state is None:
+        state = find_state_dir()
+    counters = os.path.join(state, "counters")
+    os.makedirs(counters, exist_ok=True)
+    return os.path.join(counters, "rules-hits.json")
+
+
+def _rules_load_hits(state=None):
+    path = _rules_hits_path(state)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _rules_save_hits(hits, state=None):
+    path = _rules_hits_path(state)
+    raw = json.dumps(hits, ensure_ascii=False, indent=2) + "\n"
+    d = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(prefix="rules-hits.", suffix=".json", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(raw)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+
+def record_hit(card_id, kit_dir=None, state=None, extra=None):
+    """Инкремент hit: journal card_injected + counters/rules-hits.json + manifest.
+
+    Возвращает новый hit или None если id не найден.
+    """
+    if not card_id:
+        return None
+    if state is None:
+        state = find_state_dir()
+    manifest = load_manifest(kit_dir)
+    card = _rules_card_by_id(manifest, card_id)
+    if card is None:
+        return None
+    hit = int(card.get("hit") or 0) + 1
+    card["hit"] = hit
+    save_manifest(manifest, kit_dir)
+    hits = _rules_load_hits(state)
+    hits[card_id] = int(hits.get(card_id) or 0) + 1
+    _rules_save_hits(hits, state)
+    entry = {
+        "kind": "card_injected",
+        "card": card_id,
+        "ts": time.time(),
+        "hit": hit,
+    }
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            if k not in entry and k not in ("kind",):
+                entry[k] = v
+    # journal_append пишет в find_state_dir(); временно ORCHESTRATION_DIR
+    prev = os.environ.get("ORCHESTRATION_DIR")
+    try:
+        os.environ["ORCHESTRATION_DIR"] = state
+        journal_append(entry)
+    finally:
+        if prev is None:
+            os.environ.pop("ORCHESTRATION_DIR", None)
+        else:
+            os.environ["ORCHESTRATION_DIR"] = prev
+    return hit
+
+
+def _rules_card_file_path(card, kit_dir=None, archived=False):
+    cat = card.get("категория") or "_misc"
+    cid = card.get("id") or "unknown"
+    base = rules_archive_dir(kit_dir) if archived else rules_cards_dir(kit_dir)
+    return os.path.join(base, cat, "%s.md" % cid)
+
+
+def archive_lru(kit_dir=None):
+    """>25 активных → старейшие hit=0 в archive/; hit>0 не архивируется.
+
+    Возвращает список id, ушедших в archive. Активные после вызова ≤25
+    (если хватает hit=0 кандидатов).
+    """
+    manifest = load_manifest(kit_dir)
+    active = _rules_active_cards(manifest)
+    limit = RULES_ACTIVE_LIMIT
+    if len(active) <= limit:
+        return []
+    # кандидаты: hit==0, старейшие created сначала
+    zeros = [c for c in active if int(c.get("hit") or 0) == 0]
+    zeros.sort(key=lambda x: (float(x.get("created") or 0),
+                              str(x.get("id") or "")))
+    need = len(active) - limit
+    moved = []
+    arch_root = rules_archive_dir(kit_dir)
+    os.makedirs(arch_root, exist_ok=True)
+    for c in zeros:
+        if need <= 0:
+            break
+        cid = c.get("id")
+        if not cid:
+            continue
+        src = _rules_card_file_path(c, kit_dir, archived=False)
+        dst = _rules_card_file_path(c, kit_dir, archived=True)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.isfile(src):
+            try:
+                os.replace(src, dst)
+            except Exception:
+                try:
+                    import shutil
+                    shutil.move(src, dst)
+                except Exception:
+                    pass
+        c["archived"] = True
+        moved.append(cid)
+        need -= 1
+    if moved:
+        save_manifest(manifest, kit_dir)
+    return moved
+
+
+def resurrect(card_id, kit_dir=None):
+    """Вернуть карточку из archive/ в cards/ при повторе адреса/кейса.
+
+    Снимает archived; created=now. LRU не вызывается здесь (вызывающий
+    может archive_lru отдельно) — иначе hit=0 сразу уходит обратно.
+    Возвращает True если воскрешена.
+    """
+    if not card_id:
+        return False
+    manifest = load_manifest(kit_dir)
+    card = _rules_card_by_id(manifest, card_id)
+    if card is None:
+        return False
+    if not card.get("archived"):
+        return False
+    src = _rules_card_file_path(card, kit_dir, archived=True)
+    dst = _rules_card_file_path(card, kit_dir, archived=False)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if os.path.isfile(src):
+        try:
+            os.replace(src, dst)
+        except Exception:
+            try:
+                import shutil
+                shutil.move(src, dst)
+            except Exception:
+                pass
+    card["archived"] = False
+    card["created"] = time.time()
+    save_manifest(manifest, kit_dir)
+    return True
+
+
+def _rules_end_is_problem(entry):
+    """end с PROBLEMS/BLOCKED в verdict или непустым gates (гейт-отказ)."""
+    if not isinstance(entry, dict) or entry.get("kind") != "end":
+        return False
+    gates = entry.get("gates") or []
+    if isinstance(gates, list) and gates:
+        return True
+    verdict = entry.get("verdict") or ""
+    if not isinstance(verdict, str):
+        verdict = str(verdict)
+    if "PROBLEMS" in verdict or "BLOCKED" in verdict:
+        return True
+    return False
+
+
+def _rules_wave_ends(entries):
+    """end-записи ролей волны (для rules_dead N волн)."""
+    starts = _journal_start_index(entries)
+    out = []
+    for e in entries:
+        if e.get("kind") != "end":
+            continue
+        rid = e.get("id")
+        st = starts.get(rid) if rid else None
+        role = normalize_journal_role(st.get("role")) if st else None
+        if role and _role_is_wave_work(role):
+            out.append(e)
+        elif st is None and rid:
+            # синтетика /tmp без start — считаем волной по end
+            out.append(e)
+    return out
+
+
+def _rules_no_retro_ids(entries, kit_dir=None):
+    """Последняя проблемная волна без карточки run-ref → [id]; иначе [].
+
+    Волна без ошибок → никогда не красный (пустой список, если последняя
+    проблемная уже закрыта карточкой или проблемных нет).
+    """
+    problem_ends = [e for e in entries if _rules_end_is_problem(e)]
+    if not problem_ends:
+        return []
+    last = problem_ends[-1]
+    wid = last.get("id")
+    if not wid:
+        return []
+    manifest = load_manifest(kit_dir)
+    for c in manifest.get("cards") or []:
+        if not isinstance(c, dict):
+            continue
+        ref = c.get("run_ref") or c.get("run-ref")
+        if ref == wid:
+            return []
+    return [wid]
+
+
+def _rules_dead_ids(entries, kit_dir=None):
+    """Активные hit=0 при ≥N=10 волн в журнале."""
+    waves = _rules_wave_ends(entries)
+    if len(waves) < RULES_DEAD_WAVES:
+        return []
+    manifest = load_manifest(kit_dir)
+    dead = []
+    for c in _rules_active_cards(manifest):
+        if int(c.get("hit") or 0) == 0 and c.get("id"):
+            dead.append(c["id"])
+    return dead
+
+
+def _rules_category_oversize(kit_dir=None):
+    """Категории с >RULES_CATEGORY_LIMIT активных карточек."""
+    manifest = load_manifest(kit_dir)
+    counts = {}
+    for c in _rules_active_cards(manifest):
+        cat = c.get("категория") or ""
+        if not cat:
+            continue
+        counts[cat] = counts.get(cat, 0) + 1
+    return [cat for cat, n in sorted(counts.items())
+            if n > RULES_CATEGORY_LIMIT]
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
-    """Девять счётчиков красных чипов панели + списки id.
+    """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
     Скан journal — последние HEALTH_JOURNAL_SCAN_LIMIT строк (константа).
 
@@ -1810,6 +2203,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     wave_no_docs: mask-коммит (:(glob)bin/*.py, panel/server.py,
     skills/orchestration/**) новее последнего local docs-keeper end —
     список с %h mask-коммита. kit_dir=None → KIT_DIR (хук для /tmp-синтетики).
+
+    rules_no_retro / rules_dead / manifest_category_oversize — база rules/
+    в kit_dir (хук для /tmp-синтетики).
     """
     empty = {
         "runs_no_front": [],
@@ -1821,6 +2217,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "advisors_without_scouts": [],
         "commander_no_children": [],
         "wave_no_docs": [],
+        "rules_no_retro": [],
+        "rules_dead": [],
+        "manifest_category_oversize": [],
     }
     try:
         if state is None:
@@ -2097,6 +2496,10 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                             commander_no_children.append(fid)
                             break
 
+        rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
+        rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir)
+        manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
+
         return {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
@@ -2107,6 +2510,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "advisors_without_scouts": advisors_without_scouts,
             "commander_no_children": commander_no_children,
             "wave_no_docs": wave_no_docs,
+            "rules_no_retro": rules_no_retro,
+            "rules_dead": rules_dead,
+            "manifest_category_oversize": manifest_category_oversize,
         }
     except Exception:
         return empty
