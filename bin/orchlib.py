@@ -3124,6 +3124,7 @@ def archive_lru(kit_dir=None, state=None):
             if not cid or cid in protect:
                 continue
             if int(dcounts.get(cid) or 0) != 0:
+                protect.add(cid)
                 continue
             if _rules_has_opportunity(
                     c, full, manifest, other_chips=chips):

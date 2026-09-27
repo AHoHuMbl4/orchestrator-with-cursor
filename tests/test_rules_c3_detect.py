@@ -238,6 +238,46 @@ def test_lru_protects():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_lru_protects_young_pathological_dead():
+    """hit=0 ∧ deliv≥1 ∧ age<grace — LRU не архивирует (protect без age)."""
+    root, kit, state = _mk_poly()
+    os.environ["ORCHESTRATION_DIR"] = state
+    os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
+    try:
+        now = time.time()
+        born_young = now - 1 * 3600
+        _add(kit, "lru-young-dead", "commander", "acceptance", born_young,
+             category="запуск")
+        _append_journal(state, [
+            {"kind": "card_injected", "card": "lru-young-dead",
+             "ts": born_young + 100, "kogda": "acceptance",
+             "role": "commander", "hit": 1},
+        ])
+        # counters hit остаётся 0 (патология); age=1ч < RULES_DEAD_AGE_HOURS
+        cats = ("процессы", "маршрутизация", "промты")
+        for i in range(26):
+            _add(kit, "fill-ypd-%02d" % i, "executor", "retro",
+                 now - (30 + i) * 3600, category=cats[i % len(cats)])
+        chips = orchlib.health_red_chips(state=state, kit_dir=kit)
+        dead = chips.get("rules_dead") or []
+        if "lru-young-dead" in dead:
+            _fail("young-path-dead: must NOT be in rules_dead (age<grace)")
+        moved = orchlib.archive_lru(kit_dir=kit, state=state)
+        manifest = orchlib.load_manifest(kit, allow_migrate=False)
+        by_id = {c["id"]: c for c in manifest.get("cards") or []}
+        if by_id.get("lru-young-dead", {}).get("archived"):
+            _fail("lru: young pathological dead archived; moved=%r" % moved)
+        if "lru-young-dead" in moved:
+            _fail("lru: young pathological dead in moved=%r" % moved)
+        if not moved:
+            _fail("lru: expected some fillers archived")
+        _pass("LRU protects young pathological dead (deliv≥1, age<grace)")
+    finally:
+        os.environ.pop("ORCHESTRATION_DIR", None)
+        os.environ.pop("ORCH_RULES_NO_MIGRATE", None)
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_age_by_hours():
     root, kit, state = _mk_poly()
     os.environ["ORCHESTRATION_DIR"] = state
@@ -314,6 +354,7 @@ def main():
         test_trigger_never_came,
         test_delivered_hit_zero,
         test_lru_protects,
+        test_lru_protects_young_pathological_dead,
         test_age_by_hours,
         test_fresh_silence,
     ]
