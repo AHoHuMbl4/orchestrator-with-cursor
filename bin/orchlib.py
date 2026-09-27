@@ -1654,6 +1654,237 @@ def waves_without_prosecutor(state=None, window_runs=30):
         return []
 
 
+# --- детектор «командир руками» (P17) -------------------------------------
+COMMANDER_HANDS_WINDOW_S = 20 * 60
+COMMANDER_HANDS_TASK_CALLS = 25
+COMMANDER_HANDS_BLOCK = (
+    "⛔ РАБОТА РУКАМИ: задача без исполнителей — сформулируй карточку и "
+    "запусти run-exec/run-cloud; мета-вопросы (статус/компас/панель) — можно"
+)
+_OPEN_CHECKLIST_RE = re.compile(r"(?m)^\s*[-*]\s+\[\s\]\s+\S")
+_DOCTRINE_PATH_HINTS = (
+    "skills/orchestration",
+    "/orchestration/references",
+    "SKILL.md",
+    "MAP.md",
+    "roles/_index.md",
+    "roles/_template.md",
+    "/compass.md",
+    "write-compass.py",
+    "session-entry.py",
+)
+
+
+def compass_has_open_checklist(path):
+    """True, если в compass есть незакрытый пункт чеклиста `- [ ] …`."""
+    if not path or not isinstance(path, str):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            text = f.read()
+    except Exception:
+        return False
+    return bool(_OPEN_CHECKLIST_RE.search(text or ""))
+
+
+def session_has_open_task(sid, p=None):
+    """Открытая задача сессии = непустой компас-чеклист."""
+    try:
+        if p is None:
+            p = load_params()
+        return compass_has_open_checklist(session_compass_path(p, sid))
+    except Exception:
+        return False
+
+
+def _is_doctrine_path(path):
+    if not isinstance(path, str) or not path.strip():
+        return False
+    low = path.replace("\\", "/").lower()
+    for hint in _DOCTRINE_PATH_HINTS:
+        if hint.lower() in low:
+            return True
+    if "/roles/" in low and low.endswith(".md"):
+        return True
+    return False
+
+
+def _is_meta_shell_command(cmd):
+    """Разрешённые мета-команды командира (не считаются «задачными»)."""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return False
+    s = cmd.strip()
+    low = s.lower()
+    if "session-entry" in low:
+        return True
+    if "write-compass" in low:
+        return True
+    if re.search(r"(^|[;&|]\s*|/)panel(\.sh)?(\s|$)", low):
+        return True
+    if "panel/server" in low or "/panel " in low:
+        return True
+    if re.search(r"(?:^|[\s;|&])--status(?:\s|$)", s):
+        return True
+    if re.search(r"(?:^|[\s;|&])--list(?:\s|$)", s):
+        return True
+    if re.search(r"\bgit\s+(status|log)\b", low):
+        return True
+    # ls/grep/wc/cat — только чтение доктрины
+    if re.match(r"^(ls|grep|rg|wc|cat|head|tail)\b", low):
+        return _is_doctrine_path(s)
+    return False
+
+
+def is_meta_tool_event(ev):
+    """True, если PostToolUse-событие — разрешённая мета-команда командира."""
+    if not isinstance(ev, dict):
+        return False
+    tool = ev.get("tool_name") or ev.get("toolName") or ev.get("tool") or ""
+    if not isinstance(tool, str):
+        tool = str(tool)
+    ti = ev.get("tool_input") or ev.get("toolInput") or {}
+    if not isinstance(ti, dict):
+        ti = {}
+    tlow = tool.lower()
+    if tlow in ("shell", "bash", "powershell", "cmd"):
+        cmd = ti.get("command") or ti.get("cmd") or ""
+        return _is_meta_shell_command(cmd)
+    path = (ti.get("file_path") or ti.get("filePath") or ti.get("path")
+            or ti.get("target_directory") or "")
+    if tlow in ("read", "grep", "rg", "glob", "list_dir", "listdir"):
+        # grep может нести path отдельно
+        gpath = path or ti.get("pattern") or ""
+        if isinstance(ti.get("path"), str):
+            gpath = ti.get("path")
+        return _is_doctrine_path(str(path or gpath))
+    return False
+
+
+def session_counter_path(session_id, state=None):
+    """counters/<safe_sid>.json — счётчики хука (calls / task_calls)."""
+    if state is None:
+        state = find_state_dir()
+    d = os.path.join(state, "counters")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, safe_name(session_id) + ".json")
+
+
+def read_session_counter(session_id, state=None):
+    path = session_counter_path(session_id, state=state)
+    data = {"start_ts": time.time(), "calls": 0, "calls_at_nudge": 0,
+            "last_nudge_ts": time.time(), "task_calls": 0}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            data.update(loaded)
+    except Exception:
+        pass
+    try:
+        data["task_calls"] = int(data.get("task_calls") or 0)
+    except Exception:
+        data["task_calls"] = 0
+    try:
+        data["calls"] = int(data.get("calls") or 0)
+    except Exception:
+        data["calls"] = 0
+    return data
+
+
+def write_session_counter(session_id, data, state=None):
+    path = session_counter_path(session_id, state=state)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return True
+    except Exception as e:
+        try:
+            sys.stderr.write("session counter write failed: %s\n" % e)
+        except Exception:
+            pass
+        return False
+
+
+def bump_session_task_calls(session_id, ev=None, state=None):
+    """Инкремент calls; task_calls — только если вызов не мета."""
+    data = read_session_counter(session_id, state=state)
+    now = time.time()
+    if "start_ts" not in data:
+        data["start_ts"] = now
+    data["calls"] = int(data.get("calls") or 0) + 1
+    if ev is None or not is_meta_tool_event(ev):
+        data["task_calls"] = int(data.get("task_calls") or 0) + 1
+    write_session_counter(session_id, data, state=state)
+    return data
+
+
+def journal_wrapper_starts_since(state=None, since_ts=None):
+    """start обёрток run-exec/run-cloud (engine local|cloud) с ts >= since_ts."""
+    try:
+        if state is None:
+            state = find_state_dir()
+        out = []
+        for e in _journal_entries_at(state):
+            if e.get("kind") != "start":
+                continue
+            eng = e.get("engine")
+            if eng not in ("local", "cloud"):
+                continue
+            if since_ts is not None:
+                try:
+                    if float(e.get("ts") or 0) < float(since_ts):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            out.append(e)
+        return out
+    except Exception:
+        return []
+
+
+def commander_hands_active(sid, p=None, state=None, now=None):
+    """Громкий блок: открытая задача + окно без start обёрток.
+
+    Окно открывается при task_calls >= COMMANDER_HANDS_TASK_CALLS
+    ИЛИ elapsed(start_ts) >= COMMANDER_HANDS_WINDOW_S. Мета-вызовы в
+    task_calls не входят (см. bump_session_task_calls / is_meta_tool_event).
+    """
+    try:
+        if now is None:
+            now = time.time()
+        if state is None:
+            state = find_state_dir()
+        if p is None:
+            try:
+                p = load_params()
+            except Exception:
+                p = DEFAULTS
+        if not session_has_open_task(sid, p):
+            return False
+        ctr = read_session_counter(sid, state=state)
+        try:
+            start_ts = float(ctr.get("start_ts") or now)
+        except (TypeError, ValueError):
+            start_ts = now
+        try:
+            task_calls = int(ctr.get("task_calls") or 0)
+        except (TypeError, ValueError):
+            task_calls = 0
+        elapsed = now - start_ts
+        window_open = (
+            task_calls >= COMMANDER_HANDS_TASK_CALLS
+            or elapsed >= COMMANDER_HANDS_WINDOW_S
+        )
+        if not window_open:
+            return False
+        since = max(start_ts, now - COMMANDER_HANDS_WINDOW_S)
+        if journal_wrapper_starts_since(state=state, since_ts=since):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def is_order_md_path(path, state=None):
     """True, если path — fronts/*/order.md или fronts/*/colonels/*/order.md."""
     if not isinstance(path, str) or not path.strip():
@@ -1852,10 +2083,10 @@ RULES_DEAD_AGE_WAVES = 10
 RULES_JEV_TIMEOUT_S = 35.0
 RULES_JEV_SHORTLIST_MAX = 10
 RULES_KOMU = frozenset({
-    "general", "colonel", "executor", "wrapper", "panel"})
+    "commander", "general", "colonel", "executor", "wrapper", "panel"})
 RULES_KOGDA = frozenset({
     "decomposition", "launch", "acceptance", "retro",
-    "prompt-submit", "post-tool"})
+    "prompt-submit", "post-tool", "task-active"})
 RULES_TYPES = frozenset({"DON'T", "DO", "CASE"})
 
 
@@ -2205,8 +2436,9 @@ def _rules_card_file_path(card, kit_dir=None, archived=False):
 def role_to_komu(role):
     """Каталог роли → уровень RULES_KOMU; неизвестная → None (безадресный).
 
-    meta/front-general→general, meta/front-colonel→colonel, code/*→executor,
-    обёртки/wrapper→wrapper, panel→panel; голый токен из RULES_KOMU — как есть.
+    commander→commander, meta/front-general→general, meta/front-colonel→colonel,
+    code/*→executor, обёртки/wrapper→wrapper, panel→panel; голый токен из
+    RULES_KOMU — как есть.
     """
     if not isinstance(role, str) or not role.strip():
         return None
@@ -2222,6 +2454,8 @@ def role_to_komu(role):
         return r
     low = r.lower()
     base = low.split("/")[-1]
+    if "commander" in base or low in ("commander", "commander.md"):
+        return "commander"
     if low.startswith("meta/"):
         if "front-general" in low or base == "front-general.md":
             return "general"
@@ -3285,6 +3519,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "rules_no_retro": [],
         "rules_dead": [],
         "manifest_category_oversize": [],
+        "lint_failures": [],
     }
     try:
         if state is None:
@@ -3571,6 +3806,10 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         rules_no_retro = _rules_no_retro_ids(entries, kit_dir=kit_dir)
         rules_dead = _rules_dead_ids(entries, kit_dir=kit_dir, state=state)
         manifest_category_oversize = _rules_category_oversize(kit_dir=kit_dir)
+        try:
+            lint_failures = orch_lint_violations(kit_dir=kit_dir)
+        except Exception:
+            lint_failures = []
 
         return {
             "runs_no_front": runs_no_front,
@@ -3585,6 +3824,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "rules_no_retro": rules_no_retro,
             "rules_dead": rules_dead,
             "manifest_category_oversize": manifest_category_oversize,
+            "lint_failures": lint_failures,
         }
     except Exception:
         return empty
@@ -3782,3 +4022,181 @@ def maybe_auto_prosecutor_after_end(run_id, spawn=True, wrapper_path=None):
         except Exception:
             pass
         return None
+
+
+# --- orch-lint: инварианты rules/roles (P17) ------------------------------
+_RULES_MANIFEST_REQUIRED = (
+    "id", "type", "кому", "когда", "категория", "run_ref", "born_at", "hit",
+)
+_SHA_IN_TEXT_RE = re.compile(
+    r"(?:git\s+)?\b([0-9a-f]*[a-f][0-9a-f]{5,39})\b", re.I)
+# домен/файл.md — латиница + кириллица + () (как в _index.md)
+_ROLE_INDEX_PATH_RE = re.compile(
+    r"(?<![A-Za-zА-Яа-яЁё0-9_./-])"
+    r"([A-Za-zА-Яа-яЁё0-9_-]+/[A-Za-zА-Яа-яЁё0-9_./()-]+\.md)")
+
+
+def _orch_lint_git_sha_alive(sha, kit_dir):
+    """True, если sha резолвится в git-объект кита."""
+    if not sha or not kit_dir:
+        return False
+    try:
+        r = subprocess.run(
+            ["git", "-C", kit_dir, "rev-parse", "--verify", "%s^{commit}" % sha],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=10,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _orch_lint_index_role_paths(kit_dir):
+    """Пути ролей из roles/_index.md (относительные, с .md)."""
+    idx = os.path.join(
+        kit_dir, "skills", "orchestration", "references", "roles", "_index.md")
+    try:
+        with open(idx, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return set()
+    return set(_ROLE_INDEX_PATH_RE.findall(text or ""))
+
+
+def _orch_lint_role_files(kit_dir):
+    """Относительные пути .md ролей на диске (без _index/_template)."""
+    root = os.path.join(
+        kit_dir, "skills", "orchestration", "references", "roles")
+    out = set()
+    if not os.path.isdir(root):
+        return out
+    for dp, dns, fns in os.walk(root):
+        dns[:] = [d for d in dns if d != "__pycache__"]
+        for fn in fns:
+            if not fn.endswith(".md"):
+                continue
+            if fn in ("_index.md", "_template.md"):
+                continue
+            if fn.startswith("_"):
+                continue
+            rel = os.path.relpath(os.path.join(dp, fn), root)
+            out.add(rel.replace("\\", "/"))
+    return out
+
+
+def _orch_lint_card_shas(card, kit_dir):
+    """SHA из секций золотая ссылка/пример карточки."""
+    cid = card.get("id")
+    if not cid:
+        return []
+    info = load_card_content(cid, kit_dir=kit_dir)
+    if not info:
+        return []
+    sections = info.get("sections") or {}
+    blobs = []
+    for key in ("золотая ссылка", "пример", "golden"):
+        if sections.get(key):
+            blobs.append(sections[key])
+    if info.get("golden"):
+        blobs.append(info["golden"])
+    text = "\n".join(blobs)
+    found = []
+    for m in _SHA_IN_TEXT_RE.finditer(text or ""):
+        sha = m.group(1)
+        if sha and sha not in found:
+            found.append(sha)
+    return found
+
+
+def orch_lint_violations(kit_dir=None):
+    """Список нарушений инвариантов rules/roles; [] = чисто.
+
+    Проверяет: поля manifest, hit числом, дубли id, файлы↔manifest,
+    роли _index↔файлы, живые SHA-ссылки в карточках.
+    """
+    if kit_dir is None:
+        kit_dir = KIT_DIR
+    viols = []
+    # --- manifest ---
+    path = rules_manifest_path(kit_dir)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return ["manifest: cannot read %s (%s)" % (path, e)]
+    if not isinstance(data, dict):
+        return ["manifest: root is not an object"]
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        return ["manifest: cards is not a list"]
+    seen = {}
+    for i, c in enumerate(cards):
+        if not isinstance(c, dict):
+            viols.append("manifest: cards[%d] is not an object" % i)
+            continue
+        cid = c.get("id")
+        label = cid if cid else "cards[%d]" % i
+        for key in _RULES_MANIFEST_REQUIRED:
+            if key not in c:
+                viols.append("manifest: %s missing field %s" % (label, key))
+        hit = c.get("hit")
+        # bool — subclass int; для lint требуем именно число, не bool
+        if "hit" in c and (isinstance(hit, bool)
+                           or not isinstance(hit, (int, float))):
+            viols.append("manifest: %s hit is not a number" % label)
+        if cid:
+            if cid in seen:
+                viols.append("manifest: duplicate id %s" % cid)
+            else:
+                seen[cid] = c
+        # файл карточки
+        if cid and c.get("категория"):
+            fpath = _rules_card_file_path(
+                c, kit_dir, archived=bool(c.get("archived")))
+            if not os.path.isfile(fpath):
+                viols.append(
+                    "file: missing card file for %s → %s" % (cid, fpath))
+    # orphan files under cards/ (и archive/) не в manifest
+    for base_name, archived in (("cards", False), ("archive", True)):
+        root = os.path.join(rules_dir(kit_dir), base_name)
+        if not os.path.isdir(root):
+            continue
+        for dp, _dns, fns in os.walk(root):
+            for fn in fns:
+                if not fn.endswith(".md"):
+                    continue
+                cid = fn[:-3]
+                if cid not in seen:
+                    rel = os.path.relpath(os.path.join(dp, fn), rules_dir(kit_dir))
+                    viols.append(
+                        "file: orphan card %s not in manifest" % rel.replace("\\", "/"))
+                else:
+                    # archived flag vs location
+                    c = seen[cid]
+                    want_arch = bool(c.get("archived"))
+                    if want_arch != archived:
+                        viols.append(
+                            "file: %s archived=%s but under %s/"
+                            % (cid, want_arch, base_name))
+    # --- roles _index ↔ files ---
+    idx_paths = _orch_lint_index_role_paths(kit_dir)
+    file_paths = _orch_lint_role_files(kit_dir)
+    roles_root = os.path.join(
+        kit_dir, "skills", "orchestration", "references", "roles")
+    if not os.path.isfile(os.path.join(roles_root, "_index.md")):
+        viols.append("roles: missing _index.md")
+    for rel in sorted(idx_paths - file_paths):
+        viols.append("roles: _index lists %s but file missing" % rel)
+    for rel in sorted(file_paths - idx_paths):
+        viols.append("roles: file %s not listed in _index" % rel)
+    # --- SHA refs ---
+    for c in cards:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        for sha in _orch_lint_card_shas(c, kit_dir):
+            if not _orch_lint_git_sha_alive(sha, kit_dir):
+                viols.append(
+                    "sha: card %s references dead sha %s" % (c.get("id"), sha))
+    return viols

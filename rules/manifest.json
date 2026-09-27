@@ -406,6 +406,17 @@
       "created": 1790527459.1584263,
       "born_at": 1790527459.1584263,
       "run_ref": "prosecutor-auto-F-FRESH-7"
+    },
+    {
+      "id": "dont-diagnostika-razvedka-sredy-delaetsya-ruk",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "task-active",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790529724.9242673,
+      "born_at": 1790529724.9242673,
+      "run_ref": "OWNER-INCIDENT-20260927-fresh-hands"
     }
   ],
   "aliases": {}

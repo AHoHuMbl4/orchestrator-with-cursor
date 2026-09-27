@@ -195,9 +195,8 @@ def _read_pending_compass_flag(path):
 
 
 def counter_file(session_id):
-    d = os.path.join(orchlib.find_state_dir(), "counters")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, orchlib.safe_name(session_id) + ".json")
+    """Путь counters/<sid>.json (calls / task_calls); делегирует orchlib."""
+    return orchlib.session_counter_path(session_id)
 
 
 def read_stdin_json():
@@ -496,20 +495,15 @@ def cmd_post_tool(engine, fmt):
     every_min = int(rg.get("every_min", 7))
     every_calls = int(rg.get("every_n_calls", 40))
 
-    cf = counter_file(session_id)
     now = time.time()
-    data = {"start_ts": now, "calls": 0, "calls_at_nudge": 0, "last_nudge_ts": now}
-    try:
-        with open(cf, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-        if isinstance(loaded, dict):
-            data.update(loaded)
-    except Exception:
-        pass
-
-    data["calls"] = int(data.get("calls", 0)) + 1
+    # calls + task_calls (мета-команды в task_calls не входят — P17 hands gate)
+    data = orchlib.bump_session_task_calls(session_id, ev=ev)
+    if "last_nudge_ts" not in data:
+        data["last_nudge_ts"] = now
+    if "calls_at_nudge" not in data:
+        data["calls_at_nudge"] = 0
     elapsed = now - float(data.get("last_nudge_ts", now))
-    since_nudge_calls = data["calls"] - int(data.get("calls_at_nudge", 0))
+    since_nudge_calls = int(data.get("calls", 0)) - int(data.get("calls_at_nudge", 0))
 
     triggered = None
     if elapsed >= every_min * 60:
@@ -526,12 +520,7 @@ def cmd_post_tool(engine, fmt):
         )[:9000])
         data["last_nudge_ts"] = now
         data["calls_at_nudge"] = data["calls"]
-
-    try:
-        with open(cf, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-    except Exception as e:
-        sys.stderr.write("counter write failed: %s\n" % e)
+        orchlib.write_session_counter(session_id, data)
 
     # гард: только если инструмент писал в compass-путь и файл превысил лимит
     wpath = _tool_write_path(ev)
@@ -725,9 +714,15 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    # префикс: kit_update → compass-guard → детекторы → чужой state (все emit)
+    # префикс: kit_update → compass-guard → hands → детекторы → чужой state
     kit_prefix = kit_update if kit_update else ""
     guard_prefix = (guard + "\n") if guard else ""
+    hands_prefix = ""
+    try:
+        if orchlib.commander_hands_active(sid, p=p):
+            hands_prefix = orchlib.COMMANDER_HANDS_BLOCK + "\n"
+    except Exception as e:
+        sys.stderr.write("commander_hands failed: %s\n" % e)
     det_lines = []
     try:
         bad_orders = orchlib.orders_without_basis()
@@ -749,11 +744,22 @@ def cmd_prompt_submit(engine, fmt):
     det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""
-    head = kit_prefix + guard_prefix + det_prefix + foreign_prefix
+    head = kit_prefix + guard_prefix + hands_prefix + det_prefix + foreign_prefix
 
     # F-RULES R2: вклейки по адресу роли×prompt-submit (≤3); mtime-кэш не трогаем
     rules_lines = _rules_step_lines(ev, sid, "prompt-submit")
-
+    # task-active: при открытом чеклисте — карточки адреса commander×task-active
+    try:
+        if orchlib.session_has_open_task(sid, p):
+            for ln in orchlib.format_step_inject_lines(
+                    "commander", "task-active", role="commander",
+                    caller="reground",
+                    extra={"kogda": "task-active", "role": "commander",
+                           "caller": "reground"}):
+                if ln not in rules_lines:
+                    rules_lines.append(ln)
+    except Exception as e:
+        sys.stderr.write("task-active inject failed: %s\n" % e)
     if not guard and not nudge and prev == marks and not kit_update:
         # params/compass не менялись — всё равно вклеиваем Kit (всегда)
         base = (head + kit_line) if head else kit_line
