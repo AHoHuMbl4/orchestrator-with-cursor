@@ -171,8 +171,10 @@ def build_parser():
 
     p = sub.add_parser("status", help="статус/результат run")
     _add_common_args(p)
-    p.add_argument("--agent-id", required=True)
-    p.add_argument("--run-id", required=True)
+    p.add_argument("--agent-id", default=None,
+                   help="явный agent id (иначе из agent-<id>.json)")
+    p.add_argument("--run-id", default=None,
+                   help="явный run id (иначе из agent-<id>.json)")
     p.add_argument("--wait", action="store_true")
     p.add_argument("--timeout", type=int, default=1800)
     p.add_argument("--poll", type=int, default=15)
@@ -542,6 +544,45 @@ def write_agent_json(state, a, agent_id, run_id):
     return path
 
 
+def resolve_status_ids(state, a):
+    """Резолв agent_id/run_id для status ДО api_key/HTTP.
+
+    Явные --agent-id/--run-id перекрывают; иначе --id → agent-<id>.json.
+    Нет/битый файл → stderr + None (caller → exit 2).
+    """
+    agent_id = getattr(a, "agent_id", None) or None
+    run_id = getattr(a, "run_id", None) or None
+    if agent_id and run_id:
+        return agent_id, run_id
+    path = agent_json_path(state, a.id)
+
+    def _fail():
+        sys.stderr.write(
+            "status: нет %s; укажите --agent-id/--run-id или выполните run "
+            "с --id %s\n" % (path, a.id))
+        return None
+
+    if not os.path.isfile(path):
+        return _fail()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return _fail()
+    if not isinstance(data, dict):
+        return _fail()
+    file_agent = data.get("agent_id")
+    file_run = data.get("run_id")
+    if not (isinstance(file_agent, str) and file_agent
+            and isinstance(file_run, str) and file_run):
+        return _fail()
+    if not agent_id:
+        agent_id = file_agent
+    if not run_id:
+        run_id = file_run
+    return agent_id, run_id
+
+
 def find_ids(obj):
     """Beta-схема: вытаскиваем вероятные id агента/рана, не полагаясь на имена."""
     ids = {}
@@ -847,8 +888,12 @@ def wait_and_report(agent, run, key, state, a):
 
 
 def cmd_status(a):
-    key = api_key(a)
     state = orchlib.find_state_dir()
+    resolved = resolve_status_ids(state, a)
+    if resolved is None:
+        return 2
+    a.agent_id, a.run_id = resolved
+    key = api_key(a)
     if a.wait:
         return wait_and_report(a.agent_id, a.run_id, key, state, a)
     out = call("GET", "/v1/agents/%s/runs/%s" % (a.agent_id, a.run_id), key,
