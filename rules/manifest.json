@@ -505,6 +505,17 @@
       "created": 1790536620.5369477,
       "born_at": 1790536620.5369477,
       "run_ref": "F-C4-CASE-20260927"
+    },
+    {
+      "id": "case-e2e-audit-retro-1",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790542226.7261248,
+      "born_at": 1790542226.7261248,
+      "run_ref": "FIX2-S1-docs"
     }
   ],
   "aliases": {}
