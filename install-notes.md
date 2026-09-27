@@ -14,6 +14,11 @@
    Kimi — `/reload` или рестарт; Claude — работает сразу.
 5. Проверка: спросите агента «какие скиллы доступны?» — должен быть
    orchestration; «меню» — покажет параметры пачки.
+6. Аудит запуска: каждый вызов (включая отказ гарда) пишет строку в
+   home-canonical `~/.orchestration/install-audit.log` (cwd-независимо;
+   внутрь репо кита не пишется). Тесты установщика — только на /tmp-клоне
+   (`git clone` → cwd/TARGET туда); stdout в тест-режиме и при отказе гарда
+   TARGET∈KIT печатает тот же hint. Живой репо кита как TARGET — запрещён.
 
 Состав kit: skills/orchestration (скилл: SKILL.md + references), commands/
 (файлы команды /orch-menu для Claude и Codex), bin/ (orchlib — общее ядро,
@@ -250,6 +255,8 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
 ## Служебные файлы
 
 - `install-check` — временная сессия самопроверки установщика; автоматически удаляется после установки и скрывается из панели
+- `~/.orchestration/install-audit.log` — атрибуция запусков `install-local.sh`
+  (home-canonical; не в дереве кита)
 - `.orchestration/compass.md` — шаблон; рабочие compass каждой сессии — в `.orchestration/sessions/<id>/compass.md`
 
 ## Известные нюансы
@@ -262,6 +269,9 @@ GLM Coding Plan — способ запускать Claude Code / Codex на м�
   (`run-cloud.py`); без нужного инструмента `auto` спрашивает явно
   (субагенты — только после «да»)
 - `--permission-prompts none` требует Claude Code ≥ v2.1.259; fallback: `dontAsk`
+- тесты `install-local` — только на /tmp-клоне; `ORCH_TEST_INSTALL=1` или KIT
+  под `/tmp|/var/tmp` → ранний выход без мутаций конфигов/TARGET; TARGET внутри
+  репо кита → отказ + hint песочницы
 
 ## Windows
 

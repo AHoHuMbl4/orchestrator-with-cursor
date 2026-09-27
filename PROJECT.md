@@ -16,21 +16,23 @@
 - `bin/reground.py` — хуки Kimi; step-inject через лестницу R4; `retro --run-id` (R3)
 - `bin/run-exec.py`, `bin/run-cloud.py` — обёртки; tried-before + прецеденты ≤3 строк в `prompt.run`
 - `bin/jev-advise.py` + `routing/jev-table.json` — точки Э2 `rules-apply` (Choice) и `tried-before` (Noul)
+- `install-local.sh` — главный установщик; audit `install-audit.log` (home-canonical); hint /tmp-клона в stdout (тест/гард)
 - `rules/` — DON'T/DO/CASE, `manifest.json` (индекс, без runtime hit), `archive/` (потолок 25 активных; категория ≤20)
 - `skills/orchestration/` — доктрина; врезка «Ретро-шаг волны» в SKILL + planning (R3); MAP sync после R1 откатили (`693bf24`)
 - `panel/` — UI/health-чипы (`rules_no_retro` / `rules_dead` / `manifest_category_oversize`)
 
 ## Ключевые решения
 - 2026-09-27: F-RULES гибрид Б — код сужает по кому×когда×категория; Jev базу не видит, только шорт-лист.
-- 2026-09-27 R1: store+API+seed+чипы (`1c11af1`, `4bd76cf`, `cde3c33`); docs MAP откатили (`693bf24`) — не возвращать MAP без явного scope.
-- 2026-09-27 R2: helpers поверх match/record_hit; reground step-inject; precedents в обёртках (`edde13d`, `662cb7f`, `d256771`).
+- 2026-09-27 R1–R2: store/API/seed/чипы + step-inject/precedents (`1c11af1`…`d256771`); MAP sync после R1 откатили (`693bf24`).
 - 2026-09-27 R3: ретро-детектор + `add_rule_card`; доктрина «Ретро-шаг волны» (`dc82236`, `5327d5a`, `9e5a785`).
 - 2026-09-27 R4/Э2: Jev-точки + трёхступенчатый выбор + tried-before + fail-open + oversize-гейт add (`d494106`, `5761416`, `d68351b`).
 - 2026-09-27 R5: hit SoT = `.orchestration/counters/rules-hits.json`; `record_hit` не пишет manifest/репо (`e9aac51`).
-- Знания в шаг — только кодом, 1–3 карточки ≤2 строки/часть; ретро/чип без карточки — контракт Э1. Пуш с волн F-RULES запрещён приказом фронта.
+- 2026-09-27 DB6: audit установщика home-canonical (`~/.orchestration/install-audit.log`, до гарда); hint /tmp-клона в stdout; DON'T/DO `запуск/*tmp*` (`11fe4c4`, `f3d41ca`).
+- Знания в шаг — только кодом, 1–3 карточки ≤2 строки/часть; ретро/чип без карточки — контракт Э1. Пуш с волн F-RULES/F-DEBTS запрещён приказом фронта.
 
 ## Ссылки
 - `README.md` / `README.ru.md` — установка и обзор
+- `install-notes.md` — установка/перенос; audit и контур тестов на /tmp-клоне (DB6)
 - `skills/orchestration/SKILL.md`, `references/MAP.md`, `references/planning.md` — регламент; ретро-шаг в SKILL+planning
 - `rules/manifest.json` — индекс карточек; hit — `.orchestration/counters/rules-hits.json`; `.orchestration/fronts/F-RULES/order.md` — контракт фронта
-- Коммиты R2: `edde13d`, `662cb7f`, `d256771`; R3: `dc82236`, `5327d5a`, `9e5a785`; R4: `d494106`, `5761416`, `d68351b`; R5: `e9aac51`
+- Коммиты R2–R5: `edde13d`…`e9aac51`; DB6: `11fe4c4`, `f3d41ca`, `f698083`
