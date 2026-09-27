@@ -64,6 +64,7 @@ d3d59a9b250f03e116449676ee7fcc112c9cc9a23254401764837aba44a4807c  ./rules/cards/
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
 8b35e4f3601d7d9c66854428f4095098ff9e0763c5b6db1001b332b381124a7a  ./rules/cards/промты/dont-kontrakty-dannyh-fixiruj-v-plane-do-starta.md
 188a17c2c2944f9d5ac8a8ba5b58d166bf91572a642868befdbe187c9ca1ec4f  ./rules/cards/процессы/case-e2e-audit-retro-2.md
+9cfe526460664438cdbd73e2507413a13799c6a3210ed46682eb14d5a154e3c5  ./rules/cards/процессы/case-prosecutor-bydesign-vs-retro.md
 37ea5e7f28fb704b932053321ddf0f09dcf662940e5d71ac86fd32e50f7d4f99  ./rules/cards/процессы/case-put-1-polzovatelya-obyazan-imet-e2e.md
 160fe81dfab75602045b731db4049b47b2197626261e07e5fcb92cf72a0efbe3  ./rules/cards/процессы/dont-chitat-chuzhie-fronts-i-seyat-chuzhie-fid.md
 092f15ffb92567159496fd2bc680f80a21c15c9d05a288c8ad83ab3671e58ab9  ./rules/cards/процессы/dont-compass-todo-posle-gw-post-ok.md
@@ -75,7 +76,7 @@ abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-b13ee93551cc9bf841ccd295cfb81d5bcbff0010e12af5b4cf0d58458d89cd66  ./rules/manifest.json
+231d677ff5ccb3ed60dde2331e4db971b437b92f7fcdd860f6ce8626b1bffdea  ./rules/manifest.json
 4eae6a728cfb9044400681ffd69954280b13d4b513ae72edd4aa3c2f9fe84a38  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 60ee251d07f756d6bbea4d11631aa730ac600465a8d7c60bd9b8dec6262beb4e  ./skills/orchestration/references/MAP.md

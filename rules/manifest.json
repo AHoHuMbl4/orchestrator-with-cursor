@@ -538,6 +538,17 @@
       "created": 1790543228.018654,
       "born_at": 1790543228.018654,
       "run_ref": null
+    },
+    {
+      "id": "case-prosecutor-bydesign-vs-retro",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790545591.1163363,
+      "born_at": 1790545591.1163363,
+      "run_ref": "prosecutor-auto-F-E2E-ALL-6"
     }
   ],
   "aliases": {}
