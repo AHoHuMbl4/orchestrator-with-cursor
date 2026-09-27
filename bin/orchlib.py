@@ -4206,6 +4206,9 @@ def _rules_category_oversize(kit_dir=None):
 _FRONT_GENERAL_PROMPT_MARK = "роль: meta/front-general.md"
 _GENERAL_FRONT_ID_RE = re.compile(r"Фронт (F-[A-Z0-9]+)")
 _AGENT_WIRE_DIR_RE = re.compile(r"^agent-.+")
+# Горизонт «живого» resume-чипа; как SUBAGENT_RESUME_WINDOW_MIN в reground.py.
+GENERAL_RESUME_LIVE_WINDOW_S = 1800
+_RESUME_CLOSED_STATUSES = frozenset(("done", "cancelled", "rejected"))
 
 
 def find_engine_home():
@@ -4360,21 +4363,57 @@ def _scan_agent_general_fronts(wire_path):
     return ordered, ts_first, ts_last
 
 
+def _wire_ts_unix_s(ts):
+    """wire time/ts → unix-секунды; ms (>1e12) делим на 1000. None/битое → None."""
+    if ts is None:
+        return None
+    try:
+        t = float(ts)
+    except (TypeError, ValueError):
+        return None
+    if t > 1e12:
+        t = t / 1000.0
+    return t
+
+
 def general_resume_chain(state=None):
     """Цепочки resume: агент с >1 distinct фронтом генерала в wire.
 
     Источник истины — agents/agent-*/wire.jsonl сессий движка (корни из
     find_engine_home / ORCH_AGENTS_ROOT / state/agents). Недоступно/пусто → [].
     Элемент: «agent-N:[F-A,F-B] ts=first..last». Fail-open.
+    В красный чип только «активная» цепочка: незакрытый фронт в fronts.json
+    или последний промт генерала моложе GENERAL_RESUME_LIVE_WINDOW_S.
     """
     try:
         if state is None:
             state = find_state_dir()
+        status_by_id = {}
+        for fr in (_load_fronts_at(state).get("fronts") or []):
+            if isinstance(fr, dict):
+                fid = fr.get("id")
+                if isinstance(fid, str) and fid:
+                    status_by_id[fid] = fr.get("status")
+        now = time.time()
         out = []
         for agent, wire in _iter_agent_wire_paths(state):
             fronts, ts_first, ts_last = _scan_agent_general_fronts(wire)
             if len(fronts) <= 1:
                 continue
+            # (а) хотя бы один фронт цепочки в fronts.json не закрыт
+            active_front = any(
+                fid in status_by_id
+                and status_by_id[fid] not in _RESUME_CLOSED_STATUSES
+                for fid in fronts
+            )
+            # (б) последний промт генерала свежее окна
+            last_s = _wire_ts_unix_s(ts_last)
+            live = (
+                last_s is not None
+                and (now - last_s) <= GENERAL_RESUME_LIVE_WINDOW_S
+            )
+            if not active_front and not live:
+                continue  # история — не красный чип
             out.append(
                 "%s:[%s] ts=%s..%s" % (
                     agent,
@@ -4662,7 +4701,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                     continue
                 if delta > ADVISOR_SCOUT_WINDOW_S:
                     continue
-                if sc.get("front") != afront:
+                # same front ИЛИ scout без фронта (--no-front); чужой front — нет
+                sc_front = sc.get("front")
+                if sc_front is not None and sc_front != afront:
                     continue
                 found = True
                 break
