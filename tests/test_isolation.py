@@ -21,7 +21,7 @@ RISK_MATRIX (риск → статус → test id | NONE):
 - SID-FIND-RUN-CROSS | RED | test_b_find_run_cross_sid
 - SID-CLOUD-FLAT | RED | test_b_cloud_flat_paths
 - SID-RAW-SESSION-PATH | RED | test_b_raw_session_path_vs_safe
-- SID-SAFE-COLLISION | THEORETICAL | test_b_safe_name_collision_sim
+- SID-SAFE-COLLISION | RED-BASELINE-FIXED | test_b_safe_name_collision_sim
 - NONE-COMPASS-DUAL | NONE | test_b_dual_write_compass_intact
 - NONE-RUNS-LAYOUT-LOCAL | NONE | test_b_dual_sid_runs_layout
 - NONE-SESSION-ENTRY-RO | NONE | REPORT_NONE: session-entry только читает compass
@@ -427,14 +427,26 @@ class TestLayerB(IsoTempTestCase):
         self.assertEqual(os.path.realpath(raw_runs), os.path.realpath(expected))
 
     def test_b_safe_name_collision_sim(self):
-        """THEORETICAL SID-SAFE-COLLISION: 'a/b' и 'a_b' → один safe_name."""
+        """RED-BASELINE-FIXED SID-SAFE-COLLISION: был THEORETICAL-collision-как-норма;
+        теперь инъективно: 'a/b'→'a_b', 'a_b'→'a__b'."""
         os.environ["ORCHESTRATION_DIR"] = self.state
         s1 = orchlib.safe_name("a/b")
         s2 = orchlib.safe_name("a_b")
-        self.assertEqual(s1, s2)
+        self.assertNotEqual(s1, s2)
+        self.assertEqual(s1, "a_b")
+        self.assertEqual(s2, "a__b")
         d1 = orchlib.session_dir("a/b")
         d2 = orchlib.session_dir("a_b")
-        self.assertEqual(os.path.realpath(d1), os.path.realpath(d2))
+        self.assertNotEqual(d1, d2)
+        self.assertNotEqual(os.path.realpath(d1), os.path.realpath(d2))
+        # идемпотентность/стабильность кодирования живого sid (ожидаемое значение после фикса)
+        live = "session_e8668eac-ad1d-415b-bd26-eb9d1e53d04c"
+        self.assertEqual(
+            orchlib.safe_name(live),
+            "session__e8668eac-ad1d-415b-bd26-eb9d1e53d04c",
+        )
+        for sid in ("fresh-test", "install-check", "sid-test-a", "sid-test-b"):
+            self.assertEqual(orchlib.safe_name(sid), sid)
 
     def test_b_dual_write_compass_intact(self):
         """NONE-COMPASS-DUAL: два sid → разные compass, оба целы."""
