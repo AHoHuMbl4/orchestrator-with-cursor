@@ -69,6 +69,13 @@
     color: inherit; font-size: 12px; cursor: pointer; }
   .warn-template input { width: auto; }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .key-card { margin: 12px 0; padding: 12px 14px; background: #fff;
+    border: 1px solid #e3e8ee; border-radius: 8px; }
+  .key-card h3 { font-size: 14px; margin: 0 0 8px; color: #2c6bed; font-weight: 600; }
+  .key-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .key-actions button { margin-top: 0; }
+  .key-mask, .key-status { font-size: 12px; color: #5a6572; margin-top: 4px; }
+  .key-status.ok { color: #1e8e4e; } .key-status.err { color: #c62828; }
 </style>
 </head>
 <body>
@@ -121,17 +128,40 @@
     </select></div>
 </div>
 
-<h2>3. Токен Cursor (для режима «облако Cursor»)</h2>
-<div class="row">
-  <div><label>API-ключ Cursor</label>
-    <input type="password" id="cursorKey" placeholder="вставьте ключ Cursor API">
-    <div class="hint" id="cursorKeyInfo">—</div>
-    <div class="hint"><b>Как взять:</b> <b>cursor.com/dashboard</b> → <b>API Keys</b> → <b>New API Key</b> → скопировать (показывается один раз).
-      Нужен платный план Cursor; оплата — по токенам использованных моделей, не за время.
-      Ключ сохранится в <code>.orchestration/cursor.key</code> (в git не попадает) и подхватится режимом
-      «облако Cursor». Не нужен, если работаете на субагентах движка.</div></div>
-  <div style="align-self:end"><button class="sec" type="button" onclick="saveKey()">Сохранить токен</button>
-    <button class="sec" type="button" onclick="delKey()">Удалить</button></div>
+<h2>Ключи</h2>
+<div class="hint">API-ключи OpenRouter и Cursor. После сохранения тело ключа не хранится в странице — только маска с сервера.</div>
+
+<div class="key-card" id="orKeyCard">
+  <h3>OpenRouter</h3>
+  <label>API-ключ OpenRouter</label>
+  <input type="password" id="orKeyInput" autocomplete="off" placeholder="вставьте ключ OpenRouter">
+  <div class="key-mask" id="orKeyMask">маска: —</div>
+  <div class="key-status" id="orKeyStatus">статус: —</div>
+  <div class="hint">Файл: <code>.orchestration/openrouter.key</code> (в git не попадает).</div>
+  <div class="key-actions">
+    <button class="sec" type="button" onclick="saveOrKey()">Сохранить</button>
+    <button class="sec" type="button" onclick="delOrKey()">Удалить</button>
+    <button class="sec" type="button" onclick="probeOrKey(false)">Проверить</button>
+    <button class="sec" type="button" onclick="probeOrKey(true)">Полная проверка потребителя</button>
+  </div>
+</div>
+
+<div class="key-card" id="curKeyCard">
+  <h3>Cursor</h3>
+  <label>API-ключ Cursor</label>
+  <input type="password" id="cursorKey" autocomplete="off" placeholder="вставьте ключ Cursor API">
+  <div class="key-mask" id="curKeyMask">маска: —</div>
+  <div class="key-status" id="curKeyStatus">статус: —</div>
+  <div class="hint" id="cursorKeyInfo">—</div>
+  <div class="hint"><b>Как взять:</b> <b>cursor.com/dashboard</b> → <b>API Keys</b> → <b>New API Key</b> → скопировать (показывается один раз).
+    Нужен платный план Cursor; оплата — по токенам использованных моделей, не за время.
+    Ключ сохранится в <code>.orchestration/cursor.key</code> (в git не попадает) и подхватится режимом
+    «облако Cursor». Не нужен, если работаете на субагентах движка.</div>
+  <div class="key-actions">
+    <button class="sec" type="button" onclick="saveKey()">Сохранить</button>
+    <button class="sec" type="button" onclick="delKey()">Удалить</button>
+    <button class="sec" type="button" onclick="probeCurKey()">Проверить</button>
+  </div>
 </div>
 
 <details>
@@ -292,7 +322,7 @@ async function loadAll(){
   }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
   loadStatus();
   loadHealthChips();
-  loadKeyInfo();
+  loadKeysBoot();
   await loadSessions();
   await loadTemplate();
   await loadFronts();
@@ -662,27 +692,133 @@ async function restoreTemplate(){
     msg(j.error||"ошибка","err");
   }
 }
+function setKeyMask(elId, mask, set){
+  const el=document.getElementById(elId); if(!el) return;
+  if(mask) el.textContent="маска: "+mask;
+  else if(set) el.textContent="маска: — (ключ задан)";
+  else el.textContent="маска: — (ключ не задан)";
+}
+function setKeyStatus(elId, text, cls){
+  const el=document.getElementById(elId); if(!el) return;
+  el.textContent="статус: "+text;
+  el.className="key-status"+(cls?" "+cls:"");
+}
+function probeStatusFrom(j){
+  if(!j) return {text:"нет ответа", cls:"err"};
+  if(j.ok){
+    let t="ок";
+    if(j.label) t+=" · "+j.label;
+    if(j.mode) t+=" · "+j.mode;
+    if(j.cost!=null && j.cost!=="") t+=" · cost="+j.cost;
+    return {text:t, cls:"ok"};
+  }
+  const c=j.error_class;
+  if(c==="401") return {text:"ключ мёртв", cls:"err"};
+  if(c==="402") return {text:"без кредитов", cls:"err"};
+  if(c==="403"||c==="429") return {text:"лимиты/доступ", cls:"err"};
+  if(c==="network") return {text:"ошибка сети", cls:"err"};
+  if(c==="no_key") return {text:"ключ не задан", cls:"err"};
+  if(j.detail) return {text:String(j.detail), cls:"err"};
+  return {text:"ошибка", cls:"err"};
+}
+async function loadOrKeyInfo(){
+  try{
+    const j=await (await fetch("/api/openrouter-key")).json();
+    setKeyMask("orKeyMask", j.mask, j.set);
+  }catch(e){
+    setKeyMask("orKeyMask", null, false);
+  }
+}
+async function saveOrKey(){
+  const inp=document.getElementById("orKeyInput");
+  const k=(inp.value||"").trim();
+  if(!k){ msg("вставьте ключ OpenRouter","err"); return; }
+  const r=await fetch("/api/openrouter-key",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({key:k})});
+  inp.value="";
+  const j=await r.json().catch(()=>({}));
+  if(r.ok){
+    msg("ключ OpenRouter сохранён ✓","ok");
+    setKeyMask("orKeyMask", j.mask, true);
+  } else {
+    msg(j.error||"ошибка","err");
+    loadOrKeyInfo();
+  }
+}
+async function delOrKey(){
+  const r=await fetch("/api/openrouter-key",{method:"DELETE"});
+  msg(r.ok?"ключ OpenRouter удалён":"ошибка", r.ok?"ok":"err");
+  setKeyStatus("orKeyStatus", "—", "");
+  loadOrKeyInfo();
+}
+async function probeOrKey(full){
+  setKeyStatus("orKeyStatus", "проверка…", "");
+  try{
+    const body=full?{full:true}:{};
+    const r=await fetch("/api/openrouter-key/probe",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({}));
+    if(j.mask) setKeyMask("orKeyMask", j.mask, true);
+    const st=probeStatusFrom(j);
+    setKeyStatus("orKeyStatus", st.text, st.cls);
+  }catch(e){
+    setKeyStatus("orKeyStatus", "ошибка сети", "err");
+  }
+}
 async function loadKeyInfo(){
-  try{ const j=await (await fetch("/api/cursor-key")).json();
+  try{
+    const j=await (await fetch("/api/cursor-key")).json();
     const p=j.path||"";
-    document.getElementById("cursorKeyInfo").textContent =
-      j.set ? ("токен сохранён. Файл: "+p) : ("токен не задан. Файл будет: "+p); }catch(e){}
+    setKeyMask("curKeyMask", j.mask, j.set);
+    const info=document.getElementById("cursorKeyInfo");
+    if(info) info.textContent =
+      j.set ? ("токен сохранён. Файл: "+p) : ("токен не задан. Файл будет: "+p);
+  }catch(e){
+    setKeyMask("curKeyMask", null, false);
+  }
 }
 async function saveKey(){
-  const k=document.getElementById("cursorKey").value.trim();
+  const inp=document.getElementById("cursorKey");
+  const k=(inp.value||"").trim();
   if(!k){ msg("вставьте токен","err"); return; }
   const r=await fetch("/api/cursor-key",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({key:k})});
-  const j=await r.json();
+  inp.value="";
+  const j=await r.json().catch(()=>({}));
   if(r.ok){
     msg("токен сохранён ✓","ok");
-    if(j.path) document.getElementById("cursorKeyInfo").textContent="токен сохранён. Файл: "+j.path;
-  } else msg(j.error||"ошибка","err");
-  document.getElementById("cursorKey").value=""; loadKeyInfo();
+    setKeyMask("curKeyMask", j.mask, true);
+    if(j.path){
+      const info=document.getElementById("cursorKeyInfo");
+      if(info) info.textContent="токен сохранён. Файл: "+j.path;
+    }
+  } else {
+    msg(j.error||"ошибка","err");
+    loadKeyInfo();
+  }
 }
 async function delKey(){
   const r=await fetch("/api/cursor-key",{method:"DELETE"});
-  msg(r.ok?"токен удалён":"ошибка", r.ok?"ok":"err"); loadKeyInfo();
+  msg(r.ok?"токен удалён":"ошибка", r.ok?"ok":"err");
+  setKeyStatus("curKeyStatus", "—", "");
+  loadKeyInfo();
+}
+async function probeCurKey(){
+  setKeyStatus("curKeyStatus", "проверка…", "");
+  try{
+    const r=await fetch("/api/cursor-key/probe",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:"{}"});
+    const j=await r.json().catch(()=>({}));
+    if(j.mask) setKeyMask("curKeyMask", j.mask, true);
+    const st=probeStatusFrom(j);
+    setKeyStatus("curKeyStatus", st.text, st.cls);
+  }catch(e){
+    setKeyStatus("curKeyStatus", "ошибка сети", "err");
+  }
+}
+function loadKeysBoot(){
+  loadOrKeyInfo();
+  loadKeyInfo();
 }
 async function loadStatus(){
   const j=await (await fetch("/api/status")).json();
