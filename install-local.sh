@@ -443,6 +443,64 @@ else
   echo "  .orchestration/ посеян; panel.sh пропущен (нет python)"
 fi
 
+# --- pre-commit репо проекта (owns-check; cwd установщика) ---
+# toplevel под set -euo: голый git вне worktree ВАЛИТ → || true.
+echo "== pre-commit owns-check (репо от cwd) =="
+toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$toplevel" ]; then
+  echo "репо не найдено, pre-commit пропущен" >&2
+elif [ "$HAVE_PY" != "1" ] || [ -z "$PY_ABS" ]; then
+  echo "WARN: pre-commit пропущен (нет python)" >&2
+else
+  HOOK_DIR="$toplevel/.git/hooks"
+  HOOK="$HOOK_DIR/pre-commit"
+  MARKER="orchestration-kit owns-check"
+  mkdir -p "$HOOK_DIR"
+  BLOCK_BEGIN="# >>> ${MARKER} >>>"
+  BLOCK_END="# <<< ${MARKER} <<<"
+  CANON_BLOCK=$(cat <<EOF
+${BLOCK_BEGIN}
+# orchestration-kit owns-check: staged vs fronts.json owns
+"$PY_ABS" "$KIT/bin/owns.py" --check-staged || exit \$?
+${BLOCK_END}
+EOF
+)
+  if [ -f "$HOOK" ]; then
+    if grep -q "$MARKER" "$HOOK" 2>/dev/null; then
+      # идемпотентность: удалить старый маркер-блок, записать канон
+      tmp_hook="$(mktemp)"
+      # shellcheck disable=SC2016
+      awk -v b="$BLOCK_BEGIN" -v e="$BLOCK_END" '
+        $0==b {skip=1; next}
+        $0==e {skip=0; next}
+        !skip {print}
+      ' "$HOOK" >"$tmp_hook"
+      printf '%s\n' "$CANON_BLOCK" >>"$tmp_hook"
+      if cat "$tmp_hook" >"$HOOK"; then
+        rm -f "$tmp_hook"
+        chmod +x "$HOOK"
+        echo "  pre-commit: блок owns-check обновлён ($HOOK)"
+      else
+        rm -f "$tmp_hook"
+        echo "pre-commit пропущен: чужой хук" >&2
+      fi
+    else
+      # чужой хук: встроить маркер-блок, не затирая
+      if printf '\n%s\n' "$CANON_BLOCK" >>"$HOOK" 2>/dev/null; then
+        chmod +x "$HOOK"
+        echo "  pre-commit: блок owns-check встроен в чужой хук ($HOOK)"
+      else
+        echo "pre-commit пропущен: чужой хук" >&2
+      fi
+    fi
+  else
+    printf '%s\n' "#!/usr/bin/env bash" >"$HOOK"
+    printf '%s\n' "$CANON_BLOCK" >>"$HOOK"
+    chmod +x "$HOOK"
+    echo "  pre-commit: установлен ($HOOK)"
+  fi
+fi
+
 echo "== 6/6 снимок моделей и самопроверка =="
 if [ "$HAVE_PY" = "1" ]; then
   "$PY" "$KIT/bin/discover.py" >/dev/null 2>&1 && echo "  discover: ok" || echo "  discover: предупреждение"
