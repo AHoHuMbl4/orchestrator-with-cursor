@@ -4246,12 +4246,31 @@ def _parse_receipt_records(text):
     return records
 
 
+def _parse_receipt_ts(raw):
+    """ts квитанции §3: epoch-число или ISO-8601 → float UTC epoch; иначе None.
+
+    ISO формы: «...Z» и «...+03:00» (и аналоги). Нормализация через
+    stdlib datetime (см. _rules_iso_to_ts). Мусор → None (= ts_not_number).
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        pass
+    return _rules_iso_to_ts(s)
+
+
 def parse_probe_receipt(text, artifact_path=None, run_id=None):
     """Валидация квитанции §3 → (ok: bool, reason: str).
 
     ok только если: все поля; exit числом; exit==оракулу (если числовой);
     oracle_match true; ts≥mtime(артефакта); artifact ссылается на волну;
     проза без cmd/exit = violation.
+    ts: epoch-число или ISO-8601 (Z / ±offset) → epoch UTC.
     """
     if not text or not isinstance(text, str) or not text.strip():
         return False, "empty"
@@ -4287,9 +4306,8 @@ def parse_probe_receipt(text, artifact_path=None, run_id=None):
         om = str(rec["oracle_match"]).strip().lower()
         if om not in ("true", "false"):
             return False, "oracle_match_bad"
-        try:
-            ts = float(str(rec["ts"]).strip())
-        except (TypeError, ValueError):
+        ts = _parse_receipt_ts(rec["ts"])
+        if ts is None:
             return False, "ts_not_number"
         if art_mtime is not None and ts < art_mtime:
             return False, "ts_stale"

@@ -267,7 +267,7 @@ QUESTIONS = [
      "пишущая — 1 + критики; spike — отдельно"),
     ("review.reviewers_per_diff", "Критиков на каждый дифф"),
     ("review.max_rounds", "Круги ревью до схождения"),
-    ("execution.timeout_s", "Таймаут прогона, сек"),
+    ("execution.timeout_s", "Stall (нет прогресса в логе), сек"),
     ("reground.every_min", "Сверка курса, каждые N мин"),
 ]
 

@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""STALL-C4-W2: orchlib params contract stall_s / max_wall_s (stdlib).
+"""STALL-C4-W2 + STALL-FIX1: orchlib stall params + parse_probe_receipt ts.
 
 Запуск: cd /root/orchestrator-with-cursor && python3 tests/test_stall_orchlib.py
 State: только ORCHESTRATION_DIR=/tmp/stall-orchlib-…; /root/.orchestration не трогаем.
-Порт 8765 не слушаем (только JSON-поля params).
+Порт 8765 не слушаем (только JSON-поля params / parse_probe_receipt).
 
-Покрытие:
+Покрытие (params):
   (а) load_params без stall_s/max_wall_s в файле → validate OK;
       после merge DEFAULTS: max_wall_s есть, stall_s нет, timeout_s есть
   (б) execution.stall_s=650 → validate OK при любом timeout_s
   (в) execution.stall_s=10 (ниже RANGES) → ошибка валидации
   (г) execution.max_wall_s=86400 проходит RANGES / validate
   (д) seed/save_params на дефолтном конфиге — без падений (tmp state)
+
+Покрытие (квитанция §3 / ts):
+  (а) ts epoch-числом → валидна
+  (б) ts ISO Z → валидна
+  (в) ts ISO +03:00 → валидна и epoch == (б)
+  (г) ts «мусор» → (False, ts_not_number)
+  (д) ts ISO раньше mtime артефакта → ts_stale
 """
 from __future__ import print_function
 
@@ -32,6 +39,10 @@ if BIN not in sys.path:
     sys.path.insert(0, BIN)
 
 import orchlib  # noqa: E402
+
+# Канонический UTC-момент для ISO Z / +03:00 (эквивалентны по epoch)
+_ISO_Z = "2026-09-28T09:15:54Z"
+_ISO_OFFSET = "2026-09-28T12:15:54+03:00"
 
 
 def _pass(msg):
@@ -87,6 +98,29 @@ def _minimal_params_no_stall_wall():
         "review": {"reviewers_per_diff": 3, "max_rounds": 3},
         "panel": {"host": "127.0.0.1", "port": 18765},
     }
+
+
+def _mk_artifact(root, content="probe artifact\n"):
+    """Артефакт в /tmp-полигоне; возвращает (path, mtime)."""
+    path = os.path.join(root, "artifact.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    mtime = float(os.path.getmtime(path))
+    _assert_not_live(path)
+    return path, mtime
+
+
+def _receipt_text(ts, artifact_name="artifact.md"):
+    """Минимальная валидная inline-квитанция §3 с заданным ts."""
+    return (
+        "probe: stall-fix1; cmd: true; exit: 0; oracle_match: true; "
+        "ts: %s; critic_id: FIX1-CRIT; artifact: %s\n" % (ts, artifact_name)
+    )
+
+
+def _parse_ts_only(raw):
+    """Нормализация ts через приватный хелпер (для сверки epoch (б)/(в))."""
+    return orchlib._parse_receipt_ts(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +268,94 @@ def test_e_seed_save_params_default():
         shutil.rmtree(root, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# квитанция §3: ts epoch / ISO / мусор / stale
+# ---------------------------------------------------------------------------
+
+def test_receipt_a_ts_epoch_valid():
+    root = tempfile.mkdtemp(prefix="stall-receipt-", dir="/tmp")
+    try:
+        art, mtime = _mk_artifact(root)
+        ts = mtime + 10.0
+        text = _receipt_text("%.3f" % ts)
+        ok, reason = orchlib.parse_probe_receipt(text, artifact_path=art)
+        if not ok:
+            _fail("receipt (а) epoch ts expected ok, got (%s, %s)" % (ok, reason))
+        if reason != "ok":
+            _fail("receipt (а) reason=%r want ok" % reason)
+        _pass("receipt (а) ts epoch-числом валидна (ts=%.3f ≥ mtime=%.3f)"
+              % (ts, mtime))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_receipt_b_ts_iso_z_valid():
+    root = tempfile.mkdtemp(prefix="stall-receipt-", dir="/tmp")
+    try:
+        art, _mtime = _mk_artifact(root)
+        # артефакт «в прошлом» относительно канонического ISO
+        past = orchlib._parse_receipt_ts(_ISO_Z) - 3600.0
+        os.utime(art, (past, past))
+        text = _receipt_text(_ISO_Z)
+        ok, reason = orchlib.parse_probe_receipt(text, artifact_path=art)
+        if not ok:
+            _fail("receipt (б) ISO Z expected ok, got (%s, %s)" % (ok, reason))
+        _pass("receipt (б) ts ISO Z валидна (%s)" % _ISO_Z)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_receipt_c_ts_iso_offset_eq_z():
+    root = tempfile.mkdtemp(prefix="stall-receipt-", dir="/tmp")
+    try:
+        art, _mtime = _mk_artifact(root)
+        past = orchlib._parse_receipt_ts(_ISO_Z) - 3600.0
+        os.utime(art, (past, past))
+        text = _receipt_text(_ISO_OFFSET)
+        ok, reason = orchlib.parse_probe_receipt(text, artifact_path=art)
+        if not ok:
+            _fail("receipt (в) ISO +03:00 expected ok, got (%s, %s)"
+                  % (ok, reason))
+        ep_z = _parse_ts_only(_ISO_Z)
+        ep_off = _parse_ts_only(_ISO_OFFSET)
+        if ep_z is None or ep_off is None:
+            _fail("receipt (в) normalize failed Z=%r off=%r" % (ep_z, ep_off))
+        if ep_z != ep_off:
+            _fail("receipt (в) epoch Z=%r != +03:00=%r" % (ep_z, ep_off))
+        _pass("receipt (в) ts ISO +03:00 валидна и epoch==ISO Z (%.0f)"
+              % ep_z)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_receipt_d_ts_garbage_not_number():
+    text = _receipt_text("not-a-timestamp")
+    ok, reason = orchlib.parse_probe_receipt(text)
+    if ok:
+        _fail("receipt (г) garbage ts must fail, got ok")
+    if reason != "ts_not_number":
+        _fail("receipt (г) reason=%r want ts_not_number" % reason)
+    _pass("receipt (г) ts «мусор» → (False, ts_not_number)")
+
+
+def test_receipt_e_ts_iso_stale():
+    root = tempfile.mkdtemp(prefix="stall-receipt-", dir="/tmp")
+    try:
+        art, _mtime = _mk_artifact(root)
+        # mtime артефакта ПОЗЖЕ ISO ts → ts_stale
+        future = orchlib._parse_receipt_ts(_ISO_Z) + 3600.0
+        os.utime(art, (future, future))
+        text = _receipt_text(_ISO_Z)
+        ok, reason = orchlib.parse_probe_receipt(text, artifact_path=art)
+        if ok:
+            _fail("receipt (д) stale ISO must fail, got ok")
+        if reason != "ts_stale":
+            _fail("receipt (д) reason=%r want ts_stale" % reason)
+        _pass("receipt (д) ts ISO раньше mtime → ts_stale")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def main():
     tests = [
         test_a_load_params_compat_timeout_only,
@@ -241,6 +363,11 @@ def main():
         test_c_stall_s_below_range,
         test_d_max_wall_s_86400,
         test_e_seed_save_params_default,
+        test_receipt_a_ts_epoch_valid,
+        test_receipt_b_ts_iso_z_valid,
+        test_receipt_c_ts_iso_offset_eq_z,
+        test_receipt_d_ts_garbage_not_number,
+        test_receipt_e_ts_iso_stale,
     ]
     failed = 0
     for fn in tests:
