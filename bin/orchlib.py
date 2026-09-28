@@ -217,10 +217,14 @@ def journal_append(entry):
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                 try:
                     f.write(line)
+                    f.flush()
+                    os.fsync(f.fileno())
                 finally:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             else:
                 f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
     except Exception as e:
         try:
             sys.stderr.write("journal_append failed: %s\n" % e)

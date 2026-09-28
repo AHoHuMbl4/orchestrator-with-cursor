@@ -170,7 +170,6 @@ class TestLayerA(IsoTempTestCase):
     WRITERS = 8
     APPENDS = 20
 
-    @unittest.expectedFailure  # RED: journal_append LOCK_UN до flush/fsync
     def test_a_journal_smoke_8x20(self):
         """RED unlock-before-flush: stress 8×20 + static flush-before-UNLOCK protocol.
 
