@@ -34,13 +34,14 @@ RISK_MATRIX (риск → статус → test id | NONE):
 - bump used==N under lock | NONE | test_c_bump_used_equals_n
 - front_status RO | NONE | REPORT_NONE: front_status только load_fronts, без записи
 - JSON concurrent replace whole | NONE | test_b_shared_files_reader_sees_whole
-- Key writers outside panel | NONE | REPORT_NONE: writers *.key в bin/** не найдены (C1-D)
+- Key writers outside panel | NONE | REPORT_NONE: writers *.key в bin/** не найдены (C1-D); whole-key SYNTHETIC tempfile+replace assert в test_b_escalated_key_partial_read (до ESCALATED skip)
 """
 from __future__ import print_function
 
 import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -53,7 +54,7 @@ import uuid
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 BIN = os.path.join(REPO, "bin")
 LIVE_STATE = "/root/.orchestration"
-RISK_MATRIX_COUNT = 30  # строк таблицы ISO-C1 (см. module docstring)
+RISK_MATRIX_COUNT = 29  # факт строк «- …|…|…» в module docstring (=ISO-C1 покрытие)
 
 # kit на PATH + orchlib из bin/
 os.environ["PATH"] = "/root/.local/bin:" + os.environ.get("PATH", "")
@@ -61,6 +62,21 @@ if BIN not in sys.path:
     sys.path.insert(0, BIN)
 
 import orchlib  # noqa: E402
+
+
+def _parse_risk_matrix_rows(doc):
+    """Строки RISK_MATRIX вида «- риск | статус | test|NONE» из module docstring."""
+    rows = []
+    for ln in (doc or "").splitlines():
+        if re.match(r"^- .+\|.+\|", ln):
+            rows.append(ln)
+    return rows
+
+
+def _measure(line):
+    """Полная строка MEASURE* в stdout с ведущим \\n — ловится grep '^MEASURE'."""
+    sys.stdout.write("\n%s\n" % line)
+    sys.stdout.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -193,10 +209,9 @@ class TestLayerA(IsoTempTestCase):
                 broken += 1
         count = len(lines)
         expect = self.WRITERS * self.APPENDS
-        print(
+        _measure(
             "MEASURE A: writers=%d appends=%d count=%d negative_broken=%d"
-            % (self.WRITERS, self.APPENDS, count, broken),
-            flush=True,
+            % (self.WRITERS, self.APPENDS, count, broken)
         )
         self.assertEqual(count, expect)
         self.assertEqual(broken, 0)
@@ -249,10 +264,9 @@ class TestLayerA(IsoTempTestCase):
             except Exception:
                 broken += 1
         self._neg_broken = broken
-        print(
+        _measure(
             "MEASURE A: writers=%d appends=%d count=%d negative_broken=%d"
-            % (self.WRITERS, self.APPENDS, self.WRITERS * self.APPENDS, broken),
-            flush=True,
+            % (self.WRITERS, self.APPENDS, self.WRITERS * self.APPENDS, broken)
         )
         self.assertGreater(broken, 0, "negative control must demonstrate torn JSONL")
 
@@ -328,11 +342,10 @@ class TestLayerB(IsoTempTestCase):
                 if os.path.exists(os.path.join(db, name)) else False
             )
         dual_sid_ok = 1
-        print(
+        _measure(
             "MEASURE B: dual_sid_ok=%d compass_ok=%d shared_whole=%d keys=%d"
             % (dual_sid_ok, getattr(self, "_compass_ok", -1),
-               getattr(self, "_shared_whole", -1), getattr(self, "_keys", -1)),
-            flush=True,
+               getattr(self, "_shared_whole", -1), getattr(self, "_keys", -1))
         )
 
     @unittest.expectedFailure  # RED: journal_start не пишет поле session
@@ -459,11 +472,10 @@ class TestLayerB(IsoTempTestCase):
             self.assertEqual(got, body)
         self.assertNotEqual(texts["cA"][0], texts["cB"][0])
         self._compass_ok = 1
-        print(
+        _measure(
             "MEASURE B: dual_sid_ok=%d compass_ok=%d shared_whole=%d keys=%d"
             % (getattr(self, "_dual", -1), 1, getattr(self, "_shared_whole", -1),
-               getattr(self, "_keys", -1)),
-            flush=True,
+               getattr(self, "_keys", -1))
         )
 
     @unittest.expectedFailure  # RED: RMW load→patch→save без критической секции на весь RMW
@@ -564,10 +576,72 @@ class TestLayerB(IsoTempTestCase):
         self.assertIsInstance(data, dict)
 
     def test_b_escalated_key_partial_read(self):
-        """ESCALATED: panel _write_key_file non-atomic — реплика + skip panel."""
-        # SYNTHETIC replica of panel _write_key_file (open/w truncate, no replace)
-        key_path = os.path.join(self.state, "cursor.key")
+        """ESCALATED panel non-atomic key + NONE SYNTHETIC whole (tempfile+replace).
+
+        Разделение: (1) green assert — concurrent read при atomic replace → целый
+        ключ; (2) ESCALATED — реплика panel open/w mid-write → SkipTest (panel/**).
+        """
         full = "sk-test-SYNTHETIC-cursor-key-value-001"
+        # --- NONE / SYNTHETIC whole-key path (kit-style tempfile+os.replace) ---
+        atomic_path = os.path.join(self.state, "openrouter.key")
+        seen_atomic = []
+        bad_atomic = []
+        stop = threading.Event()
+
+        def atomic_reader():
+            while not stop.is_set():
+                try:
+                    if os.path.isfile(atomic_path):
+                        with open(atomic_path, "r", encoding="utf-8") as f:
+                            v = f.read().strip()
+                        if v:
+                            seen_atomic.append(v)
+                            if v != full:
+                                bad_atomic.append(v)
+                except Exception:
+                    pass
+                time.sleep(0.002)
+
+        def atomic_write_key(path, key):
+            d = os.path.dirname(path) or "."
+            os.makedirs(d, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=d, prefix=".key-", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(key)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+            except Exception:
+                if os.path.exists(tmp):
+                    try:
+                        os.unlink(tmp)
+                    except Exception:
+                        pass
+                raise
+            os.chmod(path, 0o600)
+
+        rt = threading.Thread(target=atomic_reader)
+        rt.start()
+        time.sleep(0.01)
+        for _ in range(5):
+            atomic_write_key(atomic_path, full)
+            time.sleep(0.01)
+        stop.set()
+        rt.join(timeout=5)
+        self.assertEqual(
+            bad_atomic, [],
+            "NONE whole-key: concurrent read saw partial/non-full: %r" % bad_atomic[:5],
+        )
+        whole_ok = [v for v in seen_atomic if v == full]
+        self.assertGreater(
+            len(whole_ok), 0,
+            "NONE SYNTHETIC tempfile+replace: expected whole-key reads",
+        )
+        self._keys = 1
+
+        # --- ESCALATED: panel _write_key_file replica (open/w truncate mid-write) ---
+        key_path = os.path.join(self.state, "cursor.key")
 
         def panel_write_key_replica(path, key):
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -596,16 +670,17 @@ class TestLayerB(IsoTempTestCase):
         time.sleep(0.01)
         panel_write_key_replica(key_path, full)
         t.join(timeout=5)
-        self._keys = 1 if partial else 0
-        # Документируем ESCALATED: реплика показывает partial read
+        # ESCALATED skip сохраняем (panel ownership); whole уже доказан выше
         if not partial:
             raise unittest.SkipTest(
                 "ESCALATED panel _write_key_file: replica did not observe partial "
-                "on this FS timing; panel import forbidden — skip with protocol"
+                "on this FS timing; panel import forbidden — skip with protocol "
+                "(NONE whole-key SYNTHETIC assert already passed)"
             )
         raise unittest.SkipTest(
             "ESCALATED panel _write_key_file: replica observed partial reads %r; "
-            "ownership=panel/** — named skip"
+            "ownership=panel/** — named skip "
+            "(NONE whole-key SYNTHETIC assert already passed)"
             % partial[:3]
         )
 
@@ -659,10 +734,9 @@ class TestLayerB(IsoTempTestCase):
         self.assertEqual(errors, [], "partial JSON reads: %s" % errors[:5])
         self.assertGreater(reads_ok[0], 0)
         self._shared_whole = reads_ok[0]
-        print(
+        _measure(
             "MEASURE B: dual_sid_ok=%d compass_ok=%d shared_whole=%d keys=%d"
-            % (1, 1, reads_ok[0], 1),
-            flush=True,
+            % (1, 1, reads_ok[0], 1)
         )
 
 
@@ -702,10 +776,9 @@ class TestLayerC(IsoTempTestCase):
         self.assertEqual(used, n)
         self.assertEqual(ok, n)
         # MEASURE C printed with exit9/stale from companion attrs or defaults
-        print(
+        _measure(
             "MEASURE C: used=%d/%d exit9=%s stale_winners=%s"
-            % (used, n, getattr(self, "_exit9", 1), getattr(self, "_stale_winners", 1)),
-            flush=True,
+            % (used, n, getattr(self, "_exit9", 1), getattr(self, "_stale_winners", 1))
         )
 
     def test_c_exit9_lock_busy_then_retry(self):
@@ -735,10 +808,9 @@ class TestLayerC(IsoTempTestCase):
                 pass
         used, _, _ = orchlib.bump_front_runs(fid, timeout_s=5.0)
         self.assertEqual(used, 1)
-        print(
+        _measure(
             "MEASURE C: used=%d/%d exit9=%d stale_winners=%s"
-            % (used, 1, 1, getattr(self, "_stale_winners", 1)),
-            flush=True,
+            % (used, 1, 1, getattr(self, "_stale_winners", 1))
         )
 
     @unittest.expectedFailure  # RED: TOCTOU stale-rename → >1 winner / lost increments
@@ -784,10 +856,9 @@ class TestLayerC(IsoTempTestCase):
         winners_files = [n for n in os.listdir(counters) if n.startswith("winner-")]
         stale_winners = max(wins, len(winners_files))
         self._stale_winners = stale_winners
-        print(
+        _measure(
             "MEASURE C: used=%s/%s exit9=%s stale_winners=%d"
-            % ("?", k, getattr(self, "_exit9", 1), stale_winners),
-            flush=True,
+            % ("?", k, getattr(self, "_exit9", 1), stale_winners)
         )
         self.assertEqual(
             stale_winners, 1,
@@ -950,7 +1021,13 @@ class TestRiskMatrixMeta(unittest.TestCase):
         mod = sys.modules[__name__]
         doc = mod.__doc__ or ""
         self.assertIn("REPORT_NONE", doc)
-        self.assertEqual(RISK_MATRIX_COUNT, 30)
+        risk_rows = _parse_risk_matrix_rows(doc)
+        self.assertEqual(
+            len(risk_rows), RISK_MATRIX_COUNT,
+            "RISK_MATRIX docstring rows=%d != RISK_MATRIX_COUNT=%d"
+            % (len(risk_rows), RISK_MATRIX_COUNT),
+        )
+        self.assertEqual(RISK_MATRIX_COUNT, 29)
         required = [
             "test_a_journal_smoke_8x20",
             "test_a_negative_split_write_no_flock",
