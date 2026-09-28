@@ -73,7 +73,7 @@ State — `.orchestration/` в проекте.
 - sid-изоляция: артефакты строго `sessions/<safe_name(sid)>/runs/<id>/`; `safe_name` — инъективное percent-кодирование (`%`→`%%`, небезопасные → `%XX`): `session_<uuid>` не меняется; `a/b`→`a%2Fb` ≠ `a_b`
 - общие `fronts.json`/`params.json` — RMW только под каталог-замком (3-way merge); первичный seed params — single-winner (`O_EXCL` `seed.lock`)
 - front-runs: `counters/front-runs-<fid>.json` инкремент под mkdir-замком; stale-steal по возрасту с heartbeat/reclaim-gate (один владелец); `FRONT_LOCK_BUSY` → обёртка exit 9, retry — обязанность вызывающего (`RETRYABLE={4,124}`)
-- ключи `cursor.key`/`openrouter.key`: прод-писатель `panel/server.py` не атомарен (ESCALATED, отдельное решение командующего); читатели — целое-или-старое
+- ключи `cursor.key`/`openrouter.key`: прод-писатель `panel/server.py` не атомарен → ESCALATED (решение командующего отдельно); норма «целое-или-старое» НЕ гарантирована — partial-read возможен (`tests/test_isolation.py::test_b_escalated_key_partial_read`)
 - точка истины: `tests/test_isolation.py` (29 рисков аудита; RED закрыты; ESCALATED×2 known)
 
 ## D. Скилл и роли (как выбирать)
