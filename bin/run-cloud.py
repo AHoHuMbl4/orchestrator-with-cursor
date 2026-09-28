@@ -27,8 +27,9 @@ HTTP: --http-timeout (дефолт 300 с) на все вызовы call(). Crea
 восстанавливает agent.id / run.id (latestRunId), пишет в лог
 «recovered after timeout: <id>» и продолжает как успех.
 
---wait: поллинг GET run до терминального status —
-FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыром JSON).
+--wait: dual-timer до терминального status (FINISHED / ERROR / CANCELLED /
+EXPIRED): stall по прикладным SSE/fallback; fuse --max-wall; не по подстрокам
+в сыром JSON.
 
 Подкоманды:
   run       — создать агента (или follow-up) с промтом из файла
@@ -64,10 +65,19 @@ FINISHED / ERROR / CANCELLED / EXPIRED (не по подстрокам в сыр
   10      — params.json битый
   11      — id занят живым cloud-прогоном (CREATED/POLLING/RUNNING); --force
   12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
+  124     — STALL: нет прикладного прогресса (SSE/fallback) дольше stall_s
+  125     — WALL: сработал fuse --max-wall (не retryable)
+
+--wait dual-timer (B4): stall сброс только по SSE assistant|tool_call|status|result
+или (если SSE недоступен) дельтам run.updatedAt / artifacts fingerprint;
+строки «poll: …» и SSE heartbeat/keepalive stall НЕ сбрасывают.
+HTTP 429 в --wait — backoff (Retry-After / экспонента), stall-часы на паузе стоят.
 """
 import argparse
+import hashlib
 import json
 import os
+import select
 import sys
 import time
 import urllib.error
@@ -77,10 +87,18 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
 
-BASE = "https://api.cursor.com"
+DEFAULT_API_BASE = "https://api.cursor.com"
 TERMINAL_RUN_STATUSES = frozenset(("FINISHED", "ERROR", "CANCELLED", "EXPIRED"))
 LIVE_CLOUD_STATUSES = frozenset(("CREATED", "POLLING", "RUNNING"))
+PROGRESS_SSE_EVENTS = frozenset(("assistant", "tool_call", "status", "result"))
 RECOVERY_WINDOW_SEC = 300
+BUILTIN_STALL_S = 600
+BUILTIN_MAX_WALL_S = 86400
+
+
+def api_base():
+    """База API: env CURSOR_API_BASE если задан, иначе https://api.cursor.com."""
+    return (os.environ.get("CURSOR_API_BASE") or DEFAULT_API_BASE).rstrip("/")
 
 
 def _append_gate_log(log_path, line):
@@ -177,7 +195,12 @@ def build_parser():
     p.add_argument("--body-file", default=None,
                    help="json с доп. полями запроса (repo/config — по докам beta)")
     p.add_argument("--wait", action="store_true")
-    p.add_argument("--timeout", type=int, default=1800)
+    p.add_argument("--stall-after", type=int, default=None,
+                   help="сек без прикладного прогресса (SSE/fallback); канон stall")
+    p.add_argument("--timeout", type=int, default=None,
+                   help="алиас --stall-after: stall/no-output, не wall-clock")
+    p.add_argument("--max-wall", type=int, default=None,
+                   help="fuse: абсолютный потолок wall-clock от старта ожидания, сек")
     p.add_argument("--poll", type=int, default=15)
 
     p = sub.add_parser("status", help="статус/результат run")
@@ -187,7 +210,12 @@ def build_parser():
     p.add_argument("--run-id", default=None,
                    help="явный run id (иначе из agent-<id>.json)")
     p.add_argument("--wait", action="store_true")
-    p.add_argument("--timeout", type=int, default=1800)
+    p.add_argument("--stall-after", type=int, default=None,
+                   help="сек без прикладного прогресса (SSE/fallback); канон stall")
+    p.add_argument("--timeout", type=int, default=None,
+                   help="алиас --stall-after: stall/no-output, не wall-clock")
+    p.add_argument("--max-wall", type=int, default=None,
+                   help="fuse: абсолютный потолок wall-clock от старта ожидания, сек")
     p.add_argument("--poll", type=int, default=15)
 
     p = sub.add_parser("list", help="список агентов (свежие первыми)")
@@ -347,12 +375,14 @@ def report_http_error(out):
 
 
 def call(method, path, key, body=None, stream=False, timeout=300.0):
-    url = BASE + path
+    url = api_base() + path
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", "Bearer " + key)
     if data is not None:
         req.add_header("Content-Type", "application/json")
+    if stream:
+        req.add_header("Accept", "text/event-stream")
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)
         if stream:
@@ -363,9 +393,182 @@ def call(method, path, key, body=None, stream=False, timeout=300.0):
         except ValueError:
             return {"_raw": raw}
     except urllib.error.HTTPError as e:
-        return {"_http_error": e.code, "_body": e.read().decode("utf-8", "replace")}
+        body_txt = e.read().decode("utf-8", "replace")
+        out = {"_http_error": e.code, "_body": body_txt}
+        ra = None
+        try:
+            ra = e.headers.get("Retry-After") if e.headers else None
+        except Exception:
+            ra = None
+        if ra is not None and str(ra).strip():
+            try:
+                out["retry_after"] = float(str(ra).strip())
+            except ValueError:
+                pass
+        return out
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         return {"_network_error": str(e)}
+
+
+def read_params_json(state):
+    """Локально json из state/params.json → dict; orchlib не трогаем."""
+    path = os.path.join(state, "params.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def resolve_timers(params, stall_after=None, timeout=None, max_wall=None):
+    """Приоритеты A3/B4: stall и max_wall. Читает keys локально из params dict.
+
+    stall: --stall-after > --timeout > execution.stall_s > execution.timeout_s
+           > builtin 600.
+    max_wall: --max-wall > execution.max_wall_s > builtin 86400.
+    """
+    ex = (params or {}).get("execution", {}) or {}
+    if stall_after is not None:
+        stall_s = int(stall_after)
+    elif timeout is not None:
+        stall_s = int(timeout)
+    elif ex.get("stall_s") is not None:
+        stall_s = int(ex["stall_s"])
+    elif ex.get("timeout_s") is not None:
+        stall_s = int(ex["timeout_s"])
+    else:
+        stall_s = BUILTIN_STALL_S
+    if max_wall is not None:
+        max_wall_s = int(max_wall)
+    elif ex.get("max_wall_s") is not None:
+        max_wall_s = int(ex["max_wall_s"])
+    else:
+        max_wall_s = BUILTIN_MAX_WALL_S
+    return stall_s, max_wall_s
+
+
+def artifacts_fingerprint(artifacts_obj):
+    """Стабильный fingerprint списка артефактов (path|updatedAt)."""
+    if isinstance(artifacts_obj, dict):
+        raw = (artifacts_obj.get("artifacts")
+               or artifacts_obj.get("items")
+               or artifacts_obj.get("files")
+               or [])
+    elif isinstance(artifacts_obj, list):
+        raw = artifacts_obj
+    else:
+        raw = []
+    lines = []
+    for it in raw:
+        if isinstance(it, dict):
+            lines.append("%s|%s" % (it.get("path") or "",
+                                    it.get("updatedAt") or ""))
+    lines.sort()
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _sse_set_short_timeout(resp, timeout_s=0.3):
+    """Короткий socket-timeout на SSE-ответе (неблокирующий drain)."""
+    sock = None
+    try:
+        sock = resp.fp.raw._sock  # noqa: SLF001
+    except Exception:
+        try:
+            sock = resp.fp.fp.raw._sock  # noqa: SLF001
+        except Exception:
+            sock = None
+    if sock is not None:
+        try:
+            sock.settimeout(timeout_s)
+        except Exception:
+            pass
+
+
+def open_sse_stream(agent, run, key, http_timeout):
+    """Открыть SSE stream run; None если недоступен."""
+    out = call("GET", "/v1/agents/%s/runs/%s/stream" % (agent, run), key,
+               stream=True, timeout=min(float(http_timeout), 30.0))
+    if isinstance(out, dict):
+        return None
+    _sse_set_short_timeout(out, 0.3)
+    return out
+
+
+def drain_sse_progress(resp, buf_state, window_s=0.4):
+    """Слить доступные SSE; True если прикладное событие assistant|tool_call|status|result.
+
+    heartbeat/keepalive и comment-строки «:» прогрессом НЕ считаются.
+    buf_state — dict с ключом 'buf' (накопленный текст) и 'alive' (False при EOF).
+    """
+    if resp is None or not buf_state.get("alive", True):
+        return False
+    progressed = False
+    deadline = time.time() + float(window_s)
+    while time.time() < deadline:
+        fd = None
+        try:
+            fd = resp.fileno()
+        except Exception:
+            fd = None
+        if fd is not None:
+            try:
+                ready, _, _ = select.select([fd], [], [], max(0.0, deadline - time.time()))
+            except Exception:
+                ready = []
+            if not ready:
+                break
+        try:
+            chunk = resp.read(4096)
+        except Exception:
+            break
+        if not chunk:
+            buf_state["alive"] = False
+            break
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode("utf-8", "replace")
+        buf_state["buf"] = buf_state.get("buf", "") + chunk
+        while "\n\n" in buf_state["buf"]:
+            block, buf_state["buf"] = buf_state["buf"].split("\n\n", 1)
+            event = "message"
+            for line in block.split("\n"):
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith(":"):
+                    event = "keepalive"
+            if event in PROGRESS_SSE_EVENTS:
+                progressed = True
+        if fd is None:
+            # без select — один read за вызов
+            break
+    return progressed
+
+
+def cancel_run(agent, run, key, http_timeout, lf):
+    """Попытка cancel run через API. True при успехе; лог при недоступности."""
+    out = call("POST", "/v1/agents/%s/runs/%s/cancel" % (agent, run), key,
+               timeout=http_timeout)
+    if isinstance(out, dict) and ("_http_error" in out or "_network_error" in out):
+        detail = out.get("_http_error") or out.get("_network_error") or "?"
+        log_write(lf, "cancel unavailable: %s\n" % detail)
+        return False
+    log_write(lf, "cancel ok\n")
+    return True
+
+
+def _wait_backoff_sleep(seconds, wall_deadline, last_progress_at):
+    """Сон 429-паузы: stall-часы не инкрементируются; упираемся в max_wall."""
+    now = time.time()
+    remain = max(0.0, wall_deadline - now)
+    sleep_s = min(float(seconds), remain)
+    if sleep_s <= 0:
+        return last_progress_at
+    t_pause = time.time()
+    time.sleep(sleep_s)
+    # заморозить stall-часы на длительность паузы
+    return last_progress_at + (time.time() - t_pause)
 
 
 def cloud_run_dir(state, run_id, session=None):
@@ -952,37 +1155,137 @@ def run_status_terminal(status_obj):
 
 
 def wait_and_report(agent, run, key, state, a):
-    deadline = time.time() + (a.timeout or 1800)
+    """Dual-timer --wait (B4): stall по прикладным событиям / max_wall fuse.
+
+    stall сброс: (а) SSE assistant|tool_call|status|result; (б) fallback при
+    недоступности SSE — дельты run.updatedAt или artifacts fingerprint.
+    НЕ сбрасывают: строки «poll: …», SSE heartbeat/keepalive.
+    429: backoff, stall-часы на паузе стоят; суммарно ограничены max_wall.
+    """
+    params = read_params_json(state)
+    stall_s, max_wall_s = resolve_timers(
+        params,
+        stall_after=getattr(a, "stall_after", None),
+        timeout=getattr(a, "timeout", None),
+        max_wall=getattr(a, "max_wall", None))
+    t0 = time.time()
+    wall_deadline = t0 + float(max_wall_s)
+    last_progress_at = t0
     status = {}
     lf = logf(state, a)
     http_timeout = getattr(a, "http_timeout", 300.0)
+    poll_s = a.poll or 15
     log_path = cloud_log_path(state, a.id, getattr(a, "session", None))
     noted = set()
     write_result_json(state, a, agent, run, status_obj={"status": "POLLING"})
-    while time.time() < deadline:
+
+    sse_resp = open_sse_stream(agent, run, key, http_timeout)
+    sse_ok = sse_resp is not None
+    sse_buf = {"buf": "", "alive": True}
+    if not sse_ok:
+        log_write(lf, "sse unavailable: fallback updatedAt/artifacts\n")
+
+    last_updated = None
+    last_fp = None
+    backoff = 1.0
+
+    while True:
+        now = time.time()
+        if now >= wall_deadline:
+            log_write(lf, "WALL: max-wall fuse (deadline reached)\n")
+            log_write(lf, "final: %s\n" % json.dumps(status, ensure_ascii=False,
+                                                     indent=2))
+            write_result_json(state, a, agent, run,
+                              status_obj=status if isinstance(status, dict) else None)
+            lf.close()
+            check_compass_overflow(log_path, None, noted, allow_log_write=True)
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+            return 125
+        if stall_s and (now - last_progress_at) >= float(stall_s):
+            log_write(lf, "STALL: no applied progress for %ss\n" % stall_s)
+            cancel_run(agent, run, key, http_timeout, lf)
+            log_write(lf, "final: %s\n" % json.dumps(status, ensure_ascii=False,
+                                                     indent=2))
+            write_result_json(state, a, agent, run,
+                              status_obj=status if isinstance(status, dict) else None)
+            lf.close()
+            check_compass_overflow(log_path, None, noted, allow_log_write=True)
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+            return 124
+
+        # SSE primary: drain прикладные события
+        if sse_ok:
+            if not sse_buf.get("alive", True):
+                sse_ok = False
+                log_write(lf, "sse ended: fallback updatedAt/artifacts\n")
+            elif drain_sse_progress(sse_resp, sse_buf):
+                last_progress_at = time.time()
+
         status = call("GET", "/v1/agents/%s/runs/%s" % (agent, run), key,
                       timeout=http_timeout)
+        # 429: не терминал и не прогресс; stall-часы на паузе стоят
+        if isinstance(status, dict) and status.get("_http_error") == 429:
+            ra = status.get("retry_after")
+            sleep_s = float(ra) if ra is not None else backoff
+            log_write(lf, "429 backoff: %ss\n" % sleep_s)
+            last_progress_at = _wait_backoff_sleep(
+                sleep_s, wall_deadline, last_progress_at)
+            if ra is None:
+                backoff = min(backoff * 2.0, 60.0)
+            continue
+        # poll-строка — НЕ сигнал жизни (не сбрасывает stall)
         log_write(lf, "poll: %s\n" % json.dumps(status, ensure_ascii=False))
         write_result_json(state, a, agent, run, status_obj=status
                           if isinstance(status, dict) else None)
-        # пока lf открыт и идут poll-строки — только pending, без маркера в лог
         check_compass_overflow(log_path, None, noted, allow_log_write=False)
         if report_http_error(status):
             lf.close()
             check_compass_overflow(log_path, None, noted, allow_log_write=True)
             print(json.dumps(status, ensure_ascii=False, indent=2))
             return 1
+        if isinstance(status, dict) and "_network_error" in status:
+            # сеть: не прогресс; обычный poll-sleep ниже
+            pass
+        elif not sse_ok and isinstance(status, dict):
+            # fallback: дельта updatedAt
+            upd = status.get("updatedAt")
+            if isinstance(upd, str) and upd:
+                if last_updated is not None and upd != last_updated:
+                    last_progress_at = time.time()
+                last_updated = upd
+            # fallback: artifacts fingerprint
+            arts = call("GET", "/v1/agents/%s/artifacts" % agent, key,
+                        timeout=http_timeout)
+            if isinstance(arts, dict) and arts.get("_http_error") == 429:
+                ra = arts.get("retry_after")
+                sleep_s = float(ra) if ra is not None else backoff
+                log_write(lf, "429 backoff (artifacts): %ss\n" % sleep_s)
+                last_progress_at = _wait_backoff_sleep(
+                    sleep_s, wall_deadline, last_progress_at)
+                if ra is None:
+                    backoff = min(backoff * 2.0, 60.0)
+                continue
+            if not (isinstance(arts, dict)
+                    and ("_http_error" in arts or "_network_error" in arts)):
+                fp = artifacts_fingerprint(arts)
+                if last_fp is not None and fp != last_fp:
+                    last_progress_at = time.time()
+                last_fp = fp
+
         if run_status_terminal(status):
             break
-        time.sleep(a.poll or 15)
+        # обычный poll-sleep инкрементирует stall (тишина агента)
+        remain = wall_deadline - time.time()
+        if remain <= 0:
+            continue
+        time.sleep(min(float(poll_s), remain))
+
     log_write(lf, "final: %s\n" % json.dumps(status, ensure_ascii=False, indent=2))
     write_result_json(state, a, agent, run,
                       status_obj=status if isinstance(status, dict) else None)
     lf.close()
-    # маркер в лог — строго после flush/close lf (вне окна параллельной записи)
     check_compass_overflow(log_path, None, noted, allow_log_write=True)
     print(json.dumps(status, ensure_ascii=False, indent=2))
-    # честные exit: FINISHED→0; ERROR/CANCELLED/EXPIRED→1; deadline без терминала→124
     if run_status_terminal(status):
         st = status.get("status") if isinstance(status, dict) else None
         if st == "FINISHED":
