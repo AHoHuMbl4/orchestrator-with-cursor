@@ -1409,6 +1409,159 @@ def validate_fronts(f):
     return errs
 
 
+def check_activation_gate(fronts, fid, warn_stream=None):
+    """Гейт активации: семантика owns.check_activation на in-memory fronts.
+
+    Peers: status==\"active\" СТРОГО (legacy running/planned НЕ блокируют).
+    Пустые/отсутствующие owns → stderr-warn и РАЗРЕШИТЬ.
+    Отказ: «пересечение <свидетель> (<fid> ∩ <fid2>)».
+    Возврат: (ok: bool, msg: str|None).
+    """
+    if warn_stream is None:
+        warn_stream = sys.stderr
+    try:
+        import owns as _owns
+    except ImportError:
+        _owns = None
+        bin_dir = os.path.dirname(os.path.abspath(__file__))
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+        import owns as _owns  # noqa: E402
+    rows = []
+    me = None
+    for fr in fronts or []:
+        if not isinstance(fr, dict):
+            continue
+        i = fr.get("id")
+        if not i:
+            continue
+        owns_v = fr.get("owns")
+        if owns_v is None:
+            globs = []
+        elif isinstance(owns_v, list):
+            globs = [str(g) for g in owns_v]
+        else:
+            globs = []
+        st = fr.get("status") or ""
+        rows.append((i, globs, st))
+        if i == fid:
+            me = (i, globs, st)
+    if me is None:
+        return False, "неизвестный фронт"
+    _i, my_owns, _st = me
+    if not my_owns:
+        try:
+            warn_stream.write("owns пуст\n")
+            warn_stream.flush()
+        except Exception:
+            pass
+        return True, None
+    for g in my_owns:
+        if not _owns.glob_supported(g):
+            return False, "неподдерживаемый glob: %s" % g
+    for other_id, other_owns, status in rows:
+        if other_id == fid:
+            continue
+        if status != "active":
+            continue
+        if not other_owns:
+            continue
+        for g in other_owns:
+            if not _owns.glob_supported(g):
+                return False, "неподдерживаемый glob: %s" % g
+        for g1 in my_owns:
+            for g2 in other_owns:
+                w = _owns.witness(g1, g2)
+                if w:
+                    return False, "пересечение %s (%s ∩ %s)" % (w, fid, other_id)
+    return True, None
+
+
+def active_owns_overlap_stats(fronts):
+    """Ленивый счётчик пересечений owns среди status==active (через owns.witness).
+
+    Возврат: (has_conflict: bool, pair_count: int, per_fid: {fid: n_peers}).
+    """
+    try:
+        import owns as _owns
+    except ImportError:
+        bin_dir = os.path.dirname(os.path.abspath(__file__))
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+        import owns as _owns  # noqa: E402
+    active = []
+    for fr in fronts or []:
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not fid or fr.get("status") != "active":
+            continue
+        owns_v = fr.get("owns")
+        if not isinstance(owns_v, list) or not owns_v:
+            continue
+        globs = [str(g) for g in owns_v]
+        active.append((fid, globs))
+    per_fid = {fid: 0 for fid, _g in active}
+    pair_count = 0
+    for i in range(len(active)):
+        for j in range(i + 1, len(active)):
+            f1, g1s = active[i]
+            f2, g2s = active[j]
+            hit = False
+            for g1 in g1s:
+                for g2 in g2s:
+                    if _owns.witness(g1, g2):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                pair_count += 1
+                per_fid[f1] = per_fid.get(f1, 0) + 1
+                per_fid[f2] = per_fid.get(f2, 0) + 1
+    return pair_count > 0, pair_count, per_fid
+
+
+def _gate_activations_before_persist(out, raw_status_by_id):
+    """ДО persist: гейт для фронтов, переходящих в active (не migrate running→active)."""
+    fronts = out.get("fronts") if isinstance(out, dict) else []
+    if not isinstance(fronts, list):
+        return
+    out_ids = []
+    for fr in fronts:
+        if isinstance(fr, dict) and fr.get("id"):
+            out_ids.append(fr["id"])
+    activating = []
+    for fr in fronts:
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not fid or fr.get("status") != "active":
+            continue
+        prev = raw_status_by_id.get(fid)
+        if prev == "active":
+            continue
+        if prev == "running":
+            continue  # только migrate legacy → не гейтить
+        activating.append(fid)
+    for fid in activating:
+        check_list = []
+        for fr in fronts:
+            if not isinstance(fr, dict) or not fr.get("id"):
+                continue
+            fr2 = dict(fr)
+            oid = fr2["id"]
+            if oid == fid or oid in activating:
+                fr2["status"] = "active"
+            elif oid in raw_status_by_id:
+                # сырой статус пэера (running остаётся running → не блокирует)
+                fr2["status"] = raw_status_by_id[oid]
+            check_list.append(fr2)
+        ok, msg = check_activation_gate(check_list, fid)
+        if not ok:
+            raise ValueError([msg] if msg else ["отказ активации"])
+
+
 def save_fronts(f, timeout_s=5.0):
     """Атомарная запись fronts.json после валидации.
 
@@ -1416,6 +1569,7 @@ def save_fronts(f, timeout_s=5.0):
     Запись под каталог-замком fronts.json.lock с 3-way merge по id фронта;
     при busy — RuntimeError (не ValueError: панель ловит ValueError и пишет
     в обход замка).
+    Гейт активации (owns) — ДО persist; отказ → ValueError.
     """
     global _fronts_base
     pf = fronts_path()
@@ -1427,6 +1581,7 @@ def save_fronts(f, timeout_s=5.0):
         raise RuntimeError("fronts lock busy: %s" % lock_dir)
     try:
         # re-read current under lock for 3-way merge
+        raw_status_by_id = {}
         if os.path.exists(pf):
             try:
                 with open(pf, "r", encoding="utf-8-sig") as fh:
@@ -1436,6 +1591,10 @@ def save_fronts(f, timeout_s=5.0):
             if not isinstance(cur_data, dict):
                 cur_data = {"goal": "", "fronts": [], "notes": ""}
             cur_fronts = cur_data.get("fronts") if isinstance(cur_data.get("fronts"), list) else []
+            # сырые статусы ДО migrate — для гейта (running ≠ active)
+            for fr in cur_fronts:
+                if isinstance(fr, dict) and fr.get("id"):
+                    raw_status_by_id[fr["id"]] = fr.get("status")
             _migrate_fronts_list(cur_fronts)
             current = {
                 "goal": cur_data.get("goal", "") if isinstance(cur_data.get("goal"), str) else "",
@@ -1446,6 +1605,7 @@ def save_fronts(f, timeout_s=5.0):
             current = {"goal": "", "fronts": [], "notes": ""}
         ours = f if isinstance(f, dict) else {"fronts": []}
         ours_fronts = ours.get("fronts") if isinstance(ours.get("fronts"), list) else []
+        # новые фронты (нет в raw_status_by_id) → prev=None → гейт при status=active
         _migrate_fronts_list(ours_fronts)
         ours = {
             "goal": ours.get("goal", "") if isinstance(ours.get("goal"), str) else "",
@@ -1458,6 +1618,7 @@ def save_fronts(f, timeout_s=5.0):
         errs = validate_fronts(out)
         if errs:
             raise ValueError(errs)
+        _gate_activations_before_persist(out, raw_status_by_id)
         fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -3896,7 +4057,8 @@ _RULES_GATE_REFUSALS = frozenset({
     "SECRETS_IN_PROMPT", "API_KEY_REQUIRED",
 })
 # exit-коды обёрток при отказе гейта (run-exec / run-cloud).
-_GATE_REFUSE_EXITS = frozenset({5, 6, 7, 8, 9, 11, 12})
+# 13 = FRONT_DUAL_WRITER (шов MW2-B: второй пишущий ран того же фронта)
+_GATE_REFUSE_EXITS = frozenset({5, 6, 7, 8, 9, 11, 12, 13})
 
 
 def _end_is_gate_refuse(exit_code, gates):
@@ -5122,6 +5284,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "chip_silenced": [],
         "general_resume_chain": [],
         "general_resume_chain_warn": [],
+        # MW2-A: journal kind=chip (входы пишет MW2-B)
+        "multi_write_front": [],
+        "commit_no_verify": [],
     }
     try:
         if state is None:
@@ -5445,6 +5610,23 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             resume_warn = []
 
+        # MW2-A: journal kind="chip" name∈{multi_write_front, commit_no_verify}
+        multi_write_front = []
+        commit_no_verify = []
+        for e in entries:
+            if e.get("kind") != "chip":
+                continue
+            name = e.get("name")
+            if name not in ("multi_write_front", "commit_no_verify"):
+                continue
+            token = e.get("front") or e.get("id") or e.get("run_id") or name
+            if name == "multi_write_front":
+                if token not in multi_write_front:
+                    multi_write_front.append(token)
+            else:
+                if token not in commit_no_verify:
+                    commit_no_verify.append(token)
+
         # undelivered/dead после прочих чипов — (iii) chip-red без самозавода
         other_chips = {
             "runs_no_front": runs_no_front,
@@ -5463,6 +5645,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "chip_silenced": silenced,
             "general_resume_chain": resume_chain,
             "general_resume_chain_warn": resume_warn,
+            "multi_write_front": multi_write_front,
+            "commit_no_verify": commit_no_verify,
         }
         _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
@@ -5496,6 +5680,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "chip_silenced": silenced,
             "general_resume_chain": resume_chain,
             "general_resume_chain_warn": resume_warn,
+            "multi_write_front": multi_write_front,
+            "commit_no_verify": commit_no_verify,
         }
     except Exception:
         return empty

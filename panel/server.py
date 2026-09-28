@@ -505,12 +505,71 @@ def _read_key_file(filename):
 
 
 def _write_key_file(filename, key):
+    """Атомарная запись ключа: tempfile + fsync + os.replace + chmod 0600."""
+    import tempfile
     _state, path = _state_key_path(filename)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(key.strip())
-    os.chmod(path, 0o600)
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".key-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(key.strip())
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
     return path
+
+
+def _gate_status_activation(fid, fronts_data):
+    """Гейт proposed→active ДО любой записи (вкл. ValueError→_persist bypass).
+
+    Сырые peer-статусы с диска: running ≠ active (как owns.check_activation).
+    Возврат: None если OK; иначе текст отказа для HTTP 400.
+    """
+    state = orchlib.find_state_dir()
+    pf = os.path.join(state, "fronts.json")
+    raw_by_id = {}
+    if os.path.isfile(pf):
+        try:
+            with open(pf, "r", encoding="utf-8-sig") as fh:
+                raw = json.load(fh)
+            for fr in (raw.get("fronts") if isinstance(raw, dict) else []) or []:
+                if isinstance(fr, dict) and fr.get("id"):
+                    raw_by_id[fr["id"]] = fr
+        except Exception:
+            raw_by_id = {}
+    check_list = []
+    for fr in (fronts_data.get("fronts") if isinstance(fronts_data, dict) else []) or []:
+        if not isinstance(fr, dict) or not fr.get("id"):
+            continue
+        fr2 = dict(fr)
+        oid = fr2["id"]
+        if oid == fid:
+            fr2["status"] = "active"
+        elif oid in raw_by_id:
+            fr2["status"] = raw_by_id[oid].get("status") or fr2.get("status")
+            if fr2.get("owns") is None and "owns" in raw_by_id[oid]:
+                fr2["owns"] = raw_by_id[oid].get("owns")
+        check_list.append(fr2)
+    ids = {fr.get("id") for fr in check_list if isinstance(fr, dict)}
+    for oid, rfr in raw_by_id.items():
+        if oid not in ids:
+            fr2 = dict(rfr)
+            if oid == fid:
+                fr2["status"] = "active"
+            check_list.append(fr2)
+    ok, msg = orchlib.check_activation_gate(check_list, fid)
+    if ok:
+        return None
+    return msg or "отказ активации"
 
 
 def _resolve_cursor_api_key():
@@ -885,8 +944,14 @@ class Handler(BaseHTTPRequestHandler):
             _sess_lim, front_lim = _compass_limits(p)
             runs_lim = _runs_limit()
             hard_lim = _hard_runs_limit()
+            fronts_list = data.get("fronts") or []
+            try:
+                has_conflict, overlap_count, per_fid = orchlib.active_owns_overlap_stats(
+                    fronts_list)
+            except Exception:
+                has_conflict, overlap_count, per_fid = False, 0, {}
             fronts_out = []
-            for fr in data.get("fronts") or []:
+            for fr in fronts_list:
                 if not isinstance(fr, dict):
                     continue
                 item = dict(fr)
@@ -902,6 +967,10 @@ class Handler(BaseHTTPRequestHandler):
                 item["runs_limit"] = runs_lim
                 item["hard_runs_per_front"] = hard_lim
                 item["observer_age_s"] = _observer_age_s(fid)
+                # индикация owns + пересечение среди active (лениво owns lib)
+                if "owns" in fr:
+                    item["owns"] = fr.get("owns")
+                item["owns_overlap"] = int(per_fid.get(fid, 0) or 0)
                 fronts_out.append(item)
             try:
                 waves = orchlib.front_waves({"goal": data.get("goal", ""),
@@ -918,6 +987,8 @@ class Handler(BaseHTTPRequestHandler):
                 "kit_version": _kit_version_safe(),
                 "runs_limit": runs_lim,
                 "hard_runs_per_front": hard_lim,
+                "owns_conflict": bool(has_conflict),
+                "owns_overlap_count": int(overlap_count),
             })
         elif u.path == "/api/logs":
             name = (q.get("name") or [""])[0]
@@ -1027,13 +1098,29 @@ class Handler(BaseHTTPRequestHandler):
             if found is None:
                 self.send_json({"error": "фронт не найден: %s" % fid}, 404)
                 return
+            prev_status = found.get("status")
+            # Гейт ДО любой записи (вкл. ValueError→_persist bypass) → HTTP 400
+            if status == "active" and prev_status != "active":
+                refuse = _gate_status_activation(fid, data)
+                if refuse:
+                    self.send_json({"error": refuse}, 400)
+                    return
             found["status"] = status
             try:
                 # save_fronts может отвергнуть новые статусы, пока orchlib отстаёт —
                 # пишем напрямую (владелец панели / ручная отмена).
+                # Отказ гейта активации («пересечение…») → HTTP 400, НЕ bypass.
                 try:
                     orchlib.save_fronts(data)
-                except ValueError:
+                except ValueError as e:
+                    msg = e.args[0] if e.args else str(e)
+                    if isinstance(msg, list):
+                        text = "; ".join(str(x) for x in msg)
+                    else:
+                        text = str(e)
+                    if "пересечение" in text:
+                        self.send_json({"error": text}, 400)
+                        return
                     _persist_fronts_data(data)
                 self.send_json({
                     "ok": True,
