@@ -76,6 +76,14 @@
   .key-actions button { margin-top: 0; }
   .key-mask, .key-status { font-size: 12px; color: #5a6572; margin-top: 4px; }
   .key-status.ok { color: #1e8e4e; } .key-status.err { color: #c62828; }
+  /* F-JEVFAST C3: Jev last-call badge — indication only, no actions */
+  #jevBadge { display: none; margin: 6px 0 4px; font-size: 13px; }
+  #jevBadge.visible { display: inline-block; padding: 2px 10px; border-radius: 4px;
+    font-weight: 600; background: #eef2f8; color: #445060; }
+  #jevBadge.badge-advisory { background: #e6f6ec; color: #1e8e4e; }
+  #jevBadge.badge-defer { background: #fff6db; color: #9a7400; }
+  #jevBadge.badge-fail { background: #fdecea; color: #b71c1c; }
+  #jevBadgeMeta { font-size: 12px; color: #6f7b88; margin: 0 0 6px; display: none; }
 </style>
 </head>
 <body>
@@ -83,6 +91,8 @@
 <div class="hint" id="kitVersion">Kit: —</div>
 <div id="healthChips"></div>
 <div id="healthChipDetail"></div>
+<div id="jevBadge" data-jev-badge>Jev: —</div>
+<div id="jevBadgeMeta" data-jev-badge-meta></div>
 <div class="row" style="align-items:center; gap:10px;">
   <label style="margin:0">Оркестрация:</label>
   <select id="orchestration.enabled" style="width:auto">
@@ -322,6 +332,7 @@ async function loadAll(){
   }catch(e){ document.getElementById("discoveredInfo").textContent="discovered.json нет — запусти bin/discover.py"; }
   loadStatus();
   loadHealthChips();
+  loadJevBadge();
   loadKeysBoot();
   await loadSessions();
   await loadTemplate();
@@ -385,6 +396,37 @@ async function loadHealthChips(){
       box.appendChild(sp);
     });
   }catch(e){ /* health optional */ }
+}
+/* F-JEVFAST C3: indication-only badge from /api/jev-last (no actions) */
+async function loadJevBadge(){
+  const el = document.getElementById("jevBadge");
+  const meta = document.getElementById("jevBadgeMeta");
+  if(!el) return;
+  try{
+    const j = await (await fetch("/api/jev-last")).json();
+    const badge = j && j.badge;
+    if(!badge){
+      el.className = "";
+      el.style.display = "none";
+      el.textContent = "Jev: —";
+      if(meta){ meta.style.display = "none"; meta.textContent = ""; }
+      return;
+    }
+    el.style.display = "";
+    el.className = "visible badge-" + badge;
+    el.textContent = "Jev: " + badge;
+    if(meta){
+      const bits = [];
+      if(j.point) bits.push("point: " + j.point);
+      if(j.ts) bits.push(String(j.ts));
+      meta.textContent = bits.join(" · ");
+      meta.style.display = bits.length ? "block" : "none";
+    }
+  }catch(e){
+    el.className = "";
+    el.style.display = "none";
+    if(meta){ meta.style.display = "none"; }
+  }
 }
 let _guardPollTimer = null;
 async function loadCompassGuard(){

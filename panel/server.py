@@ -721,6 +721,63 @@ def _probe_openrouter_full(key):
     }
 
 
+# --- F-JEVFAST C3: last Jev call badge (indication only) ---
+_jev_advise_mod = None
+
+
+def _load_jev_advise():
+    """Import bin/jev-advise.py via importlib (C2 badge_from_journal_record)."""
+    global _jev_advise_mod
+    if _jev_advise_mod is not None:
+        return _jev_advise_mod
+    import importlib.util
+    kit = getattr(orchlib, "KIT_DIR", None) or os.path.dirname(PANEL_DIR)
+    path = os.path.join(kit, "bin", "jev-advise.py")
+    spec = importlib.util.spec_from_file_location("jev_advise_panel", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _jev_advise_mod = mod
+    return mod
+
+
+def read_last_jev_call(state_dir):
+    """Last JSON object from <state>/jev-calls.jsonl, or None (fail-open)."""
+    path = os.path.join(state_dir, "jev-calls.jsonl")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+    except OSError:
+        return None
+    if not lines:
+        return None
+    try:
+        rec = json.loads(lines[-1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(rec, dict):
+        return None
+    return rec
+
+
+def jev_last_payload(state_dir):
+    """JSON for /api/jev-last: {ts, point, badge}; badge null if none/unreadable."""
+    rec = read_last_jev_call(state_dir)
+    if rec is None:
+        return {"ts": None, "point": None, "badge": None}
+    try:
+        mod = _load_jev_advise()
+        badge = mod.badge_from_journal_record(rec)
+    except Exception:
+        badge = None
+    return {
+        "ts": rec.get("ts"),
+        "point": rec.get("point"),
+        "badge": badge,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "orch-panel/1.0"
 
@@ -932,6 +989,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"runs": self.runs_status()})
         elif u.path == "/api/health":
             self.send_json(_health_payload())
+        elif u.path == "/api/jev-last":
+            # F-JEVFAST C3: indication only — last jev-calls.jsonl record + badge
+            state = orchlib.find_state_dir()
+            self.send_json(jev_last_payload(state))
         elif u.path == "/api/compass-guard":
             with _guard_lock:
                 overflows = list(_guard_snapshot.get("overflows") or [])
