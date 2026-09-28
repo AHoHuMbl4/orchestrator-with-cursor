@@ -576,7 +576,7 @@ def pid_alive(pid):
 def resolve_run_paths(state, run_id, session=None):
     """Пути лога и pid: state/cursor-run-<id>.* или sessions/<sid>/runs/<id>/."""
     if session:
-        run_dir = os.path.join(state, "sessions", session, "runs", run_id)
+        run_dir = os.path.join(orchlib.session_dir(session), "runs", run_id)
         return (os.path.join(run_dir, "run.log"),
                 os.path.join(run_dir, "run.pid"))
     return (os.path.join(state, "cursor-run-%s.log" % run_id),
@@ -724,7 +724,7 @@ def iter_state_logs(state, session=None):
             continue
         entries.append((run_id, log_path, pid_path, mtime))
     if session:
-        runs_root = os.path.join(state, "sessions", session, "runs")
+        runs_root = os.path.join(orchlib.session_dir(session), "runs")
         for log_path in glob.glob(os.path.join(runs_root, "*", "run.log")):
             run_id = os.path.basename(os.path.dirname(log_path))
             pid_path = os.path.join(os.path.dirname(log_path), "run.pid")
@@ -843,7 +843,7 @@ def main():
 
     run_dir = os.path.join(state, "prompt-%s" % a.id)  # совместимость без --session
     if a.session:
-        run_dir = os.path.join(state, "sessions", a.session, "runs", a.id)
+        run_dir = os.path.join(orchlib.session_dir(a.session), "runs", a.id)
         os.makedirs(run_dir, exist_ok=True)
         if not a.prompt_file:
             a.prompt_file = os.path.join(run_dir, "prompt.md")

@@ -406,7 +406,6 @@ class TestLayerB(IsoTempTestCase):
             "RED: run-cloud lacks sessions/<sid>/ cloud path isolation",
         )
 
-    @unittest.expectedFailure  # RED: --session raw без safe_name
     def test_b_raw_session_path_vs_safe(self):
         """RED SID-RAW-SESSION-PATH: raw session path ≠ orchlib.session_dir(safe)."""
         _seed_params(self.state, orchestration={"hierarchy": "on", "enabled": True})
