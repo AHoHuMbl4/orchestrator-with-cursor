@@ -385,7 +385,6 @@ class TestLayerB(IsoTempTestCase):
             "RED: find_run_log without session returned %r (cross-sid)" % path,
         )
 
-    @unittest.expectedFailure  # RED: run-cloud плоские cloud-<id>.log
     def test_b_cloud_flat_paths(self):
         """RED SID-CLOUD-FLAT: cloud-пути должны быть под sessions/<sid>/."""
         src = open(os.path.join(BIN, "run-cloud.py"), "r", encoding="utf-8").read()

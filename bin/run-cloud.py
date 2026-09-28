@@ -364,13 +364,27 @@ def call(method, path, key, body=None, stream=False, timeout=300.0):
         return {"_network_error": str(e)}
 
 
+def cloud_run_dir(state, run_id, session=None):
+    """Каталог sessions/<sid>/runs/<id>/ для cloud-артефактов."""
+    sid = orchlib.safe_name(session) if session else "default"
+    d = os.path.join(state, "sessions", sid, "runs", run_id)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def cloud_log_path(state, run_id, session=None):
+    """Путь sessions/<sid>/runs/<id>/cloud-<id>.log."""
+    return os.path.join(
+        cloud_run_dir(state, run_id, session), "cloud-%s.log" % run_id)
+
+
 def utc_stamp():
     """UTC-штамп с суффиксом Z."""
     return time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
 
 
 def logf(state, a):
-    return open(os.path.join(state, "cloud-%s.log" % a.id), "a",
+    return open(cloud_log_path(state, a.id, getattr(a, "session", None)), "a",
                 encoding="utf-8", buffering=1)
 
 
@@ -460,9 +474,11 @@ def check_compass_overflow(log_path, session, noted, allow_log_write=True):
         pass
 
 
-def result_json_path(state, run_id_label):
-    """Путь <state>/cloud-<id>.result.json (run_id_label = a.id из --id)."""
-    return os.path.join(state, "cloud-%s.result.json" % run_id_label)
+def result_json_path(state, run_id_label, session=None):
+    """Путь sessions/<sid>/runs/<id>/cloud-<id>.result.json."""
+    return os.path.join(
+        cloud_run_dir(state, run_id_label, session),
+        "cloud-%s.result.json" % run_id_label)
 
 
 def agent_json_path(state, run_id_label):
@@ -476,7 +492,7 @@ def cloud_live_status(state, run_id):
     Приоритет: (а) result.json status ∈ LIVE → жив; (б) result нет/нечитаем,
     но есть agent-<id>.json → CREATED; (в) result терминальный → нежив.
     """
-    result_path = result_json_path(state, run_id)
+    result_path = result_json_path(state, run_id, None)
     if os.path.isfile(result_path):
         try:
             with open(result_path, "r", encoding="utf-8") as f:
@@ -540,7 +556,7 @@ def write_result_json(state, a, agent_id, run_id, status_obj=None):
         "updated": utc_stamp(),
         "result": result,
     }
-    path = result_json_path(state, a.id)
+    path = result_json_path(state, a.id, getattr(a, "session", None))
     os.makedirs(state, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -747,7 +763,7 @@ def cmd_run(a):
         sys.stderr.write("промт пуст: %s\n" % prompt_file)
         return 2
 
-    log_path = os.path.join(state, "cloud-%s.log" % a.id)
+    log_path = cloud_log_path(state, a.id, getattr(a, "session", None))
     role = orchlib.resolve_run_role(getattr(a, "role", None), prompt)
     # Валидация роли до FRONT/API_KEY/HTTP: неизвестная → exit 12.
     if role is not None and not getattr(a, "allow_unknown_role", False):
@@ -851,7 +867,7 @@ def cmd_run(a):
                 sys.stderr.write("create timeout/network error, recovery failed: %s\n"
                                  % out["_network_error"])
                 print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
-                check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+                check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                        None, set())
                 journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
                 return 1
@@ -869,7 +885,7 @@ def cmd_run(a):
 
     if report_http_error(out):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
-        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+        check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                None, set())
         journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
         return 1
@@ -889,12 +905,12 @@ def cmd_run(a):
             journal_end(a.id, log_path, rc, session=getattr(a, "session", None))
             return rc
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
-        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+        check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                None, set())
         journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
         return 1
     # без --wait: create/follow-up успешен, агент ещё бежит — journal_end не пишем
-    check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+    check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                            None, set())
     return 0
 
@@ -912,7 +928,7 @@ def wait_and_report(agent, run, key, state, a):
     status = {}
     lf = logf(state, a)
     http_timeout = getattr(a, "http_timeout", 300.0)
-    log_path = os.path.join(state, "cloud-%s.log" % a.id)
+    log_path = cloud_log_path(state, a.id, getattr(a, "session", None))
     noted = set()
     write_result_json(state, a, agent, run, status_obj={"status": "POLLING"})
     while time.time() < deadline:
@@ -962,7 +978,7 @@ def cmd_status(a):
                       status_obj=out if isinstance(out, dict) else None)
     if report_http_error(out):
         print(json.dumps(out, ensure_ascii=False, indent=2))
-        check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+        check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                None, set())
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))
@@ -970,7 +986,7 @@ def cmd_status(a):
         log_write(lf, "status %s/%s: %s\n" % (a.agent_id, a.run_id,
                                               json.dumps(out, ensure_ascii=False)))
     # пост-проверка после получения статуса без --wait
-    check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
+    check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                            None, set())
     return 0
 
