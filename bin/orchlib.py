@@ -3488,21 +3488,31 @@ def find_run_log(run_id, state=None, session=None, log_path=None):
         return None
     if state is None:
         state = find_state_dir()
-    candidates = []
     if session:
-        candidates.append(
-            os.path.join(state, "sessions", session, "runs", run_id, "run.log"))
-    # любой sessions/*/runs/<id>/run.log
+        sid = safe_name(session)
+        p = os.path.join(state, "sessions", sid, "runs", run_id, "run.log")
+        if os.path.isfile(p):
+            return p
+        return p
+    # без session: не выбирать молча один sid при коллизии run_id
+    sess_hits = []
     sess_root = os.path.join(state, "sessions")
     if os.path.isdir(sess_root):
         try:
             for sid in os.listdir(sess_root):
                 p = os.path.join(sess_root, sid, "runs", run_id, "run.log")
-                candidates.append(p)
+                if os.path.isfile(p):
+                    sess_hits.append(p)
         except Exception:
             pass
-    candidates.append(os.path.join(state, "cursor-run-%s.log" % run_id))
-    candidates.append(os.path.join(state, "runs", run_id, "run.log"))
+    if len(sess_hits) > 1:
+        return None
+    if len(sess_hits) == 1:
+        return sess_hits[0]
+    candidates = [
+        os.path.join(state, "cursor-run-%s.log" % run_id),
+        os.path.join(state, "runs", run_id, "run.log"),
+    ]
     for p in candidates:
         if p and os.path.isfile(p):
             return p
@@ -3515,27 +3525,36 @@ def find_run_dir(run_id, state=None, session=None):
         return None
     if state is None:
         state = find_state_dir()
-    candidates = []
+    markers = ("prompt.run.md", "artifact.md", "run.log", "probe-receipt.md")
+
+    def _has_marker(d):
+        if not d or not os.path.isdir(d):
+            return False
+        for m in markers:
+            if os.path.isfile(os.path.join(d, m)):
+                return True
+        return False
+
     if session:
-        candidates.append(
-            os.path.join(state, "sessions", session, "runs", run_id))
+        sid = safe_name(session)
+        d = os.path.join(state, "sessions", sid, "runs", run_id)
+        return d if _has_marker(d) else None
+    sess_hits = []
     sess_root = os.path.join(state, "sessions")
     if os.path.isdir(sess_root):
         try:
             for sid in os.listdir(sess_root):
-                candidates.append(
-                    os.path.join(sess_root, sid, "runs", run_id))
+                d = os.path.join(sess_root, sid, "runs", run_id)
+                if _has_marker(d):
+                    sess_hits.append(d)
         except Exception:
             pass
-    candidates.append(os.path.join(state, "runs", run_id))
-    markers = ("prompt.run.md", "artifact.md", "run.log", "probe-receipt.md")
-    for d in candidates:
-        if not d or not os.path.isdir(d):
-            continue
-        for m in markers:
-            if os.path.isfile(os.path.join(d, m)):
-                return d
-    return None
+    if len(sess_hits) > 1:
+        return None
+    if len(sess_hits) == 1:
+        return sess_hits[0]
+    d = os.path.join(state, "runs", run_id)
+    return d if _has_marker(d) else None
 
 
 # --- F-ACCEPT: probes_missing / chip_silenced (канон приёмки v1) -----------

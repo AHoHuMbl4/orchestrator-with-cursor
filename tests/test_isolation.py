@@ -368,7 +368,6 @@ class TestLayerB(IsoTempTestCase):
         for s in starts:
             self.assertIn("session", s, "RED: journal start missing session field: %r" % s)
 
-    @unittest.expectedFailure  # RED: find_run_* без session берёт первый listdir hit
     def test_b_find_run_cross_sid(self):
         """RED SID-FIND-RUN-CROSS: одинаковый run_id в двух sid → неоднозначность."""
         _seed_params(self.state)
