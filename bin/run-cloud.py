@@ -453,10 +453,7 @@ def resolve_timers(params, stall_after=None, timeout=None, max_wall=None):
 def artifacts_fingerprint(artifacts_obj):
     """Стабильный fingerprint списка артефактов (path|updatedAt)."""
     if isinstance(artifacts_obj, dict):
-        raw = (artifacts_obj.get("artifacts")
-               or artifacts_obj.get("items")
-               or artifacts_obj.get("files")
-               or [])
+        raw = artifacts_obj.get("artifacts") or []
     elif isinstance(artifacts_obj, list):
         raw = artifacts_obj
     else:

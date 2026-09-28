@@ -97,7 +97,6 @@ class MockAPI(object):
         self.thread = None
         self.port = None
         self.base = None
-        self._sse_clients = []
 
     def start(self):
         mock = self
