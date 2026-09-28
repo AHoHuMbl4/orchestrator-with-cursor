@@ -571,6 +571,50 @@
       "created": 1790575921.7516973,
       "born_at": 1790575921.7516973,
       "run_ref": "prosecutor-auto-F-KEYPANEL-13"
+    },
+    {
+      "id": "dont-test-kodirovaniya-formata-proglyadel-ide",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "acceptance",
+      "категория": "тесты",
+      "hit": 0,
+      "created": 1790583484.2145996,
+      "born_at": 1790583484.2145996,
+      "run_ref": "ISO-C3-RECONCILE"
+    },
+    {
+      "id": "dont-podmena-promta-volny-sohranila-staruyu-s",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "launch",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1790583484.2155893,
+      "born_at": 1790583484.2155893,
+      "run_ref": "ISO-C3-R3"
+    },
+    {
+      "id": "dont-poziciya-vladelca-28-09-kolichestvo-krit",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790605641.8666143,
+      "born_at": 1790605641.8666143,
+      "run_ref": "F-JEVFAST-order-v1"
+    },
+    {
+      "id": "dont-general-na-pule-zai-dvazhdy-zakryval-okn",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "task-active",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1790617038.1965473,
+      "born_at": 1790617038.1965473,
+      "run_ref": "agent-15-window-wait"
     }
   ],
   "aliases": {}

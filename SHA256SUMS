@@ -5,7 +5,7 @@ d36dadb5cf8b9812753d2c04a48787aaafce41f17809cfd7ad811fce2a0dd5b4  ./README.md
 b3907c13cf3d1c974a49bbf9f02401eca312ec46ead8e68ec70a82a5c3d1ea23  ./README.ru.md
 65bcf231abc90e4e72edd60a6681d7c6d4c517b70857df5250c9cf6cf7bfc196  ./bin/commit-wave.py
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
-b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
+1b0116d55f24528d39ec43b3f28e7f8573a0f3e707df27f1a2933bf4f715157a  ./bin/jev-advise.py
 d51af295a46566890d442521c6fdb2ce9e525405d17333e31061da679cf475b7  ./bin/menu.py
 9aa6f9e446f9b863e86b0da8b60635e465f061d21cf5c0eb1d6f7bb035383e67  ./bin/orch-lint.py
 14ad894b013f2663c90f0b8ee6b9940a3220100fba7bcb49ecfe49edf128d81a  ./bin/orchlib.py
@@ -26,10 +26,10 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 0c21984629bf51cb5fe1fc5ac9a37b65e25a3b7fc3bf27d3735654f194e6597b  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-a85846e306d1ea2ef61e9d23858da45be99f241dfb59d6c41ed00f3527c682d0  ./panel/index.html
-7fee7b73fafeaede18748983fa8952d05010ed07d1eaee0a7cf5803294e93bb0  ./panel/server.py
+d63e3fa50c452bbaf48154acc5a52c3189dd22bb0bf61aa930f976b8c9616cb7  ./panel/index.html
+dc986ca5b6570e076b3763e233164a7c2e81aa1f1ef59e8505a7ff2b7338d97c  ./panel/server.py
 aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./params.json
-0ff1972b0bc43a0cc970462afe6cf6a5529fd1371c54fbb93bbb0f14891aaf7a  ./routing/jev-table.json
+e58ecf1f2d5d06aac43b18e4f1f0d4e2a2d2e7933bf02d0ef9bb9c6b70d9105c  ./routing/jev-table.json
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./rules/archive/.gitkeep
 1313a1297825af07be99c7fc60a3522bfe376fbdade7dbf2fc86fedee2cadbe1  ./rules/archive/запуск/do-klon-tmp-target-proverka.md
 78a1b75a7406ed304fd3321b3709dfeb28b72e7ef8df9a7bac85b9b276bec23e  ./rules/archive/запуск/dont-bg-timeout.md
@@ -83,11 +83,11 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
 f2a9ca2e2f46422be2bcbdcff8ca6f6983f208e3ac7bf7552d2d4af073480d4d  ./rules/manifest.json
-e641882aa128d56e397a06ad3b633afecc5514fd913289b82c877351a263e168  ./skills/orchestration/SKILL.md
+900ad4ff1c09f50a3ebf7ceaf7cffb9f37e22b8c963093ea81666faf48f5d6ed  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 a3848e3588bcb724046f8161d79650213b2e12647693296b994f7f1cfbafe434  ./skills/orchestration/references/MAP.md
 9b7373b66c863166383a8a8624e0e2361398e69bdd242e9bc3dad54c2e862a86  ./skills/orchestration/references/engines.md
-ac3fdf9d44986c8a1cc2a9ac0fcdae561f5c36c1ff8b243793dec1e7b7df7e32  ./skills/orchestration/references/planning.md
+7cf11b3ecb31507ac1e3ee8c8567d677abc1172bf71d15269c54b149cc2b2a5c  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
 fa20ccabe8bd59108f1cd5bfeff28e613e67a789b07477ce7340d110c75bb782  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
@@ -250,6 +250,9 @@ d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orche
 184def21c77c8ea8e9ccafcf5eaf44c7c7ac8e03679c4ae6a675bc313b6e89b9  ./tests/cause-cleared-born-at.sh
 67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
 b8928a7c6cbacfdb070ce883e60173a966f3e4c8d1484725b89146026730c029  ./tests/test_isolation.py
+a6db917b7e39e95015153dcc737d6add2e172178ccac4f3d14720b962fb26549  ./tests/test_jevfast_cli.py
+3b33fe8bdbb6301acdb5602c63a5cf904160059de907b80aa063be0b21ee22c8  ./tests/test_jevfast_panel.py
+025f2c7dbdf67dca4ec91c3580b26e458afae67445a2d036a7331e1b5c065821  ./tests/test_jevfast_table.py
 451e93d0b1a069af294c979f811393ea7c59936948d24648d8a7751f2fbbac41  ./tests/test_multiwrite.py
 9098ddc5d44d0436eaba2a5ea710aad5de0b2e96fed4b845958d40301b9c44d5  ./tests/test_multiwrite_gate.py
 506906e655b0f92faf04a9588a922549d1feeaf479e59d67d44493b3e1a2aaea  ./tests/test_multiwrite_wrap.py
