@@ -251,18 +251,30 @@ class TestBandsEightPoints(unittest.TestCase):
     def test_focus_hint_bands(self):
         pid = "focus-hint-diff"
         crit = self.points[pid]["criteria"]
-        # high + valid choice
+        self.assertIsInstance(crit, dict)
+        keys = list(crit.keys())
+        vals = list(crit.values())
+        # high + valid choice as list of keys
         code, data = _run_main(
             self.mod, self._base_argv(pid, "diff text"),
-            _fixture_choice([crit[0], crit[1]], 0.9, pid))
+            _fixture_choice([keys[0], keys[1]], 0.9, pid))
         self.assertEqual(code, 0)
         self.assertNotEqual(data.get("hint_block"), "без подсветки")
         self.assertIn("N критиков и круги НЕ меняются", data["hint_block"])
+        self.assertIn(vals[0], data["hint_block"])
+        self.assertIn(vals[1], data["hint_block"])
+        self._assert_advisory(data, pid)
+        # high + choice as single key-string
+        code, data = _run_main(
+            self.mod, self._base_argv(pid, "diff text"),
+            _fixture_choice(keys[0], 0.9, pid))
+        self.assertEqual(code, 0)
+        self.assertIn(vals[0], data["hint_block"])
         self._assert_advisory(data, pid)
         # low → без подсветки
         code, data = _run_main(
             self.mod, self._base_argv(pid, "diff"),
-            _fixture_choice([crit[0]], 0.1, pid))
+            _fixture_choice([keys[0]], 0.1, pid))
         self.assertEqual(data["hint_block"], "без подсветки")
         self._assert_advisory(data, pid)
         # invalid choice → без подсветки
@@ -273,26 +285,29 @@ class TestBandsEightPoints(unittest.TestCase):
         # absent confidence
         code, data = _run_main(
             self.mod, self._base_argv(pid, "diff"),
-            _fixture_choice([crit[0]], None, pid))
+            _fixture_choice([keys[0]], None, pid))
         self.assertEqual(data["hint_block"], "без подсветки")
 
     def test_observer_bands(self):
         pid = "observer-journal-brief"
         crit = self.points[pid]["criteria"]
+        self.assertIsInstance(crit, dict)
+        keys = list(crit.keys())
         tail = "journal-line-1\njournal-line-2"
         # mid: conf between 0.35 and 0.6
         code, data = _run_main(
             self.mod, self._base_argv(pid, tail),
-            _fixture_choice(crit[:4], 0.5, pid))
+            _fixture_choice(keys[:4], 0.5, pid))
         self.assertEqual(code, 0)
         self.assertEqual(data["raw_tail"], tail)
         self.assertIn("brief_theses", data)
         self.assertGreaterEqual(len(data["brief_theses"]), 3)
+        self.assertEqual(data["brief_theses"], keys[:4])
         self._assert_advisory(data, pid)
         # low → no brief
         code, data = _run_main(
             self.mod, self._base_argv(pid, tail),
-            _fixture_choice(crit[:4], 0.1, pid))
+            _fixture_choice(keys[:4], 0.1, pid))
         self.assertEqual(data["raw_tail"], tail)
         self.assertNotIn("brief_theses", data)
         self._assert_advisory(data, pid)
@@ -323,14 +338,23 @@ class TestBandsEightPoints(unittest.TestCase):
     def test_retro_bands(self):
         pid = "retro-card-hint"
         crit = self.points[pid]["criteria"]
+        self.assertIsInstance(crit, dict)
+        keys = list(crit.keys())
+        # choice as key-string
         code, data = _run_main(
             self.mod, self._base_argv(pid),
-            _fixture_choice(crit[0], 0.9, pid))
-        self.assertEqual(data.get("card_category"), crit[0])
+            _fixture_choice(keys[0], 0.9, pid))
+        self.assertEqual(data.get("card_category"), keys[0])
+        self._assert_advisory(data, pid)
+        # choice as list of keys
+        code, data = _run_main(
+            self.mod, self._base_argv(pid),
+            _fixture_choice([keys[1]], 0.9, pid))
+        self.assertEqual(data.get("card_category"), keys[1])
         self._assert_advisory(data, pid)
         code, data = _run_main(
             self.mod, self._base_argv(pid),
-            _fixture_choice(crit[0], 0.1, pid))
+            _fixture_choice(keys[0], 0.1, pid))
         self.assertNotIn("card_category", data)
         self._assert_advisory(data, pid)
 
@@ -370,6 +394,9 @@ class TestGoldenFocusHint(unittest.TestCase):
     def test_golden_hint_block(self):
         pid = "focus-hint-diff"
         crit = self.points[pid]["criteria"]
+        self.assertIsInstance(crit, dict)
+        keys = list(crit.keys())
+        vals = list(crit.values())
         diff = (
             "--- a/x\n+++ b/x\n@@\n-old\n+new contested threshold\n"
             "fail-open path changed\n"
@@ -379,25 +406,35 @@ class TestGoldenFocusHint(unittest.TestCase):
             ["--point", pid, "--caller", "C2/golden",
              "--state-text", diff, "--table-path", TABLE_PATH],
             _fixture_choice(
-                [crit[0], crit[2], crit[3]], 0.85, pid))
+                [keys[0], keys[2], keys[3]], 0.85, pid))
         self.assertEqual(code, 0)
         hb = data.get("hint_block") or ""
         self.assertTrue(hb and hb != "без подсветки")
         self.assertIn("N критиков и круги НЕ меняются", hb)
+        # hint_block содержит ОПИСАНИЯ (values)
+        self.assertIn(vals[0], hb)
+        self.assertIn(vals[2], hb)
+        self.assertIn(vals[3], hb)
         blob = "\n".join([
             hb,
             self.points[pid].get("instructions") or "",
-            "\n".join(crit),
+            "\n".join(keys),
+            "\n".join(vals),
         ])
         self.assertIsNone(SHRINK_RE.search(blob), blob)
 
     def test_blindness_criteria_no_paths(self):
         for pid in ("focus-hint-diff", "observer-journal-brief",
                     "retro-card-hint"):
-            for c in self.points[pid].get("criteria") or []:
+            crit = self.points[pid].get("criteria") or {}
+            self.assertIsInstance(crit, dict, pid)
+            for k, v in crit.items():
                 self.assertIsNone(
-                    PATH_OR_SEARCH_RE.search(c),
-                    "%s criteria path/search: %r" % (pid, c))
+                    PATH_OR_SEARCH_RE.search(k),
+                    "%s criteria key path/search: %r" % (pid, k))
+                self.assertIsNone(
+                    PATH_OR_SEARCH_RE.search(v),
+                    "%s criteria value path/search: %r" % (pid, v))
             instr = self.points[pid].get("instructions") or ""
             self.assertIsNone(
                 PATH_OR_SEARCH_RE.search(instr),
@@ -633,17 +670,59 @@ class TestNoAutoInActions(unittest.TestCase):
         with open(TABLE_PATH, "r", encoding="utf-8") as f:
             points = {p["id"]: p for p in json.load(f)["points"]}
         crit = points[pid]["criteria"]
+        self.assertIsInstance(crit, dict)
+        keys = list(crit.keys())
         code, data = _run_main(
             self.mod,
             ["--point", pid, "--caller", "C2/auto",
              "--state-text", "d", "--table-path", TABLE_PATH],
-            _fixture_choice(crit[:2], 0.99, pid))
+            _fixture_choice(keys[:2], 0.99, pid))
         self.assertEqual(code, 0)
         for adv in data["advice"].values():
             self.assertEqual(adv["action"], "advisory")
             self.assertNotIn(adv["action"], ("auto",))
         self.assertIn("advisory", data["advisory_text"])
         self.assertIn("решение за командиром", data["advisory_text"])
+
+
+class TestChoiceCriteriaRecordSeam(unittest.TestCase):
+    """Регрессия шва: Choice auto_question criteria — dict; Score — list."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_advise()
+        with open(TABLE_PATH, "r", encoding="utf-8") as f:
+            cls.table = json.load(f)
+        cls.points = {p["id"]: p for p in cls.table["points"]}
+
+    def test_auto_questions_choice_criteria_is_dict_score_is_list(self):
+        choice_ids = (
+            "focus-hint-diff",
+            "observer-journal-brief",
+            "retro-card-hint",
+            "chip-triage",
+        )
+        for pid in choice_ids:
+            point = self.points[pid]
+            if pid == "chip-triage":
+                state = [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}]
+            else:
+                state = "state"
+            payload = self.mod.build_auto_questions(point, state)
+            self.assertIn(pid, payload, pid)
+            crit = payload[pid].get("criteria")
+            self.assertIsInstance(crit, dict, pid)
+            self.assertTrue(len(crit) > 0, pid)
+            if pid == "chip-triage":
+                self.assertEqual(set(crit.keys()), {"c1", "c2", "c3"})
+
+        # Score: run-queue-prio — list
+        point = self.points["run-queue-prio"]
+        payload = self.mod.build_auto_questions(point, [])
+        self.assertIn("run-queue-prio", payload)
+        crit = payload["run-queue-prio"].get("criteria")
+        self.assertIsInstance(crit, list)
+        self.assertTrue(len(crit) > 0)
 
 
 if __name__ == "__main__":

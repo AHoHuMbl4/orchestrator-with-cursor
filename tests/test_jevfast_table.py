@@ -126,6 +126,12 @@ def _text_fields(point):
         for item in crit:
             if isinstance(item, str):
                 texts.append(item)
+    elif isinstance(crit, dict):
+        for k, v in crit.items():
+            if isinstance(k, str):
+                texts.append(k)
+            if isinstance(v, str):
+                texts.append(v)
     elif isinstance(crit, str):
         texts.append(crit)
     return texts
@@ -189,15 +195,40 @@ class TestJevfastTable(unittest.TestCase):
                 isinstance(p.get("fallback"), str) and p["fallback"].strip(),
                 "fallback missing: %s" % p.get("id"),
             )
-        for pid in NEW_IDS:
+        choice_ids = (
+            "focus-hint-diff",
+            "observer-journal-brief",
+            "chip-triage",
+            "retro-card-hint",
+        )
+        score_ids = ("run-queue-prio",)
+        for pid in choice_ids:
             p = self.by_id[pid][0]
-            if p["type"] in ("Choice", "Score"):
-                crit = p.get("criteria")
-                self.assertIsInstance(crit, list, pid)
-                self.assertTrue(len(crit) > 0, pid)
-                self.assertTrue(
-                    all(isinstance(c, str) and c.strip() for c in crit), pid
-                )
+            crit = p.get("criteria")
+            self.assertIsInstance(crit, dict, pid)
+            self.assertTrue(len(crit) > 0, pid)
+            self.assertTrue(
+                all(
+                    isinstance(k, str) and k.strip()
+                    and isinstance(v, str) and v.strip()
+                    for k, v in crit.items()
+                ),
+                pid,
+            )
+        for pid in score_ids:
+            p = self.by_id[pid][0]
+            crit = p.get("criteria")
+            self.assertIsInstance(crit, list, pid)
+            self.assertTrue(len(crit) > 0, pid)
+            self.assertTrue(
+                all(isinstance(c, str) and c.strip() for c in crit), pid
+            )
+        # legacy Score points remain list
+        for pid in ("split-quality", "probe-sufficiency"):
+            p = self.by_id[pid][0]
+            crit = p.get("criteria")
+            self.assertIsInstance(crit, list, pid)
+            self.assertTrue(len(crit) > 0, pid)
 
     def test_no_shrink_patterns(self):
         for p in self.points:

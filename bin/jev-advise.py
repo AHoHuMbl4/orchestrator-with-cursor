@@ -547,8 +547,16 @@ def normalize_choice_list(choice):
 
 
 def validate_choice_against_criteria(choice, criteria, min_n, max_n):
-    """choice ⊆ criteria; лишнее обрезается до max_n; <min_n → []."""
-    crit = [str(c) for c in (criteria or [])]
+    """choice ⊆ criteria keys (dict) или элементов (list); лишнее → max_n; <min_n → [].
+
+    choice: str | list[str] → normalize_choice_list.
+    dict-criteria (Choice API record): допустимы КЛЮЧИ объекта.
+    list-criteria (Score / совместимость): допустимы элементы списка.
+    """
+    if isinstance(criteria, dict):
+        crit = [str(k) for k in criteria.keys()]
+    else:
+        crit = [str(c) for c in (criteria or [])]
     crit_set = set(crit)
     picked = []
     for c in normalize_choice_list(choice):
@@ -617,11 +625,13 @@ def build_auto_questions(point, state):
 
     if pid == "chip-triage":
         ids = normalize_chip_input(state)
+        # Choice API: criteria — record {id: краткая метка}, не массив
+        crit_obj = {cid: cid for cid in ids}
         return {
             pid: {
                 "type": "choice",
                 "instructions": instructions,
-                "criteria": ids,
+                "criteria": crit_obj,
             }
         }
 
@@ -736,8 +746,8 @@ def advisory_text_for_point(point_id, advice_map, extra=None):
 
 
 def wrap_focus_hint_diff(point, advice_map, answers):
-    """→ hint_block (темы+футер) или «без подсветки»."""
-    criteria = point.get("criteria") or []
+    """→ hint_block (описания выбранных slug + футер) или «без подсветки»."""
+    criteria = point.get("criteria") or {}
     band = _band_of(advice_map)
     amin, amax = _CHOICE_CARDINALITY["focus-hint-diff"]
     choice_raw = None
@@ -753,8 +763,13 @@ def wrap_focus_hint_diff(point, advice_map, answers):
                 break
     themes = []
     if band in ("mid", "high"):
-        themes = validate_choice_against_criteria(
+        keys = validate_choice_against_criteria(
             choice_raw, criteria, amin, amax)
+        # hint_block: ОПИСАНИЯ (values) выбранных slug-ключей
+        if isinstance(criteria, dict):
+            themes = [str(criteria[k]) for k in keys if k in criteria]
+        else:
+            themes = keys
         themes = filter_safe_themes(themes)
     if not themes or band in ("low", "absent"):
         return {
@@ -772,7 +787,7 @@ def wrap_focus_hint_diff(point, advice_map, answers):
 
 
 def wrap_observer_journal_brief(point, advice_map, answers, raw_tail):
-    criteria = point.get("criteria") or []
+    criteria = point.get("criteria") or {}
     band = _band_of(advice_map)
     amin, amax = _CHOICE_CARDINALITY["observer-journal-brief"]
     choice_raw = None
@@ -788,6 +803,7 @@ def wrap_observer_journal_brief(point, advice_map, answers, raw_tail):
     out = {"raw_tail": raw_tail if raw_tail is not None else ""}
     theses = []
     if band in ("mid", "high"):
+        # стабильные id = ключи criteria-record
         theses = validate_choice_against_criteria(
             choice_raw, criteria, amin, amax)
     if theses:
@@ -800,6 +816,8 @@ def wrap_observer_journal_brief(point, advice_map, answers, raw_tail):
 
 def wrap_chip_triage(point, advice_map, answers, original_order):
     original_order = list(original_order or [])
+    # динамический criteria-record: ключи = normalized ids
+    criteria_obj = {cid: cid for cid in original_order}
     band = _band_of(advice_map)
     amin, amax = _CHOICE_CARDINALITY["chip-triage"]
     choice_raw = None
@@ -815,7 +833,7 @@ def wrap_chip_triage(point, advice_map, answers, original_order):
     picked = []
     if band in ("mid", "high"):
         picked = validate_choice_against_criteria(
-            choice_raw, original_order, amin, amax)
+            choice_raw, criteria_obj, amin, amax)
     used_fifo = True
     if picked:
         choice = picked[0]
@@ -904,7 +922,7 @@ def wrap_run_queue_prio(point, advice_map, answers, original_order,
 
 
 def wrap_retro_card_hint(point, advice_map, answers):
-    criteria = point.get("criteria") or []
+    criteria = point.get("criteria") or {}
     band = _band_of(advice_map)
     amin, amax = _CHOICE_CARDINALITY["retro-card-hint"]
     choice_raw = None
@@ -919,6 +937,7 @@ def wrap_retro_card_hint(point, advice_map, answers):
                 break
     cats = []
     if band in ("mid", "high"):
+        # card_category = выбранный ключ (dont|do|case|none)
         cats = validate_choice_against_criteria(
             choice_raw, criteria, amin, amax)
     out = {
