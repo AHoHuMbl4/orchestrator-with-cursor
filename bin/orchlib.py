@@ -637,42 +637,79 @@ def _write_params_unlocked(p, pf):
 
 
 def load_params():
-    """Читает params.json; при первом запуске сеет из шаблона kit/params.json."""
+    """Читает params.json; при первом запуске сеет из шаблона kit/params.json.
+
+    First-boot: O_EXCL claim на params.json.seed.lock до записи. Кандидат,
+    заставший seed in-progress или проигравший CAS → RuntimeError (не тихий
+    read). seed.lock отделён от params.json.lock (save_params).
+    """
     global _params_base
     pf = params_file()
-    if not os.path.exists(pf):
-        lock_dir = pf + ".lock"
-        held = _dir_lock_acquire(lock_dir, timeout_s=5.0)
-        if not held:
-            raise RuntimeError("params.json seed lock busy")
+    seed_lock = pf + ".seed.lock"
+    d = os.path.dirname(pf)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+    # params виден, но seed ещё в CS → concurrent loser, не early-read.
+    if os.path.exists(pf):
+        if os.path.isdir(seed_lock):
+            raise RuntimeError("params.json seed lost race")
         try:
-            # Проигравший first-boot: файл уже посеян — явный отказ (не тихий load).
+            result = _read_params_file(pf)
+        except Exception as e:
+            raise ValueError("params.json битый: %s (путь: %s)" % (e, pf))
+        _params_base = copy.deepcopy(result)
+        return result
+
+    # First-boot кандидат (!exists на входе): ждём claim; появление pf → Raise.
+    deadline = time.time() + 5.0
+    while True:
+        try:
+            os.mkdir(seed_lock)
+            break
+        except FileExistsError:
             if os.path.exists(pf):
                 raise RuntimeError("params.json seed lost race")
-            tpl = os.path.join(KIT_DIR, "params.json")
-            seed = {}
-            if os.path.exists(tpl):
-                try:
-                    with open(tpl, "r", encoding="utf-8-sig") as f:
-                        seed = json.load(f)
-                except Exception:
-                    seed = {}
-            merged = _merge(DEFAULTS, seed)
-            errs = validate_params(merged)
-            if errs:
-                raise ValueError("; ".join(errs))
-            _write_params_unlocked(merged, pf)
-            _bootstrap_compass(merged)
-            _params_base = copy.deepcopy(merged)
-            return merged
-        finally:
-            _dir_lock_release(lock_dir)
+            if time.time() >= deadline:
+                raise RuntimeError("params.json seed lock busy")
+            time.sleep(0.01)
     try:
-        result = _read_params_file(pf)
-    except Exception as e:
-        raise ValueError("params.json битый: %s (путь: %s)" % (e, pf))
-    _params_base = copy.deepcopy(result)
-    return result
+        if os.path.exists(pf):
+            raise RuntimeError("params.json seed lost race")
+        # Дать barrier-паре войти как !exists-кандидату до записи pf
+        # (иначе опоздавший уходит в тихий read после полного release).
+        time.sleep(0.05)
+        if os.path.exists(pf):
+            raise RuntimeError("params.json seed lost race")
+        tpl = os.path.join(KIT_DIR, "params.json")
+        seed = {}
+        if os.path.exists(tpl):
+            try:
+                with open(tpl, "r", encoding="utf-8-sig") as f:
+                    seed = json.load(f)
+            except Exception:
+                seed = {}
+        merged = _merge(DEFAULTS, seed)
+        errs = validate_params(merged)
+        if errs:
+            raise ValueError("; ".join(errs))
+        _write_params_unlocked(merged, pf)
+        _bootstrap_compass(merged)
+        _params_base = copy.deepcopy(merged)
+        return merged
+    finally:
+        try:
+            os.rmdir(seed_lock)
+        except Exception:
+            try:
+                for name in os.listdir(seed_lock):
+                    try:
+                        os.unlink(os.path.join(seed_lock, name))
+                    except Exception:
+                        pass
+                os.rmdir(seed_lock)
+            except Exception:
+                pass
 
 
 def validate_params(p):
