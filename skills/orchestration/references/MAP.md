@@ -8,8 +8,8 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (замок front-runs занят, повторить позже); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
-- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (замок front-runs занят, повторить позже); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
 - Пример: `run-exec.py --id T1 --front KIT --role code/coder.md --prompt-file P.md`
 - Пример вне фронта: `run-exec.py --id smoke --no-front "smoke" --prompt-file P.md`
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
@@ -67,7 +67,16 @@ State — `.orchestration/` в проекте.
 - `<state>/fronts/<id>/colonels/<cid>/compass.md` — мини-курс полковника только (ссылка на order.md; без текста приказа; лимит как у фронтового)
 - Правило: запускай всё из одной папки проекта (или задай `ORCHESTRATION_DIR`)
 
-## C. Скилл и роли (как выбирать)
+## C. Параллельность и изоляция state
+
+- `journal.jsonl` — все записи только через `orchlib.journal_append` (`flock` `LOCK_EX`, flush+fsync ДО снятия замка); start/end несут `session`
+- sid-изоляция: артефакты строго `sessions/<safe_name(sid)>/runs/<id>/`; `safe_name` — инъективное percent-кодирование (`%`→`%%`, небезопасные → `%XX`): `session_<uuid>` не меняется; `a/b`→`a%2Fb` ≠ `a_b`
+- общие `fronts.json`/`params.json` — RMW только под каталог-замком (3-way merge); первичный seed params — single-winner (`O_EXCL` `seed.lock`)
+- front-runs: `counters/front-runs-<fid>.json` инкремент под mkdir-замком; stale-steal по возрасту с heartbeat/reclaim-gate (один владелец); `FRONT_LOCK_BUSY` → обёртка exit 9, retry — обязанность вызывающего (`RETRYABLE={4,124}`)
+- ключи `cursor.key`/`openrouter.key`: прод-писатель `panel/server.py` не атомарен (ESCALATED, отдельное решение командующего); читатели — целое-или-старое
+- точка истины: `tests/test_isolation.py` (29 рисков аудита; RED закрыты; ESCALATED×2 known)
+
+## D. Скилл и роли (как выбирать)
 
 - `skills/orchestration/SKILL.md` — регламент: исполнители, контроль, компас, вердикт
 - `references/planning.md` — план, волны, DAG, preflight-бюджет; § «Приёмка = функция» (канон v1: проба/квитанция/`probes_missing`/`chip_silenced`; Jev `probe-sufficiency` advisory)
@@ -95,11 +104,12 @@ State — `.orchestration/` в проекте.
 - `references/roles/code/simplicity-warden.md` — ворота простоты
 - `references/roles/meta/web-scout.md` — разведчик: облачный поиск для советника
 
-## D. Быстрые ответы
+## E. Быстрые ответы
 
 | Вопрос | Ответ |
 |---|---|
 | Где взять инструмент? | секция A |
+| Параллельность / изоляция state? | секция C |
 | Куда пишется задача? | `sessions/<sid>/compass.md` (`menu.py --session`) |
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`); приёмка — ещё `probe-receipt.md` (§3) |
 | Приёмка волны кода/фикса? | канон «Приёмка = функция»: блок пробы + свой прогон на полигоне; чип `probes_missing`; Jev `probe-sufficiency` только advisory |
