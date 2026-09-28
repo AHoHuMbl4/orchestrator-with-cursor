@@ -657,6 +657,77 @@ class TestLegacyOverrideObserverFailopen(unittest.TestCase):
         self.assertTrue(data.get("fallback"))
         self.assertTrue(data.get("error"))
 
+    def test_legacy_failopen_api_down_no_fallback_field(self):
+        """(а) legacy need-advisor + --question + API-down → ok:false, без fallback."""
+        with tempfile.TemporaryDirectory() as td:
+            key_path = os.path.join(td, "openrouter.key")
+            with open(key_path, "w", encoding="utf-8") as f:
+                f.write("fixture-key-not-used-on-network\n")
+            env = dict(os.environ)
+            env["ORCHESTRATION_DIR"] = td
+            proc = subprocess.run(
+                [
+                    sys.executable, ADVISE_PATH,
+                    "--point", "need-advisor",
+                    "--caller", "C-FIX2/legacy-fo",
+                    "--state-text", "есть ли выбор подхода",
+                    "--table-path", TABLE_PATH,
+                    "--question",
+                    "need-advisor:noul:нужен ли советник перед выдачей",
+                    "--api-url", "http://127.0.0.1:1/",
+                    "--key-path", key_path,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=60,
+                universal_newlines=True,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout.strip())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data.get("advice"), {})
+        self.assertTrue(data.get("error"))
+        self.assertNotIn("fallback", data)
+
+    def test_focus_hint_failopen_api_down_has_fallback(self):
+        """(б) focus-hint-diff + API-down → ok:false и поле fallback есть."""
+        with tempfile.TemporaryDirectory() as td:
+            key_path = os.path.join(td, "openrouter.key")
+            with open(key_path, "w", encoding="utf-8") as f:
+                f.write("fixture-key-not-used-on-network\n")
+            env = dict(os.environ)
+            env["ORCHESTRATION_DIR"] = td
+            crit = json.dumps({
+                "thresholds": "границы/пороги",
+                "format": "формат данных и швы",
+            }, ensure_ascii=False)
+            proc = subprocess.run(
+                [
+                    sys.executable, ADVISE_PATH,
+                    "--point", "focus-hint-diff",
+                    "--caller", "C-FIX2/focus-fo",
+                    "--state-text", "diff summary",
+                    "--table-path", TABLE_PATH,
+                    "--question",
+                    "focus-hint-diff:choice:выбрать темы::%s" % crit,
+                    "--api-url", "http://127.0.0.1:1/",
+                    "--key-path", key_path,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=60,
+                universal_newlines=True,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout.strip())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data.get("advice"), {})
+        self.assertTrue(data.get("error"))
+        self.assertIn("fallback", data)
+        self.assertTrue(data.get("fallback"))
+
 
 class TestNoAutoInActions(unittest.TestCase):
     """(и) advice.*.action новых точек ≠ auto."""

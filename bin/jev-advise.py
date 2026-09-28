@@ -460,9 +460,6 @@ def badge_from_journal_record(record):
         return None
     if record.get("status") == "error":
         return "fail"
-    if record.get("status") not in ("ok", "error", None):
-        # неизвестный status при наличии band — ниже
-        pass
     bands = record.get("band")
     if bands is None:
         if record.get("status") == "ok":
@@ -663,9 +660,6 @@ def build_auto_questions(point, state):
     q = {"type": qtype, "instructions": instructions}
     if criteria is not None and qtype in ("choice", "score"):
         q["criteria"] = criteria
-    elif qtype in ("choice", "score"):
-        # без criteria — пусть API/валидация решит; для Noul criteria нет
-        pass
     return {pid: q}
 
 
@@ -990,8 +984,12 @@ def apply_advisory_wrapper(point, advice_map, answers, state, raw_tail,
 
 
 def fail_open_advisory_extras(point, state, raw_tail):
-    """Поля fallback ответа для advisory-точек при fail-open."""
-    if not point:
+    """Поля fallback ответа для advisory-точек при fail-open.
+
+    Extras (fallback и пр.) — только для точек с auto_question:true.
+    Legacy (без auto_question) → {} — fail-open JSON без поля fallback.
+    """
+    if not point or not point.get("auto_question"):
         return {}
     pid = point.get("id")
     state = coerce_structured_state(state)
