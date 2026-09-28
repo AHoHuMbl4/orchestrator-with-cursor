@@ -427,24 +427,30 @@ class TestLayerB(IsoTempTestCase):
         self.assertEqual(os.path.realpath(raw_runs), os.path.realpath(expected))
 
     def test_b_safe_name_collision_sim(self):
-        """RED-BASELINE-FIXED SID-SAFE-COLLISION: был THEORETICAL-collision-как-норма;
-        теперь инъективно: 'a/b'→'a_b', 'a_b'→'a__b'."""
+        """RED-BASELINE-FIXED SID-SAFE-COLLISION (r2→r3): percent-encode —
+        'a/b'→'a%2Fb' != 'a_b'→'a_b'; live sid idempotent; 'a%b'→'a%%b'."""
         os.environ["ORCHESTRATION_DIR"] = self.state
         s1 = orchlib.safe_name("a/b")
         s2 = orchlib.safe_name("a_b")
+        self.assertEqual(s1, "a%2Fb")
+        self.assertEqual(s2, "a_b")
         self.assertNotEqual(s1, s2)
-        self.assertEqual(s1, "a_b")
-        self.assertEqual(s2, "a__b")
         d1 = orchlib.session_dir("a/b")
         d2 = orchlib.session_dir("a_b")
         self.assertNotEqual(d1, d2)
         self.assertNotEqual(os.path.realpath(d1), os.path.realpath(d2))
-        # идемпотентность/стабильность кодирования живого sid (ожидаемое значение после фикса)
+        # идемпотентность ЖИВОГО sid (без перемапа '_'); каталог в tmp-state
         live = "session_e8668eac-ad1d-415b-bd26-eb9d1e53d04c"
+        self.assertEqual(orchlib.safe_name(live), live)
+        seeded = os.path.join(self.state, "sessions", live)
+        os.makedirs(seeded, exist_ok=True)
         self.assertEqual(
-            orchlib.safe_name(live),
-            "session__e8668eac-ad1d-415b-bd26-eb9d1e53d04c",
+            os.path.realpath(orchlib.session_dir(live)),
+            os.path.realpath(seeded),
         )
+        # '%'-id: escape percent, distinct from slashy
+        self.assertEqual(orchlib.safe_name("a%b"), "a%%b")
+        self.assertNotEqual(orchlib.safe_name("a%b"), orchlib.safe_name("a/b"))
         for sid in ("fresh-test", "install-check", "sid-test-a", "sid-test-b"):
             self.assertEqual(orchlib.safe_name(sid), sid)
 
