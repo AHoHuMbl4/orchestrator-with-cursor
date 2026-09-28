@@ -640,19 +640,32 @@ def load_params():
     global _params_base
     pf = params_file()
     if not os.path.exists(pf):
-        tpl = os.path.join(KIT_DIR, "params.json")
-        seed = {}
-        if os.path.exists(tpl):
-            try:
-                with open(tpl, "r", encoding="utf-8-sig") as f:
-                    seed = json.load(f)
-            except Exception:
-                seed = {}
-        merged = _merge(DEFAULTS, seed)
-        save_params(merged)
-        _bootstrap_compass(merged)
-        _params_base = copy.deepcopy(merged)
-        return merged
+        lock_dir = pf + ".lock"
+        held = _dir_lock_acquire(lock_dir, timeout_s=5.0)
+        if not held:
+            raise RuntimeError("params.json seed lock busy")
+        try:
+            # Проигравший first-boot: файл уже посеян — явный отказ (не тихий load).
+            if os.path.exists(pf):
+                raise RuntimeError("params.json seed lost race")
+            tpl = os.path.join(KIT_DIR, "params.json")
+            seed = {}
+            if os.path.exists(tpl):
+                try:
+                    with open(tpl, "r", encoding="utf-8-sig") as f:
+                        seed = json.load(f)
+                except Exception:
+                    seed = {}
+            merged = _merge(DEFAULTS, seed)
+            errs = validate_params(merged)
+            if errs:
+                raise ValueError("; ".join(errs))
+            _write_params_unlocked(merged, pf)
+            _bootstrap_compass(merged)
+            _params_base = copy.deepcopy(merged)
+            return merged
+        finally:
+            _dir_lock_release(lock_dir)
     try:
         result = _read_params_file(pf)
     except Exception as e:

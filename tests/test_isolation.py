@@ -535,7 +535,6 @@ class TestLayerB(IsoTempTestCase):
         self.assertEqual(p["execution"]["timeout_s"], 900)
         self.assertEqual(p["execution"]["retry_on_fail"], 2)
 
-    @unittest.expectedFailure  # RED: double seed race first-boot
     def test_b_double_seed_params(self):
         """RED Double seed: два load_params на пустом state — один валидный файл."""
         # params отсутствует
