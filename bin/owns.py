@@ -389,16 +389,29 @@ def main(argv=None):
     g.add_argument("--check-activation", metavar="FID")
     args = ap.parse_args(argv)
 
-    sd, err = resolve_state_dir(args.state)
-    if err:
-        print(err, file=sys.stderr)
-        return 1
-
     if args.check_staged:
+        # identity-first: человек — exit 0 без резолва state
+        front = (os.environ.get("ORCH_FRONT") or "").strip()
+        run_id = (os.environ.get("ORCH_RUN_ID") or "").strip()
+        if not front and not run_id:
+            return 0
+        sd, err = resolve_state_dir(args.state)
+        if err:
+            print(
+                "агентский коммит: state не найден — задайте "
+                "ORCHESTRATION_DIR или .orchestration в дереве",
+                file=sys.stderr,
+            )
+            return 1
         code, msgs = check_staged(sd, os.environ, os.getcwd())
         for m in msgs:
             print(m, file=sys.stderr)
         return code
+
+    sd, err = resolve_state_dir(args.state)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
 
     code, msgs = check_activation(sd, args.check_activation)
     for m in msgs:

@@ -235,6 +235,64 @@ class TestPreCommit(unittest.TestCase):
         self.assertIn("нерезолвимый front", r.stderr)
         _measure("MEASURE pre-commit unresolvable front reject")
 
+    def test_a_human_pass_without_state(self):
+        """Без ORCH_* и без резолвимого state → exit 0 (identity-first)."""
+        tmp = _mw_tmpdir()
+        try:
+            repo = os.path.join(tmp, "repo")
+            _init_repo(repo)
+            os.makedirs(os.path.join(repo, "rules"), exist_ok=True)
+            with open(os.path.join(repo, "rules", "h.md"), "w") as f:
+                f.write("human no-state\n")
+            _git(repo, ["add", "rules/h.md"])
+            e = os.environ.copy()
+            e.pop("ORCH_FRONT", None)
+            e.pop("ORCH_RUN_ID", None)
+            e.pop("ORCHESTRATION_DIR", None)
+            r = subprocess.run(
+                [sys.executable, OWNS_PY, "--check-staged"],
+                cwd=repo,
+                env=e,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            _measure("MEASURE human-pass-without-state exit=0")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_agent_reject_without_state(self):
+        """ORCH_FRONT есть, state нет → exit 1 + агентский коммит: state не найден."""
+        tmp = _mw_tmpdir()
+        try:
+            repo = os.path.join(tmp, "repo")
+            _init_repo(repo)
+            os.makedirs(os.path.join(repo, "docs"), exist_ok=True)
+            with open(os.path.join(repo, "docs", "a.md"), "w") as f:
+                f.write("agent no-state\n")
+            _git(repo, ["add", "docs/a.md"])
+            e = os.environ.copy()
+            e.pop("ORCH_RUN_ID", None)
+            e.pop("ORCHESTRATION_DIR", None)
+            e["ORCH_FRONT"] = "F-DOCS"
+            r = subprocess.run(
+                [sys.executable, OWNS_PY, "--check-staged"],
+                cwd=repo,
+                env=e,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("агентский коммит: state не найден", r.stderr)
+            _measure("MEASURE agent-reject-without-state exit=1")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 # ---------------------------------------------------------------------------
 # (б) commit_wave
