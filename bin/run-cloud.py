@@ -470,8 +470,14 @@ def artifacts_fingerprint(artifacts_obj):
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
-def _sse_set_short_timeout(resp, timeout_s=0.3):
-    """Короткий socket-timeout на SSE-ответе (неблокирующий drain)."""
+def _sse_clear_sock_timeout(resp):
+    """Снять socket-timeout с SSE-ответа.
+
+    urlopen() ставит timeout на сокет; при TimeoutError BufferedReader
+    http.client переходит в состояние «cannot read from timed out object»
+    и дальнейший drain невозможен. Неблокируемость даёт select() в
+    drain_sse_progress, а не короткий sock.settimeout.
+    """
     sock = None
     try:
         sock = resp.fp.raw._sock  # noqa: SLF001
@@ -482,7 +488,7 @@ def _sse_set_short_timeout(resp, timeout_s=0.3):
             sock = None
     if sock is not None:
         try:
-            sock.settimeout(timeout_s)
+            sock.settimeout(None)
         except Exception:
             pass
 
@@ -493,7 +499,7 @@ def open_sse_stream(agent, run, key, http_timeout):
                stream=True, timeout=min(float(http_timeout), 30.0))
     if isinstance(out, dict):
         return None
-    _sse_set_short_timeout(out, 0.3)
+    _sse_clear_sock_timeout(out)
     return out
 
 
@@ -521,7 +527,12 @@ def drain_sse_progress(resp, buf_state, window_s=0.4):
             if not ready:
                 break
         try:
-            chunk = resp.read(4096)
+            # read1: один syscall — не блокирует до заполнения 4096 на
+            # keep-alive SSE (read(4096) на blocking sock ждал бы полный буфер).
+            if hasattr(resp, "read1"):
+                chunk = resp.read1(4096)
+            else:
+                chunk = resp.read(4096)
         except Exception:
             break
         if not chunk:
