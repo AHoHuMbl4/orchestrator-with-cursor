@@ -549,6 +549,17 @@
       "created": 1790545591.1163363,
       "born_at": 1790545591.1163363,
       "run_ref": "prosecutor-auto-F-E2E-ALL-6"
+    },
+    {
+      "id": "case-ispolnitel-docs-keeper-zavershilsya-end",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790566672.5700774,
+      "born_at": 1790566672.5700774,
+      "run_ref": "prosecutor-auto-F-E2E-ALL-7"
     }
   ],
   "aliases": {}
