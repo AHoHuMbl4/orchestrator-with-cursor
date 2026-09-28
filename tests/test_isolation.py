@@ -154,11 +154,12 @@ class TestLayerA(IsoTempTestCase):
     WRITERS = 8
     APPENDS = 20
 
+    @unittest.expectedFailure  # RED: journal_append LOCK_UN до flush/fsync
     def test_a_journal_smoke_8x20(self):
-        """RED protocol unlock-before-flush: stress under flock; MEASURE A.
+        """RED unlock-before-flush: stress 8×20 + static flush-before-UNLOCK protocol.
 
-        Prod journal_append снимает LOCK_UN до flush/close (orchlib.py).
-        На коротких строках local FS stress обычно цел — замер count==N×M.
+        Prod journal_append: LOCK_EX→write→LOCK_UN без flush/fsync (orchlib.py).
+        Stress на local FS часто цел (count==N×M); RED = нет flush до LOCK_UN.
         Negative control отдельно демонстрирует порчу без flock.
         """
         _seed_params(self.state)
@@ -192,8 +193,6 @@ class TestLayerA(IsoTempTestCase):
                 broken += 1
         count = len(lines)
         expect = self.WRITERS * self.APPENDS
-        # RED protocol (unlock-before-flush): stress замер; порча → known signal.
-        # negative_broken печатается в test_a_negative_*; здесь count.
         print(
             "MEASURE A: writers=%d appends=%d count=%d negative_broken=%d"
             % (self.WRITERS, self.APPENDS, count, broken),
@@ -201,6 +200,22 @@ class TestLayerA(IsoTempTestCase):
         )
         self.assertEqual(count, expect)
         self.assertEqual(broken, 0)
+        # RED-BASELINE protocol: flush/fsync must precede LOCK_UN in journal_append
+        src = open(os.path.join(BIN, "orchlib.py"), "r", encoding="utf-8").read()
+        start = src.find("def journal_append")
+        end = src.find("\ndef journal_read", start)
+        body = src[start:end] if start >= 0 and end > start else ""
+        unlock_at = body.find("LOCK_UN")
+        flush_at = body.find("flush")
+        fsync_at = body.find("fsync")
+        flushed_before_unlock = (
+            (flush_at >= 0 and unlock_at >= 0 and flush_at < unlock_at)
+            or (fsync_at >= 0 and unlock_at >= 0 and fsync_at < unlock_at)
+        )
+        self.assertTrue(
+            flushed_before_unlock,
+            "RED unlock-before-flush: journal_append LOCK_UN before flush/fsync",
+        )
 
     def test_a_negative_split_write_no_flock(self):
         """THEORETICAL/RED negative-control: split-write без flock → битые строки."""
