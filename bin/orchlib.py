@@ -39,6 +39,7 @@ DEFAULTS = {
         "timeout_s": 1800,          # верхняя граница прогона исполнителя
         "retry_on_fail": 1,         # перезапусков при фейле (по доктрине: 1 раз)
         "ask_before_runs": 20,      # спросить владельца, если прогноз пачки > N прогонов
+        "max_wall_s": 86400,        # жёсткий wall-clock лимит прогона; stall_s — optional (compat: timeout_s)
     },
     "review": {
         "reviewers_per_diff": 3,    # сколькими агентами перепроверять каждый дифф
@@ -74,6 +75,8 @@ DEFAULTS = {
 RANGES = {  # (min, max) для целочисленных полей
     "execution.parallel_per_task": (1, 8),
     "execution.timeout_s": (60, 21600),
+    "execution.stall_s": (30, 21600),
+    "execution.max_wall_s": (3600, 604800),
     "execution.retry_on_fail": (0, 3),
     "execution.ask_before_runs": (5, 200),
     "review.reviewers_per_diff": (1, 8),
@@ -717,6 +720,8 @@ def validate_params(p):
     for key, (lo, hi) in RANGES.items():
         sec, _, field = key.partition(".")
         val = p.get(sec, {}).get(field)
+        if val is None:
+            continue  # optional: ключ из RANGES может отсутствовать в DEFAULTS
         if not isinstance(val, int) or isinstance(val, bool) or not (lo <= val <= hi):
             errs.append("%s: ожидается целое %d..%d, получено %r" % (key, lo, hi, val))
     for sec, field in (("task", "description_file"), ("panel", "host")):
