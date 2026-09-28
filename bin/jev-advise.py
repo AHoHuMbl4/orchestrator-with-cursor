@@ -634,23 +634,20 @@ def build_auto_questions(point, state):
             elif isinstance(item, str):
                 ids.append(item)
         if not ids:
-            # один вопрос из таблицы (fallback формы)
+            # один вопрос из таблицы (без хардкода criteria)
             q = {"type": "score", "instructions": instructions}
             if criteria is not None:
                 q["criteria"] = criteria
             return {pid: q}
         out = {}
         for rid in ids:
-            out[rid] = {
+            q = {
                 "type": "score",
                 "instructions": instructions,
-                "criteria": criteria if criteria is not None else [
-                    "0 — можно последним",
-                    "1 — не срочно, после приоритетных",
-                    "2 — желательно раньше остальных",
-                    "3 — запускать первым",
-                ],
             }
+            if criteria is not None:
+                q["criteria"] = criteria
+            out[rid] = q
         return out
 
     q = {"type": qtype, "instructions": instructions}
@@ -1120,7 +1117,9 @@ def main(argv=None):
         point = {}
         journal_point = "ad-hoc"
     empty["point"] = journal_point
-    if point.get("fallback") is not None:
+    # fallback в fail-open JSON — только для новых auto_question точек
+    # (legacy ответы без лишнего поля)
+    if point.get("auto_question") and point.get("fallback") is not None:
         empty["fallback"] = point.get("fallback")
 
     state, raw_tail = _load_state_raw(args)
@@ -1137,8 +1136,10 @@ def main(argv=None):
         questions = _load_questions(args)
     except Exception as e:
         return fail_open_point("questions: %s" % e)
-    # Автосборка: только auto_question:true и нет явного --question/--questions-file
-    if not questions and point.get("auto_question"):
+    # Автосборка: только auto_question:true И нет явного --question/--questions-file
+    # (пустой --questions-file={} тоже «явный» → побеждает, без автосборки)
+    if (not questions and point.get("auto_question")
+            and not has_adhoc_qs):
         try:
             questions = build_auto_questions(point, state)
         except Exception as e:

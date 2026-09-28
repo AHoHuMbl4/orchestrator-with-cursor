@@ -527,6 +527,40 @@ class TestLegacyOverrideObserverFailopen(unittest.TestCase):
             if isinstance(adv, dict):
                 self.assertEqual(adv.get("action"), "advisory")
 
+    def test_empty_questions_file_blocks_auto(self):
+        """Явный --questions-file={} побеждает автосборку → пустой questions."""
+        pid = "scout-need"
+        with tempfile.NamedTemporaryFile(
+                "w", suffix=".json", delete=False, encoding="utf-8") as f:
+            f.write("{}")
+            qpath = f.name
+        buf = io.StringIO()
+        state_dir = tempfile.mkdtemp(prefix="jev-empty-qf-")
+        called = []
+
+        def boom(*a, **k):
+            called.append(True)
+            raise AssertionError("jev_decisions must not be called")
+
+        with mock.patch.object(self.mod, "jev_decisions", side_effect=boom):
+            with mock.patch.object(self.mod.orchlib, "find_state_dir",
+                                   return_value=state_dir):
+                with mock.patch.object(self.mod, "load_openrouter_key",
+                                       return_value="k"):
+                    with redirect_stdout(buf):
+                        code = self.mod.main([
+                            "--point", pid,
+                            "--caller", "C2/empty-qf",
+                            "--state-text", "s",
+                            "--table-path", TABLE_PATH,
+                            "--questions-file", qpath,
+                        ])
+        self.assertEqual(code, 0)
+        self.assertFalse(called)
+        data = json.loads(buf.getvalue())
+        self.assertFalse(data["ok"])
+        self.assertIn("пустой questions", data.get("error") or "")
+
     def test_observer_failopen_keeps_raw_tail(self):
         pid = "observer-journal-brief"
         tail = "RAW_TAIL_KEEP_ME"
