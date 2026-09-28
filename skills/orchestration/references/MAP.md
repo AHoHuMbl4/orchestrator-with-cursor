@@ -8,8 +8,9 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
-- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); dual-timer: `--stall-after` (stall по росту run.log) / `--max-wall` (fuse); `--timeout` — алиас stall («stall/no-output, не wall-clock»); EXIT 124 = STALL (retry), EXIT 125 = WALL (не retry); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); `--http-timeout` на HTTP-вызовы; `--wait` dual-timer: `--stall-after` / `--max-wall` (EXIT 124/125 как у run-exec); `--timeout` — алиас stall; при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- Таймеры (три класса имён): `http_timeout` — один HTTP-запрос (jev/panel/`--http-timeout`); `stall_after` — нет роста сигнала прогресса (лог/события) → вердикт зависания; `max_wall` — fuse wall-clock, отдельный ярлык. params: `execution.stall_s` (optional) и `execution.max_wall_s` (дефолт 86400); compat: `timeout_s` читается как stall. Канон индустрии no-output: CircleCI `no_output_timeout` / Travis `log-timeout` / Jenkins `activity:true` — НЕ GitHub Actions (там wall)
 - Пример: `run-exec.py --id T1 --front KIT --role code/coder.md --prompt-file P.md`
 - Пример вне фронта: `run-exec.py --id smoke --no-front "smoke" --prompt-file P.md`
 - `bin/run-cloud.py` — оба порядка флагов: `--id`/`--api-key` до и после субкоманды
@@ -72,7 +73,7 @@ State — `.orchestration/` в проекте.
 - `journal.jsonl` — все записи только через `orchlib.journal_append` (`flock` `LOCK_EX`, flush+fsync ДО снятия замка); start/end несут `session`
 - sid-изоляция: артефакты строго `sessions/<safe_name(sid)>/runs/<id>/`; `safe_name` — инъективное percent-кодирование (`%`→`%%`, небезопасные → `%XX`): `session_<uuid>` не меняется; `a/b`→`a%2Fb` ≠ `a_b`
 - общие `fronts.json`/`params.json` — RMW только под каталог-замком (3-way merge); первичный seed params — single-winner (`O_EXCL` `seed.lock`)
-- front-runs: `counters/front-runs-<fid>.json` инкремент под mkdir-замком; stale-steal по возрасту с heartbeat/reclaim-gate (один владелец); `FRONT_LOCK_BUSY` → обёртка exit 9, retry — обязанность вызывающего (`RETRYABLE={4,124}`)
+- front-runs: `counters/front-runs-<fid>.json` инкремент под mkdir-замком; stale-steal по возрасту с heartbeat/reclaim-gate (один владелец); `FRONT_LOCK_BUSY` → обёртка exit 9, retry — обязанность вызывающего (`RETRYABLE={4,124}`; EXIT 125 WALL — не retryable)
 - ключи `cursor.key`/`openrouter.key`: прод-писатель `panel/server.py` не атомарен → ESCALATED (решение командующего отдельно); норма «целое-или-старое» НЕ гарантирована — partial-read возможен (`tests/test_isolation.py::test_b_escalated_key_partial_read`)
 - точка истины: `tests/test_isolation.py` (29 рисков аудита; RED закрыты; ESCALATED×2 known)
 
