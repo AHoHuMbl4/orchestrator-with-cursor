@@ -9,9 +9,14 @@
 К cursor-агенту в конец промта доклеивается строка самопроверки курса
 (у cursor нет хуков — периодический re-ground идёт на уровне промта).
 
-  python3 run-exec.py --id T1 [--prompt-file ...] [--timeout 1800] [--detach]
+  python3 run-exec.py --id T1 [--prompt-file ...] [--stall-after 600]
+                      [--timeout 600] [--max-wall 86400] [--detach]
                       [--yield-after 480] [--no-reground-line] [--model auto]
                       [--readonly] [доп. флаги cursor-agent]
+
+  --stall-after N  — канон: stall по стагнации run.log (mtime+size), не wall-clock.
+  --timeout N      — алиас той же stall-семантики (stall/no-output, не wall-clock).
+  --max-wall N     — fuse: абсолютный потолок wall-clock от t0 первого старта агента.
 
   --readonly (барьер A): добавляет `--mode plan` в вызов cursor-agent
   (только local); journal start получает "readonly": true. Назначение —
@@ -37,7 +42,8 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   10      — params.json битый
   11      — id занят живым прогоном (pid); нужен другой id или --force
   12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
-  124     — таймаут
+  124     — STALL: нет прогресса run.log (mtime+size) дольше stall_s
+  125     — WALL: сработал fuse --max-wall (не retryable)
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
 
 Бюджет фронта (--front): warn = churn-датчик (FRONT_BUDGET_WARN + pending,
@@ -45,10 +51,11 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
 При hierarchy≠off обязателен --front <id> или --no-front "<причина>".
 
 Автоперезапуск (execution.retry_on_fail, по умолчанию 1):
-  только при EXIT=4 и EXIT=124; не при 1 и 3.
+  только при EXIT=4 и EXIT=124 (STALL); не при 1, 3 и 125 (WALL).
   Перед рестартом в лог: RETRY=<n>/<max> (prev EXIT=<code>).
   Итоговый EXIT — от последней попытки. В --detach рестарт делает watcher
   (cursor-agent — его потомок, код возврата через wait).
+  При retry max_wall — ОСТАТОК от t0 первого старта (абсолютный wall_deadline).
 """
 import argparse
 import glob
@@ -70,7 +77,48 @@ REGROUND_LINE = (
     "Если заметил дрейф от цели — вернись на шаг назад и отметь это в ответе.\n"
 )
 
-RETRYABLE = frozenset(("4", "124"))
+RETRYABLE = frozenset(("4", "124"))  # 125 WALL — не retryable
+
+# Builtin-фолбэки (A3). Переходный эффективный stall = execution.timeout_s
+# из params (compat), если нет stall_s; builtin STALL — только без обоих ключей.
+BUILTIN_STALL_S = 600
+BUILTIN_MAX_WALL_S = 86400
+
+
+def log_progress(log_path):
+    """(st_mtime, st_size) run.log; при отсутствии — (0.0, 0)."""
+    try:
+        st = os.stat(log_path)
+        return float(st.st_mtime), int(st.st_size)
+    except Exception:
+        return 0.0, 0
+
+
+def resolve_timers(params, stall_after=None, timeout=None, max_wall=None):
+    """Приоритеты A3: stall и max_wall. Читает keys локально из params dict.
+
+    stall: --stall-after > --timeout > execution.stall_s > execution.timeout_s
+           > builtin 600.
+    max_wall: --max-wall > execution.max_wall_s > builtin 86400.
+    """
+    ex = (params or {}).get("execution", {}) or {}
+    if stall_after is not None:
+        stall_s = int(stall_after)
+    elif timeout is not None:
+        stall_s = int(timeout)
+    elif ex.get("stall_s") is not None:
+        stall_s = int(ex["stall_s"])
+    elif ex.get("timeout_s") is not None:
+        stall_s = int(ex["timeout_s"])
+    else:
+        stall_s = BUILTIN_STALL_S
+    if max_wall is not None:
+        max_wall_s = int(max_wall)
+    elif ex.get("max_wall_s") is not None:
+        max_wall_s = int(ex["max_wall_s"])
+    else:
+        max_wall_s = BUILTIN_MAX_WALL_S
+    return stall_s, max_wall_s
 
 
 def apply_secret_gate(prompt, prompt_file, log_path):
@@ -337,29 +385,58 @@ def is_readonly_env():
     return os.environ.get("ORCH_READONLY") == "1"
 
 
-def wait_child(proc, log_fh, log_path, timeout_s, yield_after=0):
-    """Ждём дочерний proc; таймаут → kill → 124; yield_after → 'YIELDED'.
+def wait_child(proc, log_fh, log_path, stall_s, max_wall_s, yield_after=0,
+               wall_deadline=None, last_mtime=None, last_size=None):
+    """Ждём дочерний proc; dual-timer: stall(log mtime+size) / max_wall fuse.
 
-    yield_after: сек ожидания до авто-уступки в фон (0 = отключить).
-    Возвращает строковый код или 'YIELDED'.
+    stall_s — тишина run.log (сброс ростом st_mtime или st_size).
+    max_wall_s — fuse от t0; wall_deadline — абсолют (retry/yield передают остаток).
+    Стартовый якорь stall = st_mtime лога (НЕ now()), если last_* не переданы.
+    yield_after — только UX-уступка («YIELDED»), таймеры не сбрасывает.
+    Возвращает код ('124' STALL / '125' WALL / classify / 'YIELDED').
     """
-    deadline = time.time() + timeout_s
-    started = time.time()
-    while proc.poll() is None and time.time() < deadline:
-        if yield_after and (time.time() - started) >= yield_after:
+    t0 = time.time()
+    if wall_deadline is None:
+        wall_deadline = t0 + float(max_wall_s)
+    if last_mtime is None or last_size is None:
+        lm, ls = log_progress(log_path)
+        last_mtime = lm if last_mtime is None else last_mtime
+        last_size = ls if last_size is None else last_size
+    # якорь тишины = mtime последней записи (0 → t0, лог ещё не создан)
+    last_progress_at = float(last_mtime) if last_mtime else t0
+    started = t0  # только для yield_after
+    while proc.poll() is None:
+        now = time.time()
+        if yield_after and (now - started) >= yield_after:
             try:
                 log_fh.close()
             except Exception:
                 pass
             return "YIELDED"
+        if now >= wall_deadline:
+            kill_tree(proc)
+            try:
+                log_fh.close()
+            except Exception:
+                pass
+            append_log(log_path,
+                       "WALL: max-wall fuse (deadline reached)")
+            return "125"
+        mtime, size = log_progress(log_path)
+        if mtime > last_mtime or size > last_size:
+            last_mtime, last_size = mtime, size
+            last_progress_at = float(mtime) if mtime else now
+        elif stall_s and (now - last_progress_at) >= float(stall_s):
+            kill_tree(proc)
+            try:
+                log_fh.close()
+            except Exception:
+                pass
+            append_log(log_path,
+                       "STALL: no run.log progress (mtime+size) for %ss"
+                       % stall_s)
+            return "124"
         time.sleep(1)
-    if proc.poll() is None:
-        kill_tree(proc)
-        try:
-            log_fh.close()
-        except Exception:
-            pass
-        return "124"
     rc = proc.returncode
     try:
         log_fh.close()
@@ -455,11 +532,21 @@ def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
 
 
-def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
+def start_watcher(pid, log_path, pid_path, stall_s, wall_deadline,
+                  last_mtime, last_size, run_prompt_file, model,
                   session=None):
-    """Запуск detached --__watch (общий для --detach и авто-уступки)."""
+    """Запуск detached --__watch (общий для --detach и авто-уступки).
+
+    Минимальная схема argv dual-timer (A3):
+      --__watch <pid> <log_path> <pid_path> <stall_s> <wall_deadline>
+                <last_mtime> <last_size> [run_prompt_file [model [session]]]
+    wall_deadline — абсолютный unix time (t0+max_wall; yield/retry = тот же
+    абсолют, НЕ полный запас заново). last_mtime/last_size — стартовый якорь
+    stall (= st_mtime/st_size лога, НЕ now()).
+    """
     watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
-                 str(pid), log_path, pid_path, str(timeout_s),
+                 str(pid), log_path, pid_path, str(int(stall_s)),
+                 str(wall_deadline), str(last_mtime), str(int(last_size)),
                  run_prompt_file or "", model, session or ""]
     # наследует ORCH_RUN_ID из os.environ (выставлен родителем до вызова)
     wkwargs = detach_popen_kwargs()
@@ -468,8 +555,9 @@ def start_watcher(pid, log_path, pid_path, timeout_s, run_prompt_file, model,
                      stderr=subprocess.DEVNULL, **wkwargs)
 
 
-def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra):
-    """Рестарт cursor-agent как потомок текущего процесса (watcher/foreground)."""
+def run_retry_child(run_prompt_file, log_path, pid_path, stall_s,
+                    wall_deadline, model, extra):
+    """Рестарт cursor-agent как потомок; max_wall = остаток (wall_deadline)."""
     exe = find_cursor_agent()
     if not exe:
         return "4"
@@ -488,48 +576,73 @@ def run_retry_child(run_prompt_file, log_path, pid_path, timeout_s, model, extra
             f.write(str(proc.pid))
     except Exception:
         pass
-    return wait_child(proc, log_fh, log_path, timeout_s)
+    # остаток max_wall через абсолютный wall_deadline; stall якорь = текущий лог
+    remaining = max(0.0, float(wall_deadline) - time.time())
+    lm, ls = log_progress(log_path)
+    return wait_child(proc, log_fh, log_path, stall_s, remaining,
+                      wall_deadline=wall_deadline,
+                      last_mtime=lm, last_size=ls)
 
 
-def apply_retries(code, log_path, pid_path, timeout_s, run_prompt_file,
-                  retry_on_fail, model, extra):
-    """Автоперезапуск при 4/124, не более retry_on_fail раз."""
+def apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
+                  run_prompt_file, retry_on_fail, model, extra):
+    """Автоперезапуск при 4/124; 125 WALL не в RETRYABLE; max_wall = остаток."""
     retries = 0
     max_r = int(retry_on_fail)
     while str(code) in RETRYABLE and retries < max_r:
         retries += 1
         append_log(log_path, "RETRY=%d/%d (prev EXIT=%s)" % (retries, max_r, code))
         code = run_retry_child(run_prompt_file, log_path, pid_path,
-                               timeout_s, model, extra)
+                               stall_s, wall_deadline, model, extra)
     return code
 
 
-def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto",
-          session=None):
-    """Detach-watcher: ждёт pid / таймаут, EXIT= по контракту, рестарт при 4/124."""
-    deadline = time.time() + timeout_s
-    timed_out = False
+def watch(pid, log_path, pid_path, stall_s, wall_deadline, last_mtime,
+          last_size, run_prompt_file=None, model="auto", session=None):
+    """Detach-watcher: dual-timer stall(mtime+size) / max_wall; retry 4/124."""
+    last_mtime = float(last_mtime)
+    last_size = int(last_size)
+    # стартовый якорь = переданный st_mtime лога (НЕ now())
+    last_progress_at = last_mtime if last_mtime else time.time()
+    kill_code = None  # "124" | "125"
     noted = set()
-    while time.time() < deadline:
+    while True:
         time.sleep(2)
         check_compass_overflow(log_path, session, noted, allow_log_write=False)
-        if not pid_alive(int(pid)):
+        now = time.time()
+        alive = pid_alive(int(pid))
+        if not alive:
             break
-    else:
-        if pid_alive(int(pid)):
+        if now >= float(wall_deadline):
             kill_pid(pid)
-            timed_out = True
-            # дождаться исчезновения
+            kill_code = "125"
+            append_log(log_path, "WALL: max-wall fuse (deadline reached)")
             for _ in range(15):
                 time.sleep(0.4)
                 if not pid_alive(int(pid)):
                     break
+            break
+        mtime, size = log_progress(log_path)
+        if mtime > last_mtime or size > last_size:
+            last_mtime, last_size = mtime, size
+            last_progress_at = float(mtime) if mtime else now
+        elif stall_s and (now - last_progress_at) >= float(stall_s):
+            kill_pid(pid)
+            kill_code = "124"
+            append_log(log_path,
+                       "STALL: no run.log progress (mtime+size) for %ss"
+                       % stall_s)
+            for _ in range(15):
+                time.sleep(0.4)
+                if not pid_alive(int(pid)):
+                    break
+            break
 
     # финальная проверка — агент уже не пишет; дописываем маркеры в лог
     check_compass_overflow(log_path, session, noted, allow_log_write=True)
 
-    if timed_out:
-        code = "124"
+    if kill_code is not None:
+        code = kill_code
     else:
         code = classify_log(log_path)
 
@@ -540,7 +653,7 @@ def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"
         sys.exit(10)
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
     if run_prompt_file:
-        code = apply_retries(code, log_path, pid_path, timeout_s,
+        code = apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
                              run_prompt_file, retry_on_fail, model, [])
 
     try:
@@ -775,15 +888,18 @@ def cmd_list(state, session=None):
 def main():
     orchlib.utf8_stdio()
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
-        # --__watch pid log_path pid_path timeout_s [run_prompt_file [model [session]]]
+        # Dual-timer argv (см. start_watcher):
+        # --__watch pid log pid_path stall_s wall_deadline last_mtime last_size
+        #           [run_prompt_file [model [session]]]
         argv = sys.argv
-        run_prompt = argv[6] if len(argv) > 6 else None
+        run_prompt = argv[9] if len(argv) > 9 else None
         if run_prompt == "":
             run_prompt = None
-        model = argv[7] if len(argv) > 7 else "auto"
-        session = argv[8] if len(argv) > 8 and argv[8] else None
-        watch(argv[2], argv[3], argv[4], int(argv[5]), run_prompt, model,
-              session)
+        model = argv[10] if len(argv) > 10 else "auto"
+        session = argv[11] if len(argv) > 11 and argv[11] else None
+        watch(argv[2], argv[3], argv[4],
+              int(argv[5]), float(argv[6]), float(argv[7]), int(float(argv[8])),
+              run_prompt, model, session)
         return 0
 
     ap = argparse.ArgumentParser(description=__doc__)
@@ -798,11 +914,17 @@ def main():
                     help="id сессии: все файлы прогона лягут в .orchestration/sessions/<id>/runs/<run>/")
     ap.add_argument("--prompt-file", default=None,
                     help="по умолчанию <state>/prompt-<id>.md")
-    ap.add_argument("--timeout", type=int, default=None, help="сек; по умолчанию из params")
+    ap.add_argument("--stall-after", type=int, default=None,
+                    help="сек без прогресса run.log (mtime+size); канон stall")
+    ap.add_argument("--timeout", type=int, default=None,
+                    help="алиас --stall-after: stall/no-output, не wall-clock")
+    ap.add_argument("--max-wall", type=int, default=None,
+                    help="fuse: абсолютный потолок wall-clock от старта агента, сек")
     ap.add_argument("--detach", action="store_true", help="фон: pid-файл, не ждать")
     ap.add_argument("--yield-after", type=int, default=480,
                     help="сек foreground-ожидания до авто-уступки в фон "
-                         "(дефолт 480; 0 = ждать до конца/таймаута)")
+                         "(дефолт 480; 0 = ждать до конца/таймаута); "
+                         "UX-уступка, stall/max_wall не сбрасывает")
     ap.add_argument("--status", action="store_true",
                     help="статус прогона --id (лог/pid/exit/вердикт); exit 0")
     ap.add_argument("--list", action="store_true",
@@ -954,7 +1076,9 @@ def main():
     with open(run_prompt_file, "w", encoding="utf-8") as f:
         f.write(prompt)
 
-    timeout_s = a.timeout or int(params.get("execution", {}).get("timeout_s", 1800))
+    stall_s, max_wall_s = resolve_timers(
+        params, stall_after=a.stall_after, timeout=a.timeout,
+        max_wall=a.max_wall)
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
     cmd = build_agent_cmd(exe, a.model, a.extra, readonly=readonly)
 
@@ -965,6 +1089,9 @@ def main():
         log_fh.write(line if line.endswith("\n") else line + "\n")
     log_fh.flush()
     kwargs = agent_popen_kwargs(a.id)
+    # t0 = первый старт агента; wall_deadline абсолютен на весь прогон+retry
+    t0 = time.time()
+    wall_deadline = t0 + float(max_wall_s)
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log_fh,
                             stderr=subprocess.STDOUT, **kwargs)
     feed_prompt_stdin(proc, prompt)
@@ -972,21 +1099,26 @@ def main():
     with open(pid_path, "w", encoding="utf-8") as f:
         f.write(str(proc.pid))
 
+    lm, ls = log_progress(log_path)
     if a.detach:
         # watcher допишет EXIT= и при 4/124 рестартнет агента как своего потомка
-        start_watcher(proc.pid, log_path, pid_path, timeout_s,
-                      run_prompt_file, a.model, a.session)
+        start_watcher(proc.pid, log_path, pid_path, stall_s, wall_deadline,
+                      lm, ls, run_prompt_file, a.model, a.session)
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
         # fd родителя: потомок держит свой dup; без close — утечка в detach
         log_fh.close()
         return 0
 
     # foreground: pid-файл уже записан; при уступке watcher его удалит
-    code = wait_child(proc, log_fh, log_path, timeout_s,
-                      yield_after=a.yield_after)
+    code = wait_child(proc, log_fh, log_path, stall_s, max_wall_s,
+                      yield_after=a.yield_after, wall_deadline=wall_deadline,
+                      last_mtime=lm, last_size=ls)
     if code == "YIELDED":
-        start_watcher(proc.pid, log_path, pid_path, timeout_s,
-                      run_prompt_file, a.model, a.session)
+        # абсолютный wall_deadline + stall_s + текущий last_progress (не полный
+        # запас max_wall заново); --yield-after таймеры не сбрасывает
+        lm2, ls2 = log_progress(log_path)
+        start_watcher(proc.pid, log_path, pid_path, stall_s, wall_deadline,
+                      lm2, ls2, run_prompt_file, a.model, a.session)
         sys.stdout.write(
             "yield: ожидание >%ss — прогон продолжается в фоне "
             "(переживает смерть этой сессии). pid=%s лог=%s. "
@@ -994,7 +1126,7 @@ def main():
             % (a.yield_after, proc.pid, log_path, a.id))
         return 0
 
-    code = apply_retries(code, log_path, pid_path, timeout_s,
+    code = apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
                          run_prompt_file, retry_on_fail, a.model, a.extra)
 
     # foreground: маркер до EXIT= (агент уже завершён)
