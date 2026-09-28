@@ -349,6 +349,8 @@ const HEALTH_CHIP_LABELS = {
   general_resume_chain_warn: "resume-цепочка (warn)",
   multi_write_front: "два писателя фронта",
   commit_no_verify: "commit --no-verify",
+  // ADDITIVE MARKER: RCPT-C receipt_handmade WARN (id без суффикса _warn)
+  receipt_handmade: "квитанция handmade",
 };
 let _healthIds = {};
 let _healthOpen = null;
@@ -363,7 +365,8 @@ async function loadHealthChips(){
     Object.keys(HEALTH_CHIP_LABELS).forEach(k=>{
       const n = counts[k] || 0;
       const sp = document.createElement("span");
-      const isWarn = k.endsWith("_warn");
+      // receipt_handmade — WARN по id (приказ RCPT-C: суффикс _warn не добавлять)
+      const isWarn = k.endsWith("_warn") || k === "receipt_handmade";
       sp.className = "chip " + (isWarn ? "chip-warn" : "chip-red")
         + (n ? "" : " zero");
       sp.textContent = HEALTH_CHIP_LABELS[k] + ": " + n;
