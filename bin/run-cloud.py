@@ -490,40 +490,62 @@ def agent_json_path(state, run_id_label):
     return os.path.join(state, "agent-%s.json" % run_id_label)
 
 
-def cloud_live_status(state, run_id):
+def cloud_live_status(state, run_id, session=None):
     """Живой cloud-id → status-строка; иначе None. Не смотрит journal.
 
     Приоритет: (а) result.json status ∈ LIVE → жив; (б) result нет/нечитаем,
     но есть agent-<id>.json → CREATED; (в) result терминальный → нежив.
+
+    Ищет result под явным session, sessions/default и sessions/*/runs/<id>/.
     """
-    result_path = result_json_path(state, run_id, None)
-    if os.path.isfile(result_path):
+    candidates = []
+    if session is not None:
+        candidates.append(result_json_path(state, run_id, session))
+    candidates.append(result_json_path(state, run_id, None))
+    sessions_root = os.path.join(state, "sessions")
+    if os.path.isdir(sessions_root):
+        try:
+            for sid in os.listdir(sessions_root):
+                p = result_json_path(state, run_id, sid)
+                if p not in candidates:
+                    candidates.append(p)
+        except Exception:
+            pass
+
+    saw_readable_result = False
+    for result_path in candidates:
+        if not os.path.isfile(result_path):
+            continue
         try:
             with open(result_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception:
-            data = None
-        if isinstance(data, dict):
-            st = data.get("status")
-            if isinstance(st, str) and st in LIVE_CLOUD_STATUSES:
-                return st
-            if isinstance(st, str) and st in TERMINAL_RUN_STATUSES:
-                return None
-            # result есть, status неизвестен/пуст — не считаем живым по result;
-            # agent-only ниже не применяем (result читаем).
-            return None
-        # result нечитаем → fallback на agent
+            continue
+        if not isinstance(data, dict):
+            continue
+        saw_readable_result = True
+        st = data.get("status")
+        if isinstance(st, str) and st in LIVE_CLOUD_STATUSES:
+            return st
+        if isinstance(st, str) and st in TERMINAL_RUN_STATUSES:
+            continue
+        # result есть, status неизвестен/пуст — не жив по этому result
+        continue
+
+    if saw_readable_result:
+        return None
+
     agent_path = agent_json_path(state, run_id)
     if os.path.isfile(agent_path):
         return "CREATED"
     return None
 
 
-def check_cloud_duplicate_id_guard(state, run_id, force=False):
+def check_cloud_duplicate_id_guard(state, run_id, force=False, session=None):
     """Отказ exit 11 при живом cloud-прогоне. --force обходит только этот гард."""
     if force:
         return None
-    status = cloud_live_status(state, run_id)
+    status = cloud_live_status(state, run_id, session=session)
     if status is None:
         return None
     sys.stderr.write(
@@ -756,7 +778,9 @@ def recover_create_after_timeout(key, body, prompt_text, http_timeout, lf):
 def cmd_run(a):
     state = orchlib.find_state_dir()
     # Гард дубль-id: только subcommand run, до HTTP / записи cloud|agent файлов.
-    dup_rc = check_cloud_duplicate_id_guard(state, a.id, force=bool(a.force))
+    dup_rc = check_cloud_duplicate_id_guard(
+        state, a.id, force=bool(a.force),
+        session=getattr(a, "session", None))
     if dup_rc is not None:
         return dup_rc
     os.makedirs(state, exist_ok=True)
