@@ -347,7 +347,6 @@ class TestLayerB(IsoTempTestCase):
                getattr(self, "_shared_whole", -1), getattr(self, "_keys", -1))
         )
 
-    @unittest.expectedFailure  # RED: journal_start не пишет поле session
     def test_b_sid_journal_has_session_field(self):
         """RED SID-JOURNAL-NO-SESSION: start/end должны нести session."""
         _seed_params(self.state, orchestration={"hierarchy": "on", "enabled": True})

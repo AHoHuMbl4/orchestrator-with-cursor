@@ -374,7 +374,8 @@ def agent_popen_kwargs(run_id=None):
 
 
 def journal_start(run_id, prompt_file, front, role, engine="local",
-                  readonly=False, no_front_reason=None, auto=False):
+                  readonly=False, no_front_reason=None, auto=False,
+                  session=None):
     """Запись kind=start в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
@@ -390,6 +391,8 @@ def journal_start(run_id, prompt_file, front, role, engine="local",
         "front": front,
         "role": role,
     }
+    if session is not None:
+        entry["session"] = session
     if no_front_reason:
         entry["no_front_reason"] = no_front_reason
     if readonly:
@@ -399,19 +402,22 @@ def journal_start(run_id, prompt_file, front, role, engine="local",
     orchlib.journal_append(entry)
 
 
-def journal_end(run_id, log_path, exit_code):
+def journal_end(run_id, log_path, exit_code, session=None):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
     verdict, gates = orchlib.journal_log_meta(log_path)
-    orchlib.journal_append({
+    entry = {
         "ts": time.time(),
         "kind": "end",
         "id": run_id,
         "exit": exit_code,
         "verdict": verdict,
         "gates": gates,
-    })
+    }
+    if session is not None:
+        entry["session"] = session
+    orchlib.journal_append(entry)
     # Снять lock автопрокурора, если это был он.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
     # S2: автопрокурор на волну (после end).
@@ -419,20 +425,25 @@ def journal_end(run_id, log_path, exit_code):
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="local", readonly=False, no_front_reason=None):
+                        engine="local", readonly=False, no_front_reason=None,
+                        session=None):
     """start+end при отказе гейта (exit 5/6/7/8/9) — без дыры в journal."""
     journal_start(run_id, prompt_file, front, role, engine=engine,
-                  readonly=readonly, no_front_reason=no_front_reason)
+                  readonly=readonly, no_front_reason=no_front_reason,
+                  session=session)
     # gate-refuse: не триггерим автопрокурора — пишем end напрямую
     verdict, gates = orchlib.journal_log_meta(log_path)
-    orchlib.journal_append({
+    entry = {
         "ts": time.time(),
         "kind": "end",
         "id": run_id,
         "exit": exit_code,
         "verdict": verdict,
         "gates": gates,
-    })
+    }
+    if session is not None:
+        entry["session"] = session
+    orchlib.journal_append(entry)
     # finally-семантика: снять lockdir на любом завершении (в т.ч. gate-refuse
     # автопрокурора при BUDGET_HARD и т.п.); спавн — только journal_end.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
@@ -532,7 +543,7 @@ def watch(pid, log_path, pid_path, timeout_s, run_prompt_file=None, model="auto"
         os.unlink(pid_path)
     except Exception:
         pass
-    journal_end(os.environ.get("ORCH_RUN_ID"), log_path, code)
+    journal_end(os.environ.get("ORCH_RUN_ID"), log_path, code, session=session)
 
 
 def detach_popen_kwargs():
@@ -870,7 +881,8 @@ def main():
             append_log(log_path, msg)
             sys.stderr.write(msg + "\n")
             journal_gate_refuse(
-                a.id, prompt_file, None, role, log_path, 12, readonly=readonly)
+                a.id, prompt_file, None, role, log_path, 12, readonly=readonly,
+                session=a.session)
             return 12
     front_out, no_front_reason, front_refuse = orchlib.resolve_front_launch(
         a.front, a.no_front)
@@ -879,14 +891,15 @@ def main():
         sys.stderr.write(front_refuse + "\n")
         journal_gate_refuse(
             a.id, prompt_file, None, role, log_path,
-            orchlib.FRONT_REQUIRED_EXIT, readonly=readonly)
+            orchlib.FRONT_REQUIRED_EXIT, readonly=readonly, session=a.session)
         return orchlib.FRONT_REQUIRED_EXIT
     a.front = front_out
 
     sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
     if sec_rc is not None:
         journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, sec_rc,
-                            readonly=readonly, no_front_reason=no_front_reason)
+                            readonly=readonly, no_front_reason=no_front_reason,
+                            session=a.session)
         return sec_rc
 
     exe = find_cursor_agent()
@@ -897,7 +910,8 @@ def main():
     gate_rc, gate_lines = apply_front_gates(a.front, log_path)
     if gate_rc is not None:
         journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, gate_rc,
-                            readonly=readonly, no_front_reason=no_front_reason)
+                            readonly=readonly, no_front_reason=no_front_reason,
+                            session=a.session)
         return gate_rc
 
     # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
@@ -907,7 +921,8 @@ def main():
     elif "ORCH_READONLY" in os.environ:
         del os.environ["ORCH_READONLY"]
     journal_start(a.id, prompt_file, a.front, role, engine="local",
-                  readonly=readonly, no_front_reason=no_front_reason)
+                  readonly=readonly, no_front_reason=no_front_reason,
+                  session=a.session)
     os.environ["ORCH_RUN_ID"] = a.id
 
     if not a.no_reground_line:
@@ -985,7 +1000,7 @@ def main():
         os.unlink(pid_path)
     except OSError:
         pass
-    journal_end(a.id, log_path, code)
+    journal_end(a.id, log_path, code, session=a.session)
     try:
         out_code = int(code)
     except ValueError:

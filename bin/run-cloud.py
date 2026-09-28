@@ -142,6 +142,8 @@ def _add_common_args(parser):
     """Общие флаги на main и на субпарсерах (default=SUPPRESS → оба порядка)."""
     parser.add_argument("--api-key", default=argparse.SUPPRESS)
     parser.add_argument("--id", default=argparse.SUPPRESS)
+    parser.add_argument("--session", default=argparse.SUPPRESS,
+                        help="id сессии: cloud-логи под sessions/<sid>/runs/")
     parser.add_argument("--front", default=argparse.SUPPRESS,
                         help="id фронта: статус cancelled/rejected; бюджет warn/hard "
                              "(warn=датчик, hard=стоп при hard>0)")
@@ -200,6 +202,8 @@ def normalize_args(a):
         a.api_key = None
     if not hasattr(a, "id"):
         a.id = "C1"
+    if not hasattr(a, "session"):
+        a.session = None
     if not hasattr(a, "front"):
         a.front = None
     if not hasattr(a, "no_front"):
@@ -216,7 +220,7 @@ def normalize_args(a):
 
 
 def journal_start(run_id, prompt_file, front, role, engine="cloud",
-                  no_front_reason=None, auto=False):
+                  no_front_reason=None, auto=False, session=None):
     """Запись kind=start в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
@@ -232,6 +236,8 @@ def journal_start(run_id, prompt_file, front, role, engine="cloud",
         "front": front,
         "role": role,
     }
+    if session is not None:
+        entry["session"] = session
     if no_front_reason:
         entry["no_front_reason"] = no_front_reason
     if auto or os.environ.get("ORCH_RUN_AUTO") == "1":
@@ -239,19 +245,22 @@ def journal_start(run_id, prompt_file, front, role, engine="cloud",
     orchlib.journal_append(entry)
 
 
-def journal_end(run_id, log_path, exit_code):
+def journal_end(run_id, log_path, exit_code, session=None):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
     verdict, gates = orchlib.journal_log_meta(log_path)
-    orchlib.journal_append({
+    entry = {
         "ts": time.time(),
         "kind": "end",
         "id": run_id,
         "exit": exit_code,
         "verdict": verdict,
         "gates": gates,
-    })
+    }
+    if session is not None:
+        entry["session"] = session
+    orchlib.journal_append(entry)
     # Снять lock автопрокурора, если это был он.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
     # автопрокурор на волну (после end).
@@ -259,20 +268,23 @@ def journal_end(run_id, log_path, exit_code):
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="cloud", no_front_reason=None):
+                        engine="cloud", no_front_reason=None, session=None):
     """start+end при отказе гейта (exit 5/6/7/8/9) — без дыры в journal."""
     journal_start(run_id, prompt_file, front, role, engine=engine,
-                  no_front_reason=no_front_reason)
+                  no_front_reason=no_front_reason, session=session)
     # gate-refuse: не триггерим автопрокурора — пишем end напрямую
     verdict, gates = orchlib.journal_log_meta(log_path)
-    orchlib.journal_append({
+    entry = {
         "ts": time.time(),
         "kind": "end",
         "id": run_id,
         "exit": exit_code,
         "verdict": verdict,
         "gates": gates,
-    })
+    }
+    if session is not None:
+        entry["session"] = session
+    orchlib.journal_append(entry)
     # finally-семантика: снять lockdir на любом завершении; спавн — только journal_end.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
 
@@ -747,7 +759,8 @@ def cmd_run(a):
                    "для технического смоука — --allow-unknown-role" % role)
             _append_gate_log(log_path, msg)
             sys.stderr.write(msg + "\n")
-            journal_gate_refuse(a.id, prompt_file, None, role, log_path, 12)
+            journal_gate_refuse(a.id, prompt_file, None, role, log_path, 12,
+                                session=getattr(a, "session", None))
             return 12
     front_raw = getattr(a, "front", None)
     no_front_raw = getattr(a, "no_front", None)
@@ -760,7 +773,7 @@ def cmd_run(a):
         sys.stderr.write(front_refuse + "\n")
         journal_gate_refuse(
             a.id, prompt_file, None, role, log_path,
-            orchlib.FRONT_REQUIRED_EXIT)
+            orchlib.FRONT_REQUIRED_EXIT, session=getattr(a, "session", None))
         return orchlib.FRONT_REQUIRED_EXIT
     # API-ключ ДО bump_front_runs: нет ключа → отказ без расхода бюджета
     key = resolve_api_key(a)
@@ -769,17 +782,20 @@ def cmd_run(a):
         _append_gate_log(log_path, "API_KEY_REQUIRED")
         sys.stderr.write(msg + "\n")
         journal_gate_refuse(a.id, prompt_file, front, role, log_path, 2,
-                            no_front_reason=no_front_reason)
+                            no_front_reason=no_front_reason,
+                            session=getattr(a, "session", None))
         return 2
     gate_rc = apply_launch_gates(prompt, prompt_file, front, log_path)
     if gate_rc is not None:
         journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc,
-                            no_front_reason=no_front_reason)
+                            no_front_reason=no_front_reason,
+                            session=getattr(a, "session", None))
         return gate_rc
 
     # летописец start (parent из OUR env; cloud-агент env не наследует)
     journal_start(a.id, prompt_file, front, role, engine="cloud",
-                  no_front_reason=no_front_reason)
+                  no_front_reason=no_front_reason,
+                  session=getattr(a, "session", None))
 
     # F-RULES R2/R4: tried-before + прецеденты в КОПИЮ промта, до HTTP-двигателя
     komu = orchlib.role_to_komu(role)
@@ -837,7 +853,7 @@ def cmd_run(a):
                 print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
                 check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                        None, set())
-                journal_end(a.id, log_path, 1)
+                journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
                 return 1
             out = recovered
             ids = recovered_ids
@@ -855,7 +871,7 @@ def cmd_run(a):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
         check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                None, set())
-        journal_end(a.id, log_path, 1)
+        journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
         return 1
 
     agent = a.agent_id or ids.get("agent_id")
@@ -870,12 +886,12 @@ def cmd_run(a):
         if agent and run:
             rc = wait_and_report(agent, run, key, state, a)
             # journal_end только после терминала / таймаута wait (rc из wait_and_report)
-            journal_end(a.id, log_path, rc)
+            journal_end(a.id, log_path, rc, session=getattr(a, "session", None))
             return rc
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
         check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
                                None, set())
-        journal_end(a.id, log_path, 1)
+        journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
         return 1
     # без --wait: create/follow-up успешен, агент ещё бежит — journal_end не пишем
     check_compass_overflow(os.path.join(state, "cloud-%s.log" % a.id),
