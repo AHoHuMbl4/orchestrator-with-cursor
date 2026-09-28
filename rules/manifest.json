@@ -560,6 +560,17 @@
       "created": 1790566672.5700774,
       "born_at": 1790566672.5700774,
       "run_ref": "prosecutor-auto-F-E2E-ALL-7"
+    },
+    {
+      "id": "dont-krugi-kritikov-v-t-ch-plana-sverh-review",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "decomposition",
+      "категория": "процессы",
+      "hit": 0,
+      "created": 1790575921.7516973,
+      "born_at": 1790575921.7516973,
+      "run_ref": "prosecutor-auto-F-KEYPANEL-13"
     }
   ],
   "aliases": {}
