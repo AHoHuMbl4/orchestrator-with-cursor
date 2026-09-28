@@ -119,9 +119,13 @@ def apply_launch_gates(prompt, prompt_file, front_id, log_path):
         try:
             used, warn, hard = bump(front_id)
         except RuntimeError as exc:
-            if "front-runs lock busy" in str(exc):
+            msg = str(exc)
+            if "front-runs lock busy" in msg:
                 _append_gate_log(log_path, "FRONT_LOCK_BUSY=%s" % front_id)
                 return 9
+            if "front-runs closed" in msg:
+                _append_gate_log(log_path, "FRONT_CLOSED=%s" % front_id)
+                return 6
             raise
         _append_gate_log(log_path, "FRONT_RUNS=%s %s warn=%s hard=%s" % (
             front_id, used, warn, hard))

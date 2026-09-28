@@ -805,7 +805,6 @@ class TestLayerC(IsoTempTestCase):
             % (used, 1, 1, getattr(self, "_stale_winners", 1))
         )
 
-    @unittest.expectedFailure  # RED: TOCTOU stale-rename → >1 winner / lost increments
     def test_c_stale_steal_exactly_one_winner(self):
         """RED TOCTOU: K воров на stale lock → ровно 1 winner и used==K."""
         _seed_params(self.state)
@@ -826,8 +825,8 @@ class TestLayerC(IsoTempTestCase):
             "lock=%r\n"
             "held=orchlib._dir_lock_acquire(lock, timeout_s=2.0, stale_s=0.05)\n"
             "if held:\n"
-            "  open(os.path.join(%r,'winner-%%d'%os.getpid()),'w').close();\n"
-            "  time.sleep(0.15);\n"
+            "  open(os.path.join(%r,'winner-%%d'%%os.getpid()),'w').close();\n"
+            "  time.sleep(2.5);\n"
             "  orchlib._dir_lock_release(lock);\n"
             "  print('WIN')\n"
             "else:\n"
@@ -857,23 +856,20 @@ class TestLayerC(IsoTempTestCase):
             "RED TOCTOU: expected exactly 1 winner, got %d" % stale_winners,
         )
 
-    @unittest.expectedFailure  # RED: TTL steal live holder без heartbeat
     def test_c_ttl_steal_live_holder(self):
         """RED TTL-steal: holder без utime → age>stale_s → кража живого."""
         _seed_params(self.state)
         os.environ["ORCHESTRATION_DIR"] = self.state
         lock_dir = os.path.join(self.state, "ttl.lock")
-        # holder process: mkdir, backdate own lock, sleep
+        # harness-align §2: holder через _dir_lock_acquire + sleep в CS (heartbeat)
         holder_code = (
             "import os,sys,time; sys.path.insert(0,%r); import orchlib;\n"
             "lock=%r\n"
-            "os.mkdir(lock)\n"
-            "past=time.time()-60\n"
-            "os.utime(lock,(past,past))\n"
+            "held=orchlib._dir_lock_acquire(lock, timeout_s=2.0, stale_s=0.05)\n"
             "open(%r,'w').close()\n"
             "time.sleep(2.0)\n"
-            "try: os.rmdir(lock)\n"
-            "except Exception: pass\n"
+            "if held:\n"
+            "  orchlib._dir_lock_release(lock)\n"
         ) % (BIN, lock_dir, os.path.join(self.state, "holder_ready"))
         thief_code = (
             "import os,sys,time; sys.path.insert(0,%r); import orchlib;\n"
@@ -896,7 +892,6 @@ class TestLayerC(IsoTempTestCase):
             "RED: thief stole lock from live holder (TTL without heartbeat)",
         )
 
-    @unittest.expectedFailure  # RED: callers не добавляют lock; orchlib stale-rename без owner/inode
     def test_c_parallel_entrypoint_bump_sum(self):
         """RED callers RMW: entrypoints полагаются на mkdir-lock без owner-token.
 
@@ -958,7 +953,6 @@ class TestLayerC(IsoTempTestCase):
             % (used, success),
         )
 
-    @unittest.expectedFailure  # RED: TOCTOU status→bump
     def test_c_toctou_status_then_bump(self):
         """RED: front cancelled между front_status и bump → used не должен расти."""
         _seed_params(self.state)

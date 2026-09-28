@@ -112,11 +112,17 @@ def apply_front_gates(front_id, log_path):
         try:
             used, warn, hard = bump(front_id)
         except RuntimeError as exc:
-            if "front-runs lock busy" in str(exc):
+            msg = str(exc)
+            if "front-runs lock busy" in msg:
                 bline = "FRONT_LOCK_BUSY=%s" % front_id
                 lines.append(bline)
                 append_log(log_path, bline)
                 return 9, lines
+            if "front-runs closed" in msg:
+                lines.append("FRONT_CLOSED=%s" % front_id)
+                for line in lines:
+                    append_log(log_path, line)
+                return 6, lines
             raise
         line = "FRONT_RUNS=%s %s warn=%s hard=%s" % (front_id, used, warn, hard)
         lines.append(line)

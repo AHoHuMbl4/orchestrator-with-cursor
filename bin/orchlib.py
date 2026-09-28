@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
@@ -1499,55 +1500,259 @@ def front_status(fid):
     return None
 
 
-def _dir_lock_acquire(lock_dir, timeout_s=5.0, stale_s=30.0):
-    """Каталог-замок через os.mkdir (атомарен на Linux+Windows).
+# Holders of dir-locks in this process: lock_dir → {token, stop, thread}
+_dir_lock_holders = {}
 
-    True — замок взят; False — не удалось (вызывать без блокировки).
-    Ошибки — тихий stderr, без raise.
+
+def _pid_alive(pid):
+    try:
+        pid = int(pid)
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+    except Exception:
+        return False
+
+
+def _dir_lock_owner_path(lock_dir):
+    return os.path.join(lock_dir, ".owner")
+
+
+def _dir_lock_write_owner(lock_dir, token):
+    path = _dir_lock_owner_path(lock_dir)
+    data = {
+        "pid": os.getpid(),
+        "token": token,
+        "heartbeat_ts": time.time(),
+    }
+    fd, tmp = tempfile.mkstemp(dir=lock_dir, prefix=".owner-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except Exception:
+            pass
+        raise
+    try:
+        os.utime(lock_dir, None)
+    except Exception:
+        pass
+
+
+def _dir_lock_read_owner(lock_dir):
+    path = _dir_lock_owner_path(lock_dir)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _dir_lock_owner_live(owner, stale_s):
+    """True если owner-файл есть, pid жив и heartbeat свежий."""
+    if not owner:
+        return False
+    try:
+        hb = float(owner.get("heartbeat_ts") or 0)
+    except Exception:
+        return False
+    if time.time() - hb > float(stale_s):
+        return False
+    return _pid_alive(owner.get("pid"))
+
+
+def _dir_lock_heartbeat_loop(lock_dir, token, stop_evt, stale_s):
+    interval = max(0.02, min(0.2, float(stale_s) / 3.0 if float(stale_s) > 0 else 0.05))
+    while not stop_evt.wait(interval):
+        try:
+            owner = _dir_lock_read_owner(lock_dir)
+            if not owner or owner.get("token") != token:
+                break
+            _dir_lock_write_owner(lock_dir, token)
+        except Exception:
+            break
+
+
+def _dir_lock_start_heartbeat(lock_dir, token, stale_s):
+    stop = threading.Event()
+    thr = threading.Thread(
+        target=_dir_lock_heartbeat_loop,
+        args=(lock_dir, token, stop, stale_s),
+        daemon=True,
+    )
+    thr.start()
+    _dir_lock_holders[lock_dir] = {
+        "token": token,
+        "stop": stop,
+        "thread": thr,
+    }
+
+
+def _dir_lock_stop_heartbeat(lock_dir):
+    info = _dir_lock_holders.pop(lock_dir, None)
+    if not info:
+        return None
+    try:
+        info["stop"].set()
+    except Exception:
+        pass
+    try:
+        info["thread"].join(timeout=1.0)
+    except Exception:
+        pass
+    return info.get("token")
+
+
+def _dir_lock_cleanup_stolen(stolen):
+    """Удалить stale rename-жертву (owner + прочие файлы + каталог)."""
+    try:
+        for name in os.listdir(stolen):
+            try:
+                os.unlink(os.path.join(stolen, name))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        os.rmdir(stolen)
+    except Exception:
+        try:
+            sys.stderr.write(
+                "orchlib: stale-lock cleanup failed: %s\n" % stolen)
+        except Exception:
+            pass
+
+
+def _dir_lock_acquire(lock_dir, timeout_s=5.0, stale_s=30.0):
+    """Каталог-замок через os.mkdir + owner token/pid/heartbeat.
+
+    True — замок взят; False — не удалось.
+    Reclaim: atomic rename с inode revalidate; live owner не крадётся.
+    Tokenless aged (нет owner) = abandoned → ровно один winner.
     """
     deadline = time.time() + float(timeout_s)
     sleep_s = 0.05
+    token = uuid.uuid4().hex
     while True:
         try:
             os.mkdir(lock_dir)
+            try:
+                _dir_lock_write_owner(lock_dir, token)
+            except Exception as exc:
+                try:
+                    os.rmdir(lock_dir)
+                except Exception:
+                    pass
+                try:
+                    sys.stderr.write(
+                        "orchlib: lock owner write failed: %s\n" % exc)
+                except Exception:
+                    pass
+                return False
+            _dir_lock_start_heartbeat(lock_dir, token, stale_s)
             return True
         except FileExistsError:
             try:
-                age = time.time() - os.path.getmtime(lock_dir)
-                if age > float(stale_s):
-                    stolen = "%s.stale-%d-%.6f" % (
-                        lock_dir, os.getpid(), time.time())
-                    try:
-                        os.rename(lock_dir, stolen)
-                    except Exception:
-                        pass
-                    else:
-                        try:
-                            os.rmdir(stolen)
-                        except Exception:
-                            try:
-                                sys.stderr.write(
-                                    "orchlib: stale-lock cleanup failed: %s\n"
-                                    % stolen)
-                            except Exception:
-                                pass
-                    continue
+                st = os.stat(lock_dir)
+                ino = st.st_ino
+            except FileNotFoundError:
+                continue
             except Exception as exc:
                 try:
                     sys.stderr.write(
                         "orchlib: lock mtime check failed: %s\n" % exc)
                 except Exception:
                     pass
-            if time.time() >= deadline:
+                ino = None
+            owner = _dir_lock_read_owner(lock_dir)
+            if _dir_lock_owner_live(owner, stale_s):
+                # живой holder — ждать, не steal
+                if time.time() >= deadline:
+                    try:
+                        sys.stderr.write(
+                            "orchlib: lock busy, proceed unlocked: %s\n"
+                            % lock_dir)
+                    except Exception:
+                        pass
+                    return False
+                time.sleep(sleep_s)
+                sleep_s = min(sleep_s * 1.5, 0.5)
+                continue
+            # нет live owner: tokenless → только если aged; stale owner → reclaim
+            if owner is None:
                 try:
-                    sys.stderr.write(
-                        "orchlib: lock busy, proceed unlocked: %s\n"
-                        % lock_dir)
+                    age = time.time() - os.path.getmtime(lock_dir)
+                except Exception:
+                    age = 0.0
+                if age <= float(stale_s):
+                    # свежий mkdir без owner (окно записи) — ждать
+                    if time.time() >= deadline:
+                        try:
+                            sys.stderr.write(
+                                "orchlib: lock busy, proceed unlocked: %s\n"
+                                % lock_dir)
+                        except Exception:
+                            pass
+                        return False
+                    time.sleep(sleep_s)
+                    sleep_s = min(sleep_s * 1.5, 0.5)
+                    continue
+            # reclaim: exclusive gate + rename; inode revalidate; один winner gate
+            gate = lock_dir + ".reclaim-gate"
+            try:
+                os.mkdir(gate)
+            except FileExistsError:
+                # другой процесс reclaim'ит — ждать появления live owner / timeout
+                if time.time() >= deadline:
+                    try:
+                        sys.stderr.write(
+                            "orchlib: lock busy, proceed unlocked: %s\n"
+                            % lock_dir)
+                    except Exception:
+                        pass
+                    return False
+                time.sleep(sleep_s)
+                sleep_s = min(sleep_s * 1.5, 0.5)
+                continue
+            except Exception:
+                return False
+            stolen = "%s.stale-%d-%.6f" % (
+                lock_dir, os.getpid(), time.time())
+            try:
+                if ino is not None:
+                    st2 = os.stat(lock_dir)
+                    if st2.st_ino != ino:
+                        raise FileNotFoundError("inode changed")
+                os.rename(lock_dir, stolen)
+            except Exception:
+                try:
+                    os.rmdir(gate)
                 except Exception:
                     pass
-                return False
-            time.sleep(sleep_s)
-            sleep_s = min(sleep_s * 1.5, 0.5)
+                if time.time() >= deadline:
+                    return False
+                time.sleep(sleep_s)
+                sleep_s = min(sleep_s * 1.5, 0.5)
+                continue
+            _dir_lock_cleanup_stolen(stolen)
+            try:
+                os.rmdir(gate)
+            except Exception:
+                pass
+            continue
         except Exception as exc:
             try:
                 sys.stderr.write(
@@ -1558,7 +1763,27 @@ def _dir_lock_acquire(lock_dir, timeout_s=5.0, stale_s=30.0):
 
 
 def _dir_lock_release(lock_dir):
-    """Снять каталог-замок; ошибки — тихий stderr."""
+    """Снять каталог-замок (только свой token); ошибки — тихий stderr."""
+    token = _dir_lock_stop_heartbeat(lock_dir)
+    owner = _dir_lock_read_owner(lock_dir)
+    if token is not None and owner is not None:
+        if owner.get("token") != token:
+            return
+    try:
+        op = _dir_lock_owner_path(lock_dir)
+        if os.path.isfile(op):
+            os.unlink(op)
+    except Exception:
+        pass
+    try:
+        # убрать возможные tmp-файлы owner
+        for name in os.listdir(lock_dir):
+            try:
+                os.unlink(os.path.join(lock_dir, name))
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         os.rmdir(lock_dir)
     except Exception as exc:
@@ -1576,6 +1801,7 @@ def bump_front_runs(fid, timeout_s=5.0):
     hard_runs_per_front (дефолт 0 = выключен).
     Инкремент под каталог-замком <счётчик>.lock (mkdir); если замок
     не взят за timeout — RuntimeError (явный отказ, без тихого инкремента).
+    Под lock: re-check status; cancelled|rejected → RuntimeError front-runs closed.
     """
     warn, hard = 60, 0
     try:
@@ -1604,6 +1830,11 @@ def bump_front_runs(fid, timeout_s=5.0):
     if not held:
         raise RuntimeError("front-runs lock busy: %s" % lock_dir)
     try:
+        # TOCTOU status→bump: re-check under lock
+        st = front_status(fid)
+        canon = normalize_front_status(st) if st is not None else None
+        if canon in ("cancelled", "rejected") or st in ("cancelled", "rejected"):
+            raise RuntimeError("front-runs closed: %s" % fid)
         used = 0
         if os.path.exists(path):
             try:
