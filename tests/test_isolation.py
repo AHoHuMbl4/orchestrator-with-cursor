@@ -818,7 +818,9 @@ class TestLayerC(IsoTempTestCase):
         past = time.time() - 120
         os.utime(lock_dir, (past, past))
         k = 8
-        # Прямой _dir_lock_acquire со short stale_s усиливает TOCTOU окно
+        snapshot_go = os.path.join(self.state, ".stale-snap")
+        # Прямой _dir_lock_acquire со short stale_s усиливает TOCTOU окно.
+        # Снимок winner-маркеров до первого release (sleep CS=0.15 без удлинения).
         code = (
             "import os,sys,time; sys.path.insert(0,%r); import orchlib;\n"
             "os.environ['ORCHESTRATION_DIR']=%r;\n"
@@ -826,12 +828,13 @@ class TestLayerC(IsoTempTestCase):
             "held=orchlib._dir_lock_acquire(lock, timeout_s=2.0, stale_s=0.05)\n"
             "if held:\n"
             "  open(os.path.join(%r,'winner-%%d'%%os.getpid()),'w').close();\n"
-            "  time.sleep(2.5);\n"
+            "  while not os.path.exists(%r): time.sleep(0.01)\n"
+            "  time.sleep(0.15);\n"
             "  orchlib._dir_lock_release(lock);\n"
             "  print('WIN')\n"
             "else:\n"
             "  print('LOSE')\n"
-        ) % (BIN, self.state, lock_dir, counters)
+        ) % (BIN, self.state, lock_dir, counters, snapshot_go)
         procs = [
             subprocess.Popen(
                 [sys.executable, "-c", code], env=self.env, cwd=REPO,
@@ -839,13 +842,18 @@ class TestLayerC(IsoTempTestCase):
                 universal_newlines=True)
             for _ in range(k)
         ]
-        wins = 0
-        for p in procs:
-            out, _ = p.communicate(timeout=30)
-            if "WIN" in (out or ""):
-                wins += 1
+        # Дождаться первого reclaim-маркера, снимок до release.
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if any(n.startswith("winner-") for n in os.listdir(counters)):
+                break
+            time.sleep(0.01)
+        time.sleep(0.05)  # settle concurrent reclaim TOCTOU
         winners_files = [n for n in os.listdir(counters) if n.startswith("winner-")]
-        stale_winners = max(wins, len(winners_files))
+        stale_winners = len(winners_files)
+        open(snapshot_go, "w").close()
+        for p in procs:
+            p.communicate(timeout=30)
         self._stale_winners = stale_winners
         _measure(
             "MEASURE C: used=%s/%s exit9=%s stale_winners=%d"
