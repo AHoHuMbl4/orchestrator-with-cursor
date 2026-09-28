@@ -20,6 +20,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -28,6 +30,13 @@ import orchlib  # noqa: E402
 
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+OPENROUTER_KEY_RE = re.compile(r"^sk-or-v1-[A-Za-z0-9_-]{6,}$")
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+\S+")
+_SK_OR_BODY_RE = re.compile(r"sk-or-v1-[A-Za-z0-9_-]+")
+OUTBOUND_TIMEOUT_S = 10
+PROBE_FULL_TIMEOUT_S = 30
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+CURSOR_ME_URL = "https://api.cursor.com/v1/me"
 
 # In-memory снимок сторожа compass (только наблюдение + pending-флаг).
 _guard_lock = threading.Lock()
@@ -447,6 +456,211 @@ def _build_journal_tree(entries):
     return roots
 
 
+def _key_mask(key):
+    """Маска ключа: «…» + последние 4 символа; иначе None."""
+    if not isinstance(key, str) or len(key) < 4:
+        return None
+    return "…" + key[-4:]
+
+
+def _clip_label(s):
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    if not s:
+        return None
+    return s[:64]
+
+
+def _redact_detail(text, key=None):
+    """Вырезать ключ/Bearer/похожие токены из detail; сырые upstream-тела не отдаём."""
+    if text is None:
+        return None
+    s = str(text)
+    if key and isinstance(key, str) and key:
+        s = s.replace(key, "[REDACTED]")
+    s = _BEARER_RE.sub("Bearer [REDACTED]", s)
+    s = _SK_OR_BODY_RE.sub("[REDACTED]", s)
+    if len(s) > 200:
+        s = s[:200] + "…"
+    return s
+
+
+def _state_key_path(filename):
+    state = os.path.abspath(orchlib.find_state_dir())
+    return state, os.path.abspath(os.path.join(state, filename))
+
+
+def _read_key_file(filename):
+    """Прочитать ключ из <state>/<filename>; (key|None, path). Тело не логировать."""
+    _state, path = _state_key_path(filename)
+    if not os.path.exists(path):
+        return None, path
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+    except OSError:
+        return None, path
+    return (key or None), path
+
+
+def _write_key_file(filename, key):
+    _state, path = _state_key_path(filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(key.strip())
+    os.chmod(path, 0o600)
+    return path
+
+
+def _resolve_cursor_api_key():
+    """Как resolve_api_key в bin/run-cloud.py без CLI-флага: env → <state>/cursor.key."""
+    key = os.environ.get("CURSOR_API_KEY")
+    if key and str(key).strip():
+        return str(key).strip()
+    key, _path = _read_key_file("cursor.key")
+    return key
+
+
+def _http_bearer_get(url, key):
+    """GET с Bearer; (status|None, parsed_json|None, err_note). Тело 4xx не возвращаем."""
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", "Bearer " + key)
+    try:
+        with urllib.request.urlopen(req, timeout=OUTBOUND_TIMEOUT_S) as resp:
+            code = getattr(resp, "status", None) or resp.getcode()
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(raw) if raw else None
+            except ValueError:
+                data = None
+            return code, data, None
+    except urllib.error.HTTPError as e:
+        # upstream 4xx может эхоить секрет — тело не читаем в detail
+        try:
+            e.read()
+        except Exception:
+            pass
+        return e.code, None, "HTTP %s" % e.code
+    except Exception as e:
+        return None, None, "network: %s" % type(e).__name__
+
+
+def _or_auth_error_class(code):
+    if code in (401, 402, 403, 429):
+        return str(code)
+    return "network"
+
+
+def _cursor_error_class(code):
+    if code in (401, 403, 429):
+        return str(code)
+    return "network"
+
+
+def _label_from_openrouter_key(data):
+    if not isinstance(data, dict):
+        return None
+    inner = data.get("data") if isinstance(data.get("data"), dict) else data
+    lab = inner.get("label") if isinstance(inner, dict) else None
+    return _clip_label(_redact_detail(lab) if lab else None)
+
+
+def _label_from_cursor_me(data):
+    if not isinstance(data, dict):
+        return None
+    for k in ("name", "username", "email", "id", "apiKeyName", "keyName"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return _clip_label(_redact_detail(v))
+    user = data.get("user")
+    if isinstance(user, dict):
+        for k in ("name", "email", "id", "username"):
+            v = user.get(k)
+            if isinstance(v, str) and v.strip():
+                return _clip_label(_redact_detail(v))
+    return None
+
+
+def _probe_openrouter_full(key):
+    """subprocess jev-advise.py; returncode игнорируется; timeout → network."""
+    kit = getattr(orchlib, "KIT_DIR", None) or os.path.dirname(PANEL_DIR)
+    advise = os.path.join(kit, "bin", "jev-advise.py")
+    cmd = [
+        sys.executable, advise,
+        "--caller", "panel-openrouter-probe",
+        "--question", "panelprobe:noul:панель проверяет работоспособность ключа",
+        "--state-text", "openrouter key probe from panel",
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=PROBE_FULL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False, "mode": "full", "error_class": "network",
+            "label": None, "mask": _key_mask(key), "detail": "timeout",
+            "cost": None,
+        }
+    except Exception as e:
+        return {
+            "ok": False, "mode": "full", "error_class": "network",
+            "label": None, "mask": _key_mask(key),
+            "detail": _redact_detail("%s" % type(e).__name__, key),
+            "cost": None,
+        }
+    # returncode ignore (fail-open CLI)
+    out = (r.stdout or "").strip()
+    data = None
+    if out:
+        for line in reversed(out.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                break
+            except ValueError:
+                continue
+        if data is None:
+            try:
+                data = json.loads(out)
+            except ValueError:
+                data = None
+    if not isinstance(data, dict):
+        return {
+            "ok": False, "mode": "full", "error_class": "network",
+            "label": None, "mask": _key_mask(key),
+            "detail": "bad jev-advise stdout", "cost": None,
+        }
+    ok = data.get("ok") is True
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    cost = usage.get("cost")
+    if ok:
+        return {
+            "ok": True, "mode": "full", "error_class": None,
+            "label": None, "mask": _key_mask(key), "detail": None,
+            "cost": cost,
+        }
+    err = data.get("error") or ""
+    err_s = str(err)
+    if "HTTP 401" in err_s:
+        ec = "401"
+    elif "HTTP 402" in err_s:
+        ec = "402"
+    else:
+        ec = "network"
+    return {
+        "ok": False, "mode": "full", "error_class": ec,
+        "label": None, "mask": _key_mask(key),
+        "detail": _redact_detail(err_s, key), "cost": cost,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "orch-panel/1.0"
 
@@ -578,19 +792,38 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_json({"error": "discovered.json нет — запусти bin/discover.py"}, 404)
         elif u.path == "/api/cursor-key":
-            state = os.path.abspath(orchlib.find_state_dir())
-            kf = os.path.abspath(os.path.join(state, "cursor.key"))
+            state, kf = _state_key_path("cursor.key")
             if self.command == "GET":
-                self.send_json({"set": os.path.exists(kf),
-                                "path": kf,
-                                "state_dir": state,
-                                "hint": "ключ хранится в .orchestration/cursor.key (в .gitignore)"})
+                key, _p = _read_key_file("cursor.key")
+                self.send_json({
+                    "set": os.path.exists(kf),
+                    "path": kf,
+                    "state_dir": state,
+                    "hint": "ключ хранится в .orchestration/cursor.key (в .gitignore)",
+                    "mask": _key_mask(key) if key else None,
+                })
             elif self.command == "DELETE":
                 try:
                     os.unlink(kf)
                 except OSError:
                     pass
                 self.send_json({"ok": True, "set": False})
+        elif u.path == "/api/openrouter-key":
+            _state, kf = _state_key_path("openrouter.key")
+            if self.command == "GET":
+                key, _p = _read_key_file("openrouter.key")
+                self.send_json({
+                    "set": os.path.exists(kf),
+                    "path": kf,
+                    "mask": _key_mask(key) if key else None,
+                    "hint": "ключ хранится в .orchestration/openrouter.key (в .gitignore)",
+                })
+            elif self.command == "DELETE":
+                try:
+                    os.unlink(kf)
+                except OSError:
+                    pass
+                self.send_json({"set": False})
         elif u.path == "/api/sessions":
             if self.command == "DELETE":
                 # сброс override → наследовать общий тумблер
@@ -893,8 +1126,6 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump({"enabled": bool(body.get("enabled"))}, f, ensure_ascii=False)
             self.send_json({"ok": True, "id": sid, "enabled": bool(body.get("enabled"))})
         elif u.path == "/api/cursor-key":
-            state = os.path.abspath(orchlib.find_state_dir())
-            kf = os.path.abspath(os.path.join(state, "cursor.key"))
             body, err = self.read_body_json()
             if err:
                 self.send_json({"error": err}, 400)
@@ -903,11 +1134,97 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(keyv, str) or len(keyv.strip()) < 8:
                 self.send_json({"error": "ключ слишком короткий"}, 400)
                 return
-            os.makedirs(os.path.dirname(kf), exist_ok=True)
-            with open(kf, "w", encoding="utf-8") as f:
-                f.write(keyv.strip())
-            os.chmod(kf, 0o600)
-            self.send_json({"ok": True, "set": True, "path": kf})
+            keyv = keyv.strip()
+            kf = _write_key_file("cursor.key", keyv)
+            self.send_json({
+                "ok": True, "set": True, "path": kf,
+                "mask": _key_mask(keyv),
+            })
+        elif u.path == "/api/openrouter-key":
+            body, err = self.read_body_json()
+            if err:
+                self.send_json({"error": err}, 400)
+                return
+            keyv = body.get("key", "")
+            if not isinstance(keyv, str):
+                self.send_json({"error": "ключ: ожидается строка"}, 400)
+                return
+            keyv = keyv.strip()
+            if not OPENROUTER_KEY_RE.match(keyv):
+                self.send_json({
+                    "error": "неверный формат ключа OpenRouter "
+                             "(ожидается sk-or-v1-…)",
+                }, 400)
+                return
+            _write_key_file("openrouter.key", keyv)
+            self.send_json({"set": True, "mask": _key_mask(keyv)})
+        elif u.path == "/api/openrouter-key/probe":
+            body, err = self.read_body_json()
+            if err:
+                self.send_json({"error": err}, 400)
+                return
+            full = False
+            if isinstance(body, dict):
+                full = body.get("full") is True or body.get("full") == 1
+            key, _p = _read_key_file("openrouter.key")
+            if not key:
+                payload = {
+                    "ok": False,
+                    "mode": "full" if full else "auth",
+                    "error_class": "no_key",
+                    "label": None,
+                    "mask": None,
+                    "detail": None,
+                }
+                if full:
+                    payload["cost"] = None
+                self.send_json(payload)
+                return
+            if full:
+                self.send_json(_probe_openrouter_full(key))
+                return
+            code, data, note = _http_bearer_get(OPENROUTER_KEY_URL, key)
+            mask = _key_mask(key)
+            if code is not None and 200 <= code < 300:
+                self.send_json({
+                    "ok": True, "mode": "auth", "error_class": None,
+                    "label": _label_from_openrouter_key(data),
+                    "mask": mask, "detail": None,
+                })
+                return
+            ec = _or_auth_error_class(code) if code is not None else "network"
+            self.send_json({
+                "ok": False, "mode": "auth", "error_class": ec,
+                "label": None, "mask": mask,
+                "detail": _redact_detail(note, key),
+            })
+        elif u.path == "/api/cursor-key/probe":
+            body, err = self.read_body_json()
+            if err:
+                self.send_json({"error": err}, 400)
+                return
+            key = _resolve_cursor_api_key()
+            if not key:
+                self.send_json({
+                    "ok": False, "error_class": "no_key",
+                    "label": None, "mask": None, "detail": None,
+                })
+                return
+            code, data, note = _http_bearer_get(CURSOR_ME_URL, key)
+            mask = _key_mask(key)
+            if code is not None and 200 <= code < 300:
+                self.send_json({
+                    "ok": True, "error_class": None,
+                    "label": _label_from_cursor_me(data),
+                    "mask": mask, "detail": None,
+                })
+                return
+            ec = _cursor_error_class(code) if code is not None else "network"
+            self.send_json({
+                "ok": False, "error_class": ec,
+                "label": None, "mask": mask,
+                "detail": _redact_detail(note, key),
+            })
         elif u.path == "/api/template/restore":
             p = self.load_params_or_500()
             if p is None:
