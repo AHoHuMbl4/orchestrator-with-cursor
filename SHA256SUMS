@@ -1,8 +1,8 @@
 13080c40e45b9d8f35ff08ded09f348692bacb58543b76b9cee45edf955930c9  ./.gitattributes
 af27e8f97e9ef32c80ba33b362f3ea482d00eb5ba28c44aef6737c9d7ffa2d38  ./.gitignore
 5bba00706c2083445f2eccb30f475d0889bb507ec7d29338cc3d0dc46196f21d  ./PROJECT.md
-2c6aa90333e8325dc1ecebcb567d31f8074da0105a84ee23916f4c4f84476f32  ./README.md
-4f97826e91d8bcfcb1a3757fb3b443bb31816362828fe6224364f92437b6b474  ./README.ru.md
+d36dadb5cf8b9812753d2c04a48787aaafce41f17809cfd7ad811fce2a0dd5b4  ./README.md
+b3907c13cf3d1c974a49bbf9f02401eca312ec46ead8e68ec70a82a5c3d1ea23  ./README.ru.md
 cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover.py
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
@@ -23,8 +23,8 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 4dda61c1810f08e7145f5959b01d90502617601d2cdcd3941bdfa5fdcf7ce9d7  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-7bb2f58b67d10179923b50d47abce647f8344ce7725f8edcd47ae6f846cd23fd  ./panel/index.html
-5b31e14937c224b0e2921847110bae39213debc8982d58b7b8fa224851db8184  ./panel/server.py
+599f753f821ea06e42f3a70d542a97549a96d7be4a3d4e4cad2a766eb888add9  ./panel/index.html
+6d0df409e6ad5ff79c28c64d9ab8736da53d952a1c3caf4ac1ef420968ab314a  ./panel/server.py
 aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./params.json
 0ff1972b0bc43a0cc970462afe6cf6a5529fd1371c54fbb93bbb0f14891aaf7a  ./routing/jev-table.json
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./rules/archive/.gitkeep
@@ -80,7 +80,7 @@ b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/
 231d677ff5ccb3ed60dde2331e4db971b437b92f7fcdd860f6ce8626b1bffdea  ./rules/manifest.json
 ee384602dcc5fdb06f491a2467d4946b090ef58ba963add72e844784e602959a  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
-7510d9edf8e0f26c68f4b7cf4a8742262b6fb0ba53ba11b2ba1222440f53eb3f  ./skills/orchestration/references/MAP.md
+2baef7a25e063793f5a838fd0a6dd7e9dda1089c15b0997dae35f8599beaf8c6  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
 a471c545c14bb32e39070450a9d703a3f38865ade66f81b0a11347c291da5088  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
@@ -244,6 +244,7 @@ d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orche
 22fbaea3e7ffb0632cf00c7d74b65bf4a117fa07d280bfb2ad15c64f69f75406  ./skills/orchestration/references/traps.md
 184def21c77c8ea8e9ccafcf5eaf44c7c7ac8e03679c4ae6a675bc313b6e89b9  ./tests/cause-cleared-born-at.sh
 67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
+375d4a98ca793ed32a0429cc52ccf749d000d02bea4470655a59e4d7ea9f6cd4  ./tests/test_panel_keys.sh
 47ed42c6ff5c381d47b34abf3a04076352f49c7fc7b9600afeb05965c1f62e20  ./tests/test_rules_c3_detect.py
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
 ccb5bb830a1680e82a73350e7cc297cae05e6421855e4f7fc53bb3729b937799  ./uninstall.sh

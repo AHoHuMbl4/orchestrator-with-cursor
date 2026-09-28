@@ -25,8 +25,8 @@ State — `.orchestration/` в проекте.
 - События хуков Kimi: **UserPromptSubmit** (вклейка params/compass/гарда; блок при overflow; нуджи детекторов: приказ без обоснования / волна без прокурора / probes_missing); **SessionHeartbeat** (сверка; overflow → pending-флаг, observation-only); **PreToolUse** (мгновенный deny Write/Edit в compass — только через write-compass.py; + гейт order.md (без строки „подход:“/„без советников“ — deny)); **PostToolUse** (нуджи каждые N + гард при записи в compass); **SubagentStart/Stop** → видимость генералов-субагентов движка в `journal.jsonl` (не только обёртки run-exec/run-cloud)
 - `bin/orchlib.py` — общая библиотека (find_state_dir, params, сессии, load_fronts / front_compass_path); детекторы `orders_without_basis` + `waves_without_prosecutor` + `probes_missing` / `chip_silenced` (F-ACCEPT канон v1; снятие probes_missing только валидной квитанцией §3); не лаунчер
 - `routing/jev-table.json` — Jev-точки: `rules-apply` (Choice), `tried-before` (Noul), `probe-sufficiency` (Score, только advisory — не разрешает/не запрещает закрытие волны)
-- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
-- `panel/index.html` — UI: секция «Фронты» (волны, статусы, JSON-редактор)
+- `panel/server.py` — HTTP-панель (порт база 8765, при занятости +1…); API `/api/fronts`; ключи: `/api/openrouter-key` и `/api/cursor-key` (GET/POST/DELETE; в ответе только `mask` вида `…abcd`, не тело); живые пробы `POST /api/openrouter-key/probe` (`{"full":true}` — полная) и `POST /api/cursor-key/probe`; `error_class` OpenRouter: `401`/`402` (+`403`/`429`); Cursor: `403`/`429` (+`401`); сторож-тред опрашивает compass каждые `compass.guard_poll_s` сек (флаг/подсветка)
+- `panel/index.html` — UI: секция «Ключи» (маска + Проверить) и «Фронты» (волны, статусы, JSON-редактор); контракт: `tests/test_panel_keys.sh`
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
 - `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel; по умолчанию `TARGET=$HOME` (установка из папки клона из коробки); тест-режим только при явном `ORCH_TEST_INSTALL=1` (конфиги движков не трогает)
 - `uninstall.sh` / `uninstall.ps1` — снятие установки
@@ -55,7 +55,8 @@ State — `.orchestration/` в проекте.
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
 - `<state>/agent-<id>.json` — id агента для follow-up без ре-парсинга лога
 - `<state>/journal.jsonl` — летописец вызовов (start/end от `run-exec` / `run-cloud`; плюс SubagentStart/Stop — генералы-субагенты движка, не только обёртки)
-- `cursor.key` — API-ключ Cursor (gitignore; панель сохраняет сюда)
+- `cursor.key` — API-ключ Cursor (gitignore; панель `/api/cursor-key`; в UI/API только маска)
+- `openrouter.key` — API-ключ OpenRouter (gitignore; панель `/api/openrouter-key`; в UI/API только маска)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
 - `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
@@ -102,7 +103,7 @@ State — `.orchestration/` в проекте.
 | Куда пишется задача? | `sessions/<sid>/compass.md` (`menu.py --session`) |
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`); приёмка — ещё `probe-receipt.md` (§3) |
 | Приёмка волны кода/фикса? | канон «Приёмка = функция»: блок пробы + свой прогон на полигоне; чип `probes_missing`; Jev `probe-sufficiency` только advisory |
-| Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+` |
+| Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+`; ключи `/api/openrouter-key` + `/api/cursor-key` (+ `/probe`); маска `…abcd`; тест `tests/test_panel_keys.sh` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
 | командующему/генералу/полковнику нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
 | Приказ фронту? | `<state>/fronts/<id>/order.md` (read-only для генерала) |

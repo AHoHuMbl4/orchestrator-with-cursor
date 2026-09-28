@@ -79,19 +79,33 @@ powershell -ExecutionPolicy Bypass -File orchestration-kit\install-local.ps1
 Настройки: `./panel.sh` → http://127.0.0.1:8765 (сам займёт свободный порт).
 В панели: селектор сессий (compass сессий — в основной зоне), тумблер вкл/выкл,
 исполнители на задачу (дефолт 3), критики, круги ревью, таймаут, `retry_on_fail`, интервал
-сверки, модели, токен Cursor; **«Фронты»** (волны, статусы, JSON-редактор);
+сверки, модели, **«Ключи»** (OpenRouter + Cursor; тело ключа не показывают —
+только маска вида `…abcd`); **«Фронты»** (волны, статусы, JSON-редактор);
 **«Расширенные»** — общий стартовый шаблон (`.orchestration/compass.md`,
 сохранение с подтверждением, кнопка восстановления стандартного).
 
-## Токен Cursor (для облака / не-код исполнителей)
+## API-ключи (панель)
+
+Секция **«Ключи»** пишет секреты в `.orchestration/` (gitignore) и в ответах
+отдаёт только маску (`…` + последние 4 символа, напр. `…abcd`), не тело ключа.
+Живые пробы: кнопки **«Проверить»** / эндпоинты probe; у OpenRouter есть ещё
+полная проверка потребителя (`{"full":true}`).
+
+| Провайдер | Файл | REST | Probe | Типичный `error_class` |
+|---|---|---|---|---|
+| OpenRouter | `openrouter.key` | `GET`/`POST`/`DELETE` `/api/openrouter-key` | `POST` `/api/openrouter-key/probe` | `401` / `402` (также `403`/`429`/`network`/`no_key`) |
+| Cursor | `cursor.key` | `GET`/`POST`/`DELETE` `/api/cursor-key` | `POST` `/api/cursor-key/probe` | `403` / `429` (также `401`/`network`/`no_key`) |
+
+Контрактный smoke: `bash tests/test_panel_keys.sh` (живые пробы; тела ключей не печатает).
+
+### Токен Cursor (для облака / не-код исполнителей)
 
 1. Зайдите на **cursor.com** под своим аккаунтом → **Dashboard / Settings →
    API → API Keys** → **Create key** → скопируйте ключ (показывается один раз).
 2. Нужен **платный план Cursor**; оплата — по токенам использованных моделей,
    а не за время.
-3. Вставьте ключ в поле **«Токен Cursor»** на главном экране панели (панель
-   сохранит его в `.orchestration/cursor.key` — файл в gitignore) — либо
-   задайте переменную окружения `CURSOR_API_KEY`.
+3. Вставьте ключ в поле **Cursor** секции **«Ключи»** (панель сохранит его в
+   `.orchestration/cursor.key`) — либо задайте `CURSOR_API_KEY`.
 4. **Dual-path:** код-задачи — локальный CLI (`run-exec.py` + `cursor-agent` в
    PATH). Не-код / исследования — Cursor Cloud через `run-cloud.py` при наличии
    ключа (`auto` или `cursor-cloud`). Явный `execution.executor` в params

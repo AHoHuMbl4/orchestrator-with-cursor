@@ -85,20 +85,34 @@ touches settings it doesn't own (kimi config gets a `.bak-orch` backup).
 All three: open **Settings** → `./panel.sh` → http://127.0.0.1:8765
 (auto-picks a free port). The panel has a session selector (session compasses
 only in the main zone), on/off toggle, executors per task (default 3), critics per diff,
-review rounds, timeout, `retry_on_fail`, course-check interval, models, Cursor
-API token, **Fronts** (waves, statuses, JSON editor), and **Advanced** for the
+review rounds, timeout, `retry_on_fail`, course-check interval, models, **Keys**
+(OpenRouter + Cursor API; body never shown — only a mask like `…abcd`),
+**Fronts** (waves, statuses, JSON editor), and **Advanced** for the
 shared starter template (`.orchestration/compass.md` — confirm to save;
 restore-default button).
 
-## Cursor API token (for Cursor Cloud / non-code executors)
+## API keys (panel)
+
+Panel section **Keys** stores secrets under `.orchestration/` (gitignored) and
+never returns the raw key — only a mask (`…` + last 4 chars, e.g. `…abcd`).
+Live checks: **Проверить** / probe endpoints; OpenRouter also has a full
+consumer probe (`{"full":true}`).
+
+| Provider | File | REST | Probe | Typical `error_class` |
+|---|---|---|---|---|
+| OpenRouter | `openrouter.key` | `GET`/`POST`/`DELETE` `/api/openrouter-key` | `POST` `/api/openrouter-key/probe` | `401` / `402` (also `403`/`429`/`network`/`no_key`) |
+| Cursor | `cursor.key` | `GET`/`POST`/`DELETE` `/api/cursor-key` | `POST` `/api/cursor-key/probe` | `403` / `429` (also `401`/`network`/`no_key`) |
+
+Contract smoke: `bash tests/test_panel_keys.sh` (live probes; does not print key bodies).
+
+### Cursor API token (for Cursor Cloud / non-code executors)
 
 1. Log in at **cursor.com**, open **cursor.com/dashboard → API Keys** →
    **New API Key** → copy it (shown once).
 2. Requires a **paid Cursor plan**; billing is per model tokens actually used,
    not per wall-clock time.
-3. Paste the key into the **"Cursor API token"** field on the panel's main
-   screen (the panel stores it in `.orchestration/cursor.key`, which is
-   gitignored) — or set the `CURSOR_API_KEY` environment variable instead.
+3. Paste the key into the **Cursor** field under **Keys** on the panel (stored
+   in `.orchestration/cursor.key`) — or set `CURSOR_API_KEY` instead.
 4. **Dual-path:** code tasks use local CLI (`run-exec.py` + `cursor-agent` on
    PATH). Non-code / research uses Cursor Cloud via `run-cloud.py` when a key
    is present (`auto` or `cursor-cloud`). Explicit `execution.executor` in
