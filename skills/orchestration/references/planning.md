@@ -254,11 +254,21 @@ run-ref волны); образцовая приёмка → DO/CASE. Волна
    самообъявляемый: допустим только если у артефакта нет исполняемой
    функции в ките (подтверждает приёмщик). Артефакт-оракул
    (детектор/линт/чип/гейт) narrative быть не может.
-3. **Квитанция** `runs/<critic_id>/probe-receipt.md`: поля `probe` /
-   `cmd` / `exit` (число) / `oracle_match` / `ts` / `critic_id` /
-   `artifact`. Валидность = все поля; exit==оракулу; ts≥mtime(артефакта);
-   гейт читает структуру и коды (проза без cmd/exit = violation).
-   Приёмка ×3 ⇒ три независимые квитанции.
+3. **Квитанция** `runs/<critic_id>/probe-receipt.md` (**tool-only**,
+   `@generated` / `DO NOT EDIT` — как Cargo.lock / Go-codegen): канал
+   записи — ТОЛЬКО `bin/probe-receipt.py` ИЛИ `run-exec --probe` (тот же
+   writer `orchlib.write_probe_receipt`); ручной Write/Edit
+   `probe-receipt.md` = **violation** (нудж → позже PreToolUse deny, как у
+   compass). Поля: `probe` / `cmd` / `exit` (число) / `oracle_match` /
+   `ts` / `critic_id` / `artifact`; новые несут ещё `generator` +
+   `cmd_sha256` (SLSA L1-подобно, без криптоинфры). Валидность = все
+   базовые поля; exit==оракулу; ts≥mtime(артефакта) — парсер **не**
+   ослаблен. Dual-read: старые валидные без `generator` читаются как
+   раньше; отсутствие `generator` → мягкий WARN-чип `receipt_handmade`
+   (миграция, не reject). Params `receipt.require_generator` (дефолт
+   `false`) — окно миграции; `true` = ужесточение. Гейт читает структуру
+   и коды (проза без cmd/exit = violation). Приёмка ×3 ⇒ три независимые
+   квитанции.
 4. **Приёмщик:** вердикт без своего прогона недействителен; канал записи —
    собственный `runs/<id>/`; самоотчёт исполнителя ≠ оракул.
 5. **Гейт `probes_missing`:** нет блока пробы **или** нет валидной

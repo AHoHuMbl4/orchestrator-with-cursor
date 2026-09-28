@@ -52,7 +52,7 @@ State — `.orchestration/` в проекте.
 - `sessions/<sid>/runs/<id>/prompt.md` — промт прогона
 - `sessions/<sid>/runs/<id>/run.log` — лог прогона (локальный/обёртка)
 - `sessions/<sid>/runs/<id>/artifact.md` — артефакт волны (наличие файла ≠ зелёная приёмка)
-- `sessions/<sid>/runs/<id>/probe-receipt.md` — квитанция приёмки §3 (probe/cmd/exit/oracle_match/ts/critic_id/artifact); снимает чип `probes_missing`
+- `sessions/<sid>/runs/<id>/probe-receipt.md` — квитанция приёмки §3 (tool-only: `probe-receipt.py` / `run-exec --probe`; generator+cmd_sha256); снимает чип `probes_missing`
 - `sessions/<sid>/prosecutor/` — закрытый канал прокурора волны (читает только командующий)
 - `<state>/cloud-<id>.log` — лог `run-cloud.py` (create/status/artifacts)
 - `<state>/cloud-<id>.result.json` — машиночитаемый итог run-cloud (agent/run/status/result)
@@ -115,7 +115,7 @@ State — `.orchestration/` в проекте.
 | Параллельность / изоляция state? | секция C |
 | Куда пишется задача? | `sessions/<sid>/compass.md` (`menu.py --session`) |
 | Куда упал результат? | `sessions/<sid>/runs/<id>/` + лог (`run.log` / `cloud-<id>.log`); приёмка — ещё `probe-receipt.md` (§3) |
-| Приёмка волны кода/фикса? | канон «Приёмка = функция»: блок пробы + свой прогон на полигоне; чип `probes_missing`; Jev `probe-sufficiency` только advisory |
+| Приёмка волны / написать квитанцию? | **одна команда:** дефолт `run-exec --probe 'CMD' --oracle N`; ручные/отложенные — `bin/probe-receipt.py` (тот же writer); канон §3 + `probes_missing`; Jev `probe-sufficiency` только advisory |
 | Панель? | `./panel.sh` → `panel/server.py` на `127.0.0.1:8765+`; ключи `/api/openrouter-key` + `/api/cursor-key` (+ `/probe`); маска `…abcd`; тест `tests/test_panel_keys.sh` |
 | Большой проект с нуля? | доктрина иерархии (`SKILL.md`) + `<state>/fronts.json` |
 | командующему/генералу/полковнику нужны варианты? | meta/opportunity-advisor (local) + meta/web-scout.md (cloud) |
