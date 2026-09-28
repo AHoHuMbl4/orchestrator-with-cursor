@@ -65,8 +65,13 @@ EXPIRED): stall по прикладным SSE/fallback; fuse --max-wall; не п
   10      — params.json битый
   11      — id занят живым cloud-прогоном (CREATED/POLLING/RUNNING); --force
   12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
+  13      — FRONT_DUAL_WRITER: фронт уже имеет другой живой пишущий ран
   124     — STALL: нет прикладного прогресса (SSE/fallback) дольше stall_s
   125     — WALL: сработал fuse --max-wall (не retryable)
+
+--writable: journal start "writable": true — cloud-ран считается пишущим для
+детектора dual-writer (без флага — аналитик, не пишущий). ORCH_FRONT в
+journal/meta; cloud child env НЕ наследует (факт кита).
 
 --wait dual-timer (B4): stall сброс только по SSE assistant|tool_call|status|result
 или (если SSE недоступен) дельтам run.updatedAt / artifacts fingerprint;
@@ -94,6 +99,42 @@ PROGRESS_SSE_EVENTS = frozenset(("assistant", "tool_call", "status", "result"))
 RECOVERY_WINDOW_SEC = 300
 BUILTIN_STALL_S = 600
 BUILTIN_MAX_WALL_S = 86400
+FRONT_DUAL_WRITER_EXIT = 13
+CLOUD_WRITER_TTL_S = 6 * 3600
+TOMBSTONE_TTL_S = 24 * 3600
+
+
+def _load_run_exec_helpers():
+    """Общий хелпер A2/dual/no-verify из run-exec.py (без нового пути модуля)."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run-exec.py")
+    spec = importlib.util.spec_from_file_location("orch_mw2b_run_exec", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_REX = None
+
+
+def rex():
+    global _REX
+    if _REX is None:
+        _REX = _load_run_exec_helpers()
+    return _REX
+
+
+def inject_a2_ownership(prompt, front_id, state_dir=None):
+    """A2-секция после «роль:»; делегирует общему хелперу run-exec."""
+    return rex().inject_a2_ownership(prompt, front_id, state_dir=state_dir)
+
+
+def detect_commit_no_verify(log_path):
+    return rex().detect_commit_no_verify(log_path)
+
+
+def journal_chip(name, front=None, run_id=None, extra=None):
+    return rex().journal_chip(name, front=front, run_id=run_id, extra=extra)
 
 
 def api_base():
@@ -202,6 +243,9 @@ def build_parser():
     p.add_argument("--max-wall", type=int, default=None,
                    help="fuse: абсолютный потолок wall-clock от старта ожидания, сек")
     p.add_argument("--poll", type=int, default=15)
+    p.add_argument("--writable", action="store_true",
+                   help="пишущий cloud-ран: journal start writable=true "
+                        "(dual-writer); без флага — аналитик, не пишущий")
 
     p = sub.add_parser("status", help="статус/результат run")
     _add_common_args(p)
@@ -248,12 +292,18 @@ def normalize_args(a):
         a.force = False
     if not hasattr(a, "allow_unknown_role"):
         a.allow_unknown_role = False
+    if not hasattr(a, "writable"):
+        a.writable = False
     return a
 
 
 def journal_start(run_id, prompt_file, front, role, engine="cloud",
-                  no_front_reason=None, auto=False, session=None):
-    """Запись kind=start в journal (ошибки глотает orchlib)."""
+                  no_front_reason=None, auto=False, session=None,
+                  writable=False):
+    """Запись kind=start в journal (ошибки глотает orchlib).
+
+    ORCH_FRONT только в journal/meta (front=...); cloud child env НЕ обещать.
+    """
     if not run_id:
         return
     parent = orchlib.resolve_journal_parent(run_id)
@@ -272,16 +322,26 @@ def journal_start(run_id, prompt_file, front, role, engine="cloud",
         entry["session"] = session
     if no_front_reason:
         entry["no_front_reason"] = no_front_reason
+    if writable:
+        entry["writable"] = True
+    if front:
+        entry["ORCH_FRONT"] = front  # meta only; child env не наследует
     if auto or os.environ.get("ORCH_RUN_AUTO") == "1":
         entry["auto"] = True
     orchlib.journal_append(entry)
 
 
-def journal_end(run_id, log_path, exit_code, session=None):
+def journal_end(run_id, log_path, exit_code, session=None, front=None,
+                no_verify_hit=None):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
     verdict, gates = orchlib.journal_log_meta(log_path)
+    hit = no_verify_hit
+    if hit is None and front:
+        hit = detect_commit_no_verify(log_path)
+    if hit:
+        journal_chip("commit_no_verify", front=front, run_id=run_id)
     entry = {
         "ts": time.time(),
         "kind": "end",
@@ -292,6 +352,8 @@ def journal_end(run_id, log_path, exit_code, session=None):
     }
     if session is not None:
         entry["session"] = session
+    if hit:
+        entry["commit_no_verify"] = True
     orchlib.journal_append(entry)
     # Снять lock автопрокурора, если это был он.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
@@ -300,10 +362,12 @@ def journal_end(run_id, log_path, exit_code, session=None):
 
 
 def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
-                        engine="cloud", no_front_reason=None, session=None):
-    """start+end при отказе гейта (exit 5/6/7/8/9) — без дыры в journal."""
+                        engine="cloud", no_front_reason=None, session=None,
+                        writable=False):
+    """start+end при отказе гейта (exit 5/6/7/8/9/13) — без дыры в journal."""
     journal_start(run_id, prompt_file, front, role, engine=engine,
-                  no_front_reason=no_front_reason, session=session)
+                  no_front_reason=no_front_reason, session=session,
+                  writable=writable)
     # gate-refuse: не триггерим автопрокурора — пишем end напрямую
     verdict, gates = orchlib.journal_log_meta(log_path)
     entry = {
@@ -988,6 +1052,11 @@ def recover_create_after_timeout(key, body, prompt_text, http_timeout, lf):
 
 def cmd_run(a):
     state = orchlib.find_state_dir()
+    # TTL/GC tombstones при старте любого прогона
+    try:
+        rex().sweep_tombstones(state)
+    except Exception:
+        pass
     # Гард дубль-id: только subcommand run, до HTTP / записи cloud|agent файлов.
     dup_rc = check_cloud_duplicate_id_guard(
         state, a.id, force=bool(a.force),
@@ -1044,13 +1113,56 @@ def cmd_run(a):
     if gate_rc is not None:
         journal_gate_refuse(a.id, prompt_file, front, role, log_path, gate_rc,
                             no_front_reason=no_front_reason,
-                            session=getattr(a, "session", None))
+                            session=getattr(a, "session", None),
+                            writable=bool(getattr(a, "writable", False)))
         return gate_rc
 
+    writable = bool(getattr(a, "writable", False))
+    # Dual-writer ДО journal_start (только если --writable)
+    if writable and front:
+        dual_rc, dual_msg = rex().check_dual_writer_guard(
+            front, a.id, state, session=getattr(a, "session", None),
+            readonly=False)
+        if dual_rc is not None:
+            _append_gate_log(log_path, dual_msg)
+            sys.stderr.write(dual_msg + "\n")
+            journal_chip("multi_write_front", front=front, run_id=a.id)
+            journal_gate_refuse(a.id, prompt_file, front, role, log_path,
+                                dual_rc, no_front_reason=no_front_reason,
+                                session=getattr(a, "session", None),
+                                writable=writable)
+            return dual_rc
+
     # летописец start (parent из OUR env; cloud-агент env не наследует)
+    # ORCH_FRONT только в journal/meta — child env НЕ обещать
     journal_start(a.id, prompt_file, front, role, engine="cloud",
                   no_front_reason=no_front_reason,
-                  session=getattr(a, "session", None))
+                  session=getattr(a, "session", None),
+                  writable=writable)
+
+    # TOCTOU после journal_start до HTTP create — младший само-отказ
+    if writable and front:
+        dual_rc2, dual_msg2 = rex().check_dual_writer_guard(
+            front, a.id, state, session=getattr(a, "session", None),
+            readonly=False, toctou=True)
+        if dual_rc2 is not None:
+            _append_gate_log(log_path, dual_msg2)
+            sys.stderr.write(dual_msg2 + "\n")
+            rex().write_tombstone(
+                state, a.id, prev_pid=None,
+                session=getattr(a, "session", None),
+                reason="dual_writer_toctou")
+            journal_chip("multi_write_front", front=front, run_id=a.id)
+            verdict, gates = orchlib.journal_log_meta(log_path)
+            end = {
+                "ts": time.time(), "kind": "end", "id": a.id,
+                "exit": dual_rc2, "verdict": verdict, "gates": gates,
+            }
+            if getattr(a, "session", None):
+                end["session"] = a.session
+            orchlib.journal_append(end)
+            orchlib.release_auto_prosecutor_lock_if_any(a.id)
+            return dual_rc2
 
     # F-RULES R2/R4: tried-before + прецеденты в КОПИЮ промта, до HTTP-двигателя
     komu = orchlib.role_to_komu(role)
@@ -1068,8 +1180,11 @@ def cmd_run(a):
             sys.stderr.write("precedent inject failed: %s\n" % e)
             prec_lines = []
     run_prompt = prompt
+    # A2: --front (cloud без --readonly; аналитик тоже видит границы)
+    if front:
+        run_prompt = inject_a2_ownership(run_prompt, front, state_dir=state)
     if prec_lines:
-        run_prompt = prompt.rstrip() + "\n\n" + "\n".join(prec_lines) + "\n"
+        run_prompt = run_prompt.rstrip() + "\n\n" + "\n".join(prec_lines) + "\n"
     run_prompt_file = os.path.join(state, "prompt-%s.run.md" % a.id)
     try:
         with open(run_prompt_file, "w", encoding="utf-8") as f:
@@ -1108,7 +1223,8 @@ def cmd_run(a):
                 print(json.dumps({"response": out, "ids": {}}, ensure_ascii=False, indent=2))
                 check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                        None, set())
-                journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
+                journal_end(a.id, log_path, 1, session=getattr(a, "session", None),
+                            front=front)
                 return 1
             out = recovered
             ids = recovered_ids
@@ -1126,7 +1242,8 @@ def cmd_run(a):
         print(json.dumps({"response": out, "ids": ids}, ensure_ascii=False, indent=2))
         check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                None, set())
-        journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
+        journal_end(a.id, log_path, 1, session=getattr(a, "session", None),
+                    front=front)
         return 1
 
     agent = a.agent_id or ids.get("agent_id")
@@ -1141,12 +1258,14 @@ def cmd_run(a):
         if agent and run:
             rc = wait_and_report(agent, run, key, state, a)
             # journal_end только после терминала / таймаута wait (rc из wait_and_report)
-            journal_end(a.id, log_path, rc, session=getattr(a, "session", None))
+            journal_end(a.id, log_path, rc, session=getattr(a, "session", None),
+                        front=front)
             return rc
         sys.stderr.write("--wait: id не найдены в ответе, поллинг пропущен (см. лог)\n")
         check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),
                                None, set())
-        journal_end(a.id, log_path, 1, session=getattr(a, "session", None))
+        journal_end(a.id, log_path, 1, session=getattr(a, "session", None),
+                    front=front)
         return 1
     # без --wait: create/follow-up успешен, агент ещё бежит — journal_end не пишем
     check_compass_overflow(cloud_log_path(state, a.id, getattr(a, "session", None)),

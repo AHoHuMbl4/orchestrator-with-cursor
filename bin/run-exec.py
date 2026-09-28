@@ -42,9 +42,16 @@ Foreground: после --yield-after сек (дефолт 480; 0 = выкл) —
   10      — params.json битый
   11      — id занят живым прогоном (pid); нужен другой id или --force
   12      — роль не найдена в каталоге кита; --allow-unknown-role для смоука
+  13      — FRONT_DUAL_WRITER: фронт уже имеет другой живой пишущий ран
   124     — STALL: нет прогресса run.log (mtime+size) дольше stall_s
   125     — WALL: сработал fuse --max-wall (не retryable)
   UNKNOWN — не удалось определить (нет/нечитаемый лог)
+
+Kill-протокол:
+  --kill <id> [--session SID]  — TOMBSTONE + journal kind=killed + kill дерева
+  --unkill <id> [--session SID] — удалить TOMBSTONE
+  TOMBSTONE блокирует watcher/apply_retries при EXIT∈{4,124}; свежий CLI-старт
+  того же id при мёртвом pid разрешён. GC: sweep TOMBSTONE старше 24ч при старте.
 
 Бюджет фронта (--front): warn = churn-датчик (FRONT_BUDGET_WARN + pending,
 запуск продолжается); hard=0 по умолчанию выключен. Качество > токены.
@@ -69,6 +76,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchlib  # noqa: E402
+import owns  # noqa: E402 — A2-манифест; owns НЕ импортирует orchlib
 import verdict as verdict_mod  # noqa: E402
 
 REGROUND_LINE = (
@@ -78,11 +86,411 @@ REGROUND_LINE = (
 )
 
 RETRYABLE = frozenset(("4", "124"))  # 125 WALL — не retryable
+TOMBSTONE_TTL_S = 24 * 3600
+CLOUD_WRITER_TTL_S = 6 * 3600
+FRONT_DUAL_WRITER_EXIT = 13
 
 # Builtin-фолбэки (A3). Переходный эффективный stall = execution.timeout_s
 # из params (compat), если нет stall_s; builtin STALL — только без обоих ключей.
 BUILTIN_STALL_S = 600
 BUILTIN_MAX_WALL_S = 86400
+
+
+# --- MW2-B: pid/starttime, TOMBSTONE, dual-writer, A2, no-verify -------------
+
+def proc_starttime(pid):
+    """starttime из /proc/<pid>/stat (поле 22); нет /proc → None."""
+    try:
+        with open("/proc/%d/stat" % int(pid), "r", encoding="utf-8") as f:
+            data = f.read()
+        rparen = data.rfind(")")
+        if rparen < 0:
+            return None
+        fields = data[rparen + 2:].split()
+        if len(fields) < 20:
+            return None
+        return fields[19]
+    except Exception:
+        return None
+
+
+def write_pid_file(pid_path, pid):
+    """pid\\n[starttime\\n] — starttime опционален при отсутствии /proc."""
+    lines = [str(int(pid))]
+    st = proc_starttime(pid)
+    if st is not None:
+        lines.append(str(st))
+    with open(pid_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def read_pid_file(pid_path):
+    """Совместимость: первая строка = pid (int); иначе None."""
+    try:
+        with open(pid_path, "r", encoding="utf-8") as f:
+            first = f.readline().strip()
+            return int(first)
+    except Exception:
+        return None
+
+
+def read_pid_file_full(pid_path):
+    """(pid, starttime_or_None) из pid-файла."""
+    try:
+        with open(pid_path, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+        if not lines:
+            return None, None
+        pid = int(lines[0])
+        st = lines[1] if len(lines) > 1 else None
+        return pid, st
+    except Exception:
+        return None, None
+
+
+def pid_alive(pid):
+    """ProcessLookupError=мёртв; PermissionError=ЖИВ; прочее OSError по errno."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 stdout=subprocess.PIPE,
+                                 encoding="utf-8", errors="replace").stdout
+            pid_s = str(pid)
+            for line in out.splitlines():
+                if not line.strip():
+                    continue
+                if pid_s in line.split():
+                    return True
+            return False
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        errno = getattr(e, "errno", None)
+        if errno == 3:  # ESRCH
+            return False
+        if errno == 1:  # EPERM
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def run_pid_is_alive(pid_path):
+    """Живость = pid жив И (если есть) starttime совпадает; нет /proc → pid-only."""
+    pid, recorded = read_pid_file_full(pid_path)
+    if pid is None:
+        return False
+    if not pid_alive(pid):
+        return False
+    if recorded is None:
+        return True
+    current = proc_starttime(pid)
+    if current is None:
+        return True  # нет /proc — деградация до pid-only
+    return str(current) == str(recorded)
+
+
+def resolve_tombstone_path(state, run_id, session=None):
+    """Per-id TOMBSTONE через resolve_run_paths sibling (НЕ общий state/TOMBSTONE)."""
+    if session:
+        run_dir = os.path.join(orchlib.session_dir(session), "runs", run_id)
+        return os.path.join(run_dir, "TOMBSTONE")
+    return os.path.join(state, "cursor-run-%s.TOMBSTONE" % run_id)
+
+
+def tombstone_exists(state, run_id, session=None):
+    return os.path.isfile(resolve_tombstone_path(state, run_id, session))
+
+
+def write_tombstone(state, run_id, prev_pid=None, session=None, reason="manual"):
+    path = resolve_tombstone_path(state, run_id, session)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    payload = {
+        "ts": time.time(),
+        "prev_pid": prev_pid,
+        "reason": reason,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+        f.write("\n")
+    return path
+
+
+def remove_tombstone(state, run_id, session=None):
+    path = resolve_tombstone_path(state, run_id, session)
+    try:
+        os.unlink(path)
+        return True
+    except OSError:
+        return False
+
+
+def sweep_tombstones(state, now=None):
+    """Удалить TOMBSTONE старше 24ч (session runs/*/TOMBSTONE + cursor-run-*.TOMBSTONE)."""
+    now = time.time() if now is None else float(now)
+    removed = 0
+    candidates = []
+    for path in glob.glob(os.path.join(state, "cursor-run-*.TOMBSTONE")):
+        candidates.append(path)
+    sessions = os.path.join(state, "sessions")
+    if os.path.isdir(sessions):
+        for path in glob.glob(os.path.join(sessions, "*", "runs", "*", "TOMBSTONE")):
+            candidates.append(path)
+    for path in candidates:
+        try:
+            ts = None
+            with open(path, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+            if isinstance(obj, dict):
+                ts = float(obj.get("ts") or 0)
+            if ts and (now - ts) > TOMBSTONE_TTL_S:
+                os.unlink(path)
+                removed += 1
+        except Exception:
+            try:
+                age = now - os.path.getmtime(path)
+                if age > TOMBSTONE_TTL_S:
+                    os.unlink(path)
+                    removed += 1
+            except Exception:
+                pass
+    return removed
+
+
+def journal_chip(name, front=None, run_id=None, extra=None):
+    """journal kind=chip (читает health_red_chips / MW2-A)."""
+    entry = {"ts": time.time(), "kind": "chip", "name": name}
+    if front is not None:
+        entry["front"] = front
+    if run_id is not None:
+        entry["id"] = run_id
+    if extra:
+        entry.update(extra)
+    orchlib.journal_append(entry)
+
+
+def journal_killed(run_id, prev_pid=None, session=None, front=None):
+    entry = {
+        "ts": time.time(),
+        "kind": "killed",
+        "id": run_id,
+        "prev_pid": prev_pid,
+        "reason": "manual",
+    }
+    if session is not None:
+        entry["session"] = session
+    if front is not None:
+        entry["front"] = front
+    orchlib.journal_append(entry)
+
+
+def inject_a2_ownership(prompt, front_id, state_dir=None):
+    """После шапки «роль:» вклеить секцию A2; owns пуст/нет front → без изменений."""
+    if not front_id:
+        return prompt
+    try:
+        sd = state_dir or orchlib.find_state_dir()
+        globs = owns.load_owns(sd).get(front_id) or []
+    except Exception:
+        return prompt
+    if not globs:
+        return prompt
+    section = (
+        "## Владение (A2): front %s; owns: %s; forbids: всё вне owns "
+        "(чужие active-владения не трогать)\n"
+        % (front_id, globs)
+    )
+    lines = prompt.splitlines(keepends=True)
+    if not lines:
+        return section + (prompt or "")
+    insert_at = 0
+    for i, line in enumerate(lines[:5]):
+        low = line.lstrip().lower()
+        if low.startswith("роль:") or low.startswith("role:"):
+            insert_at = i + 1
+            break
+    block = section if section.endswith("\n") else section + "\n"
+    if insert_at < len(lines) and lines[insert_at].strip():
+        block = block + "\n" if not block.endswith("\n\n") else block
+    lines.insert(insert_at, "\n" + block if insert_at > 0 else block)
+    return "".join(lines)
+
+
+def detect_commit_no_verify(log_path):
+    """True если в логе --no-verify/--no-verify= рядом с git commit."""
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception:
+        return False
+    if "--no-verify" not in text and "--no-verify=" not in text:
+        return False
+    # окно: одна строка / соседние токены с git commit
+    for line in text.splitlines():
+        low = line.lower()
+        if "git" in low and "commit" in low and "--no-verify" in low:
+            return True
+        if "--no-verify" in low and ("commit" in low or "git commit" in text):
+            # соседние строки: если в ±3 строках есть git commit
+            pass
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if "--no-verify" not in line and "--no-verify=" not in line:
+            continue
+        window = "\n".join(lines[max(0, i - 3):i + 4]).lower()
+        if "git" in window and "commit" in window:
+            return True
+    return False
+
+
+def _journal_open_writers(front_id, entries=None):
+    """Пишущие start без end для фронта → dict id → start_entry."""
+    if entries is None:
+        entries = orchlib.journal_read(limit=8000)
+    ended = set()
+    starts = {}  # id → last start entry for this front (writing)
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        kind = e.get("kind")
+        rid = e.get("id")
+        if kind == "end" and rid:
+            ended.add(rid)
+            starts.pop(rid, None)
+            continue
+        if kind != "start" or not rid:
+            continue
+        if e.get("front") != front_id:
+            continue
+        engine = e.get("engine") or "local"
+        if engine == "cloud":
+            if not e.get("writable"):
+                continue
+        else:
+            if e.get("readonly") is True:
+                continue
+        if rid in ended:
+            # later start after end — reopen
+            ended.discard(rid)
+        starts[rid] = e
+    # filter ended again (chronology already handled if we process in order)
+    return {rid: st for rid, st in starts.items() if rid not in ended}
+
+
+def _writer_still_alive(run_id, start_entry, state, session_hint=None):
+    """Живость пишущего: local=pid+starttime (in-flight start без pid — жив ≤60с);
+    cloud=нет end + TTL 6ч."""
+    engine = (start_entry or {}).get("engine") or "local"
+    if engine == "cloud":
+        ts = float((start_entry or {}).get("ts") or 0)
+        if ts and (time.time() - ts) > CLOUD_WRITER_TTL_S:
+            return False
+        return True
+    session = session_hint or (start_entry or {}).get("session")
+    _log, pid_path = resolve_run_paths(state, run_id, session)
+    if not os.path.isfile(pid_path):
+        if session:
+            _log2, pid_path2 = resolve_run_paths(state, run_id, None)
+            if os.path.isfile(pid_path2):
+                pid_path = pid_path2
+            else:
+                ts = float((start_entry or {}).get("ts") or 0)
+                return bool(ts and (time.time() - ts) < 60.0)
+        else:
+            ts = float((start_entry or {}).get("ts") or 0)
+            return bool(ts and (time.time() - ts) < 60.0)
+    return run_pid_is_alive(pid_path)
+
+
+def find_live_dual_writer(front_id, self_id, state, session=None):
+    """Живой пишущий ран ДРУГОГО id того же фронта, иначе None.
+
+    Parent-полковник (ORCH_RUN_ID / start.parent) не блокирует child;
+    sibling → считается dual-writer.
+    """
+    if not front_id:
+        return None
+    writers = _journal_open_writers(front_id)
+    skip = set()
+    parent_env = orchlib.resolve_journal_parent(self_id)
+    if parent_env:
+        skip.add(parent_env)
+    self_st = writers.get(self_id) or {}
+    parent_j = self_st.get("parent")
+    if parent_j:
+        skip.add(parent_j)
+    for rid, st in writers.items():
+        if rid == self_id:
+            continue
+        if rid in skip:
+            continue
+        if _writer_still_alive(rid, st, state, session_hint=st.get("session")):
+            return rid
+    return None
+
+
+def check_dual_writer_guard(front_id, self_id, state, session=None,
+                            readonly=False, toctou=False):
+    """До journal_start: другой пишущий → (13, other_id); тот же id жив → не сюда.
+
+    toctou=True (после journal_start): отказывать self только если
+    other.ts <= self.ts (младший/равный само-отказ; старший идёт дальше).
+    """
+    if not front_id or readonly:
+        return None, None
+    other = find_live_dual_writer(front_id, self_id, state, session=session)
+    if other is None:
+        return None, None
+    if toctou:
+        writers = _journal_open_writers(front_id)
+        self_ts = float((writers.get(self_id) or {}).get("ts") or 0)
+        other_ts = float((writers.get(other) or {}).get("ts") or 0)
+        if not (other_ts <= self_ts):
+            return None, None
+    msg = "фронт %s уже имеет пишущий ран %s" % (front_id, other)
+    return FRONT_DUAL_WRITER_EXIT, msg
+
+
+def cmd_kill(state, run_id, session=None):
+    """--kill <id>: TOMBSTONE + journal killed + kill дерева. Нет pid → tombstone+warn.
+
+    Живость = pid∧starttime (run_pid_is_alive); mismatch/reuse → без kill_pid.
+    """
+    log_path, pid_path = resolve_run_paths(state, run_id, session)
+    pid = read_pid_file(pid_path) if os.path.isfile(pid_path) else None
+    alive = bool(os.path.isfile(pid_path) and run_pid_is_alive(pid_path))
+    write_tombstone(state, run_id, prev_pid=pid, session=session, reason="manual")
+    journal_killed(run_id, prev_pid=pid, session=session)
+    if not alive:
+        sys.stderr.write(
+            "warn: --kill %s: живой pid не найден; TOMBSTONE записан "
+            "(будущий retry отменён)\n" % run_id)
+        return 0
+    kill_pid(pid)
+    # дождаться смерти
+    for _ in range(20):
+        time.sleep(0.1)
+        if not pid_alive(pid):
+            break
+    else:
+        kill_pid(pid)
+    sys.stdout.write("killed id=%s pid=%s tombstone=ok\n" % (run_id, pid))
+    return 0
+
+
+def cmd_unkill(state, run_id, session=None):
+    """--unkill <id>: удалить TOMBSTONE."""
+    if remove_tombstone(state, run_id, session):
+        sys.stdout.write("unkill: TOMBSTONE удалён id=%s\n" % run_id)
+        return 0
+    sys.stderr.write("unkill: TOMBSTONE не найден id=%s\n" % run_id)
+    return 0
 
 
 def log_progress(log_path):
@@ -445,13 +853,17 @@ def wait_child(proc, log_fh, log_path, stall_s, max_wall_s, yield_after=0,
     return classify_after_wait(log_path, rc)
 
 
-def agent_popen_kwargs(run_id=None):
-    """detach_popen_kwargs + env с ORCH_RUN_ID для дочернего cursor-agent."""
+def agent_popen_kwargs(run_id=None, front=None):
+    """detach_popen_kwargs + env ORCH_RUN_ID / ORCH_FRONT для дочернего cursor-agent."""
     kwargs = detach_popen_kwargs()
     env = dict(os.environ)
     rid = run_id or env.get("ORCH_RUN_ID")
     if rid:
         env["ORCH_RUN_ID"] = str(rid)
+    if front:
+        env["ORCH_FRONT"] = str(front)
+    else:
+        env.pop("ORCH_FRONT", None)
     kwargs["env"] = env
     return kwargs
 
@@ -485,11 +897,18 @@ def journal_start(run_id, prompt_file, front, role, engine="local",
     orchlib.journal_append(entry)
 
 
-def journal_end(run_id, log_path, exit_code, session=None):
+def journal_end(run_id, log_path, exit_code, session=None, front=None,
+                readonly=False, no_verify_hit=None):
     """Запись kind=end в journal (ошибки глотает orchlib)."""
     if not run_id:
         return
     verdict, gates = orchlib.journal_log_meta(log_path)
+    # --no-verify-детектор (end-гейт): chip + пометка; exit не менять
+    hit = no_verify_hit
+    if hit is None and (not readonly) and front:
+        hit = detect_commit_no_verify(log_path)
+    if hit:
+        journal_chip("commit_no_verify", front=front, run_id=run_id)
     entry = {
         "ts": time.time(),
         "kind": "end",
@@ -500,6 +919,8 @@ def journal_end(run_id, log_path, exit_code, session=None):
     }
     if session is not None:
         entry["session"] = session
+    if hit:
+        entry["commit_no_verify"] = True
     orchlib.journal_append(entry)
     # Снять lock автопрокурора, если это был он.
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
@@ -534,12 +955,14 @@ def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
 
 def start_watcher(pid, log_path, pid_path, stall_s, wall_deadline,
                   last_mtime, last_size, run_prompt_file, model,
-                  session=None):
+                  session=None, state=None, run_id=None, front=None,
+                  readonly=False):
     """Запуск detached --__watch (общий для --detach и авто-уступки).
 
     Минимальная схема argv dual-timer (A3):
       --__watch <pid> <log_path> <pid_path> <stall_s> <wall_deadline>
-                <last_mtime> <last_size> [run_prompt_file [model [session]]]
+                <last_mtime> <last_size> [run_prompt_file [model [session
+                [state [run_id [front [readonly]]]]]]]
     wall_deadline — абсолютный unix time (t0+max_wall; yield/retry = тот же
     абсолют, НЕ полный запас заново). last_mtime/last_size — стартовый якорь
     stall (= st_mtime/st_size лога, НЕ now()).
@@ -547,16 +970,21 @@ def start_watcher(pid, log_path, pid_path, stall_s, wall_deadline,
     watch_cmd = [sys.executable, os.path.abspath(__file__), "--__watch",
                  str(pid), log_path, pid_path, str(int(stall_s)),
                  str(wall_deadline), str(last_mtime), str(int(last_size)),
-                 run_prompt_file or "", model, session or ""]
+                 run_prompt_file or "", model, session or "",
+                 state or "", run_id or "", front or "",
+                 "1" if readonly else "0"]
     # наследует ORCH_RUN_ID из os.environ (выставлен родителем до вызова)
     wkwargs = detach_popen_kwargs()
-    wkwargs["env"] = dict(os.environ)
+    wenv = dict(os.environ)
+    if front:
+        wenv["ORCH_FRONT"] = str(front)
+    wkwargs["env"] = wenv
     subprocess.Popen(watch_cmd, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, **wkwargs)
 
 
 def run_retry_child(run_prompt_file, log_path, pid_path, stall_s,
-                    wall_deadline, model, extra):
+                    wall_deadline, model, extra, front=None):
     """Рестарт cursor-agent как потомок; max_wall = остаток (wall_deadline)."""
     exe = find_cursor_agent()
     if not exe:
@@ -569,11 +997,11 @@ def run_retry_child(run_prompt_file, log_path, pid_path, stall_s,
     log_fh = open(log_path, "a", encoding="utf-8")
     cmd = build_agent_cmd(exe, model, extra, readonly=is_readonly_env())
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log_fh,
-                            stderr=subprocess.STDOUT, **agent_popen_kwargs())
+                            stderr=subprocess.STDOUT,
+                            **agent_popen_kwargs(front=front))
     feed_prompt_stdin(proc, prompt)
     try:
-        with open(pid_path, "w", encoding="utf-8") as f:
-            f.write(str(proc.pid))
+        write_pid_file(pid_path, proc.pid)
     except Exception:
         pass
     # остаток max_wall через абсолютный wall_deadline; stall якорь = текущий лог
@@ -585,20 +1013,26 @@ def run_retry_child(run_prompt_file, log_path, pid_path, stall_s,
 
 
 def apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
-                  run_prompt_file, retry_on_fail, model, extra):
-    """Автоперезапуск при 4/124; 125 WALL не в RETRYABLE; max_wall = остаток."""
+                  run_prompt_file, retry_on_fail, model, extra,
+                  state=None, run_id=None, session=None, front=None):
+    """Автоперезапуск при 4/124; TOMBSTONE → не респаун; 125 WALL не в RETRYABLE."""
     retries = 0
     max_r = int(retry_on_fail)
     while str(code) in RETRYABLE and retries < max_r:
+        if state and run_id and tombstone_exists(state, run_id, session):
+            append_log(log_path, "TOMBSTONE: retry отменён (kill вручную)")
+            break
         retries += 1
         append_log(log_path, "RETRY=%d/%d (prev EXIT=%s)" % (retries, max_r, code))
         code = run_retry_child(run_prompt_file, log_path, pid_path,
-                               stall_s, wall_deadline, model, extra)
+                               stall_s, wall_deadline, model, extra,
+                               front=front)
     return code
 
 
 def watch(pid, log_path, pid_path, stall_s, wall_deadline, last_mtime,
-          last_size, run_prompt_file=None, model="auto", session=None):
+          last_size, run_prompt_file=None, model="auto", session=None,
+          state=None, run_id=None, front=None, readonly=False):
     """Detach-watcher: dual-timer stall(mtime+size) / max_wall; retry 4/124."""
     last_mtime = float(last_mtime)
     last_size = int(last_size)
@@ -652,9 +1086,13 @@ def watch(pid, log_path, pid_path, stall_s, wall_deadline, last_mtime,
         sys.stderr.write("%s\n" % e)
         sys.exit(10)
     retry_on_fail = int(params.get("execution", {}).get("retry_on_fail", 1))
+    st = state or orchlib.find_state_dir()
+    rid = run_id or os.environ.get("ORCH_RUN_ID")
     if run_prompt_file:
         code = apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
-                             run_prompt_file, retry_on_fail, model, [])
+                             run_prompt_file, retry_on_fail, model, [],
+                             state=st, run_id=rid, session=session,
+                             front=front)
 
     try:
         with open(log_path, "a", encoding="utf-8") as f:
@@ -662,7 +1100,8 @@ def watch(pid, log_path, pid_path, stall_s, wall_deadline, last_mtime,
         os.unlink(pid_path)
     except Exception:
         pass
-    journal_end(os.environ.get("ORCH_RUN_ID"), log_path, code, session=session)
+    journal_end(rid, log_path, code, session=session, front=front,
+                readonly=readonly)
 
 
 def detach_popen_kwargs():
@@ -671,25 +1110,6 @@ def detach_popen_kwargs():
         return {"start_new_session": True}
     # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS — не умирать при закрытии консоли
     return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008}
-
-
-def pid_alive(pid):
-    try:
-        if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
-                                 stdout=subprocess.PIPE,
-                                 encoding="utf-8", errors="replace").stdout
-            pid_s = str(pid)
-            for line in out.splitlines():
-                if not line.strip():
-                    continue
-                if pid_s in line.split():  # точное совпадение токена, не подстрока
-                    return True
-            return False
-        os.kill(pid, 0)
-        return True
-    except Exception:
-        return False
 
 
 def resolve_run_paths(state, run_id, session=None):
@@ -703,27 +1123,19 @@ def resolve_run_paths(state, run_id, session=None):
 
 
 def check_duplicate_id_guard(state, run_id, session=None, force=False):
-    """Отказ exit 11, если pid-файл есть и процесс жив. --force обходит только этот гард."""
+    """Отказ exit 11, если pid-файл есть и процесс жив (pid+starttime). --force обходит."""
     if force:
         return None
     _log_path, pid_path = resolve_run_paths(state, run_id, session)
     if not os.path.isfile(pid_path):
         return None
-    pid = read_pid_file(pid_path)
-    if pid is None or not pid_alive(pid):
+    if not run_pid_is_alive(pid_path):
         return None
+    pid = read_pid_file(pid_path)
     sys.stderr.write(
         "id %s занят живым прогоном (pid %s); используйте другой id или --force\n"
         % (run_id, pid))
     return 11
-
-
-def read_pid_file(pid_path):
-    try:
-        with open(pid_path, "r", encoding="utf-8") as f:
-            return int(f.read().strip())
-    except Exception:
-        return None
 
 
 def last_marker_line(log_path):
@@ -750,7 +1162,9 @@ def collect_run_info(run_id, log_path, pid_path):
     except Exception:
         age_s = None
     pid = read_pid_file(pid_path) if pid_path else None
-    alive = bool(pid is not None and pid_alive(pid))
+    alive = bool(pid is not None and (
+        run_pid_is_alive(pid_path) if pid_path and os.path.isfile(pid_path)
+        else pid_alive(pid)))
     analyzed = verdict_mod.analyze(log_path)
     # exit из EXIT=; если маркера ещё нет — классификация по хвосту (classify_log)
     exit_code = analyzed.get("exit") or "UNKNOWN"
@@ -890,16 +1304,21 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
         # Dual-timer argv (см. start_watcher):
         # --__watch pid log pid_path stall_s wall_deadline last_mtime last_size
-        #           [run_prompt_file [model [session]]]
+        #           [run_prompt [model [session [state [run_id [front [ro]]]]]]]
         argv = sys.argv
         run_prompt = argv[9] if len(argv) > 9 else None
         if run_prompt == "":
             run_prompt = None
         model = argv[10] if len(argv) > 10 else "auto"
         session = argv[11] if len(argv) > 11 and argv[11] else None
+        wstate = argv[12] if len(argv) > 12 and argv[12] else None
+        run_id = argv[13] if len(argv) > 13 and argv[13] else None
+        front = argv[14] if len(argv) > 14 and argv[14] else None
+        readonly = (len(argv) > 15 and argv[15] in ("1", "true", "True"))
         watch(argv[2], argv[3], argv[4],
               int(argv[5]), float(argv[6]), float(argv[7]), int(float(argv[8])),
-              run_prompt, model, session)
+              run_prompt, model, session,
+              state=wstate, run_id=run_id, front=front, readonly=readonly)
         return 0
 
     ap = argparse.ArgumentParser(description=__doc__)
@@ -929,6 +1348,10 @@ def main():
                     help="статус прогона --id (лог/pid/exit/вердикт); exit 0")
     ap.add_argument("--list", action="store_true",
                     help="список прогонов state (и runs при --session); exit 0")
+    ap.add_argument("--kill", default=None, metavar="ID",
+                    help="точный id: TOMBSTONE + journal killed + kill дерева")
+    ap.add_argument("--unkill", default=None, metavar="ID",
+                    help="удалить TOMBSTONE для id (явное разрешение retry)")
     ap.add_argument("--no-reground-line", action="store_true",
                     help="не доклеивать строку самопроверки в промт")
     ap.add_argument("--role", default=None,
@@ -959,8 +1382,15 @@ def main():
             sys.stderr.write("--status требует --id\n")
             return 2
         return cmd_status(state, a.id, a.session)
+    if a.kill:
+        return cmd_kill(state, a.kill, a.session)
+    if a.unkill:
+        return cmd_unkill(state, a.unkill, a.session)
     if not a.id:
-        ap.error("--id обязателен (кроме --list)")
+        ap.error("--id обязателен (кроме --list/--kill/--unkill/--status)")
+
+    # TTL/GC tombstones при старте любого прогона
+    sweep_tombstones(state)
 
     # Гард дубль-id: после --status/--list, до создания процессов.
     dup_rc = check_duplicate_id_guard(state, a.id, a.session, force=a.force)
@@ -996,7 +1426,8 @@ def main():
         pid_path = os.path.join(state, "cursor-run-%s.pid" % a.id)
 
     # Порядок: (а) роль по каталогу → 12; (б) FRONT_REQUIRED → 8; (в) секрет → 5;
-    # (г) exe → 3; (д) front/bump → 6/7/FRONT_RUNS. Гейт-отказы: journal start+end.
+    # (г) exe → 3; (д) front/bump → 6/7/FRONT_RUNS; (е) dual-writer → 13.
+    # Гейт-отказы: journal start+end.
     role = orchlib.resolve_run_role(a.role, prompt)
     readonly = bool(a.readonly)
     if role is not None and not a.allow_unknown_role:
@@ -1042,6 +1473,19 @@ def main():
                             session=a.session)
         return gate_rc
 
+    # Dual-writer ДО journal_start (отказ — journal_gate_refuse-пара)
+    dual_rc, dual_msg = check_dual_writer_guard(
+        a.front, a.id, state, session=a.session, readonly=readonly)
+    if dual_rc is not None:
+        append_log(log_path, dual_msg)
+        sys.stderr.write(dual_msg + "\n")
+        journal_chip("multi_write_front", front=a.front, run_id=a.id,
+                     extra={"other_id": dual_msg.rsplit(" ", 1)[-1]})
+        journal_gate_refuse(a.id, prompt_file, a.front, role, log_path, dual_rc,
+                            readonly=readonly, no_front_reason=no_front_reason,
+                            session=a.session)
+        return dual_rc
+
     # летописец: parent до перезаписи ORCH_RUN_ID; start до Popen
     prompt_abs = os.path.abspath(prompt_file)
     if readonly:
@@ -1052,9 +1496,36 @@ def main():
                   readonly=readonly, no_front_reason=no_front_reason,
                   session=a.session)
     os.environ["ORCH_RUN_ID"] = a.id
+    if a.front:
+        os.environ["ORCH_FRONT"] = a.front
+    else:
+        os.environ.pop("ORCH_FRONT", None)
+
+    # TOCTOU: сразу после journal_start до Popen — младший само-отказ
+    dual_rc2, dual_msg2 = check_dual_writer_guard(
+        a.front, a.id, state, session=a.session, readonly=readonly,
+        toctou=True)
+    if dual_rc2 is not None:
+        append_log(log_path, dual_msg2)
+        sys.stderr.write(dual_msg2 + "\n")
+        write_tombstone(state, a.id, prev_pid=None, session=a.session,
+                        reason="dual_writer_toctou")
+        journal_chip("multi_write_front", front=a.front, run_id=a.id)
+        # end-запись (start уже есть) — без Popen / без SIGKILL чужого
+        verdict, gates = orchlib.journal_log_meta(log_path)
+        orchlib.journal_append({
+            "ts": time.time(), "kind": "end", "id": a.id,
+            "exit": dual_rc2, "verdict": verdict, "gates": gates,
+            **({"session": a.session} if a.session else {}),
+        })
+        orchlib.release_auto_prosecutor_lock_if_any(a.id)
+        return dual_rc2
 
     if not a.no_reground_line:
         prompt += REGROUND_LINE.format(path=prompt_abs)
+    # A2-манифест: НЕ-readonly + --front
+    if (not readonly) and a.front:
+        prompt = inject_a2_ownership(prompt, a.front, state_dir=state)
     # F-RULES R2/R4: tried-before + прецеденты в КОПИЮ промта, до двигателя
     komu = orchlib.role_to_komu(role)
     prec_lines = []
@@ -1088,7 +1559,7 @@ def main():
     for line in gate_lines:
         log_fh.write(line if line.endswith("\n") else line + "\n")
     log_fh.flush()
-    kwargs = agent_popen_kwargs(a.id)
+    kwargs = agent_popen_kwargs(a.id, front=a.front)
     # t0 = первый старт агента; wall_deadline абсолютен на весь прогон+retry
     t0 = time.time()
     wall_deadline = t0 + float(max_wall_s)
@@ -1096,14 +1567,19 @@ def main():
                             stderr=subprocess.STDOUT, **kwargs)
     feed_prompt_stdin(proc, prompt)
 
-    with open(pid_path, "w", encoding="utf-8") as f:
-        f.write(str(proc.pid))
+    try:
+        write_pid_file(pid_path, proc.pid)
+    except Exception:
+        with open(pid_path, "w", encoding="utf-8") as f:
+            f.write(str(proc.pid))
 
     lm, ls = log_progress(log_path)
     if a.detach:
         # watcher допишет EXIT= и при 4/124 рестартнет агента как своего потомка
         start_watcher(proc.pid, log_path, pid_path, stall_s, wall_deadline,
-                      lm, ls, run_prompt_file, a.model, a.session)
+                      lm, ls, run_prompt_file, a.model, a.session,
+                      state=state, run_id=a.id, front=a.front,
+                      readonly=readonly)
         sys.stdout.write("started pid=%s log=%s\n" % (proc.pid, log_path))
         # fd родителя: потомок держит свой dup; без close — утечка в detach
         log_fh.close()
@@ -1118,7 +1594,9 @@ def main():
         # запас max_wall заново); --yield-after таймеры не сбрасывает
         lm2, ls2 = log_progress(log_path)
         start_watcher(proc.pid, log_path, pid_path, stall_s, wall_deadline,
-                      lm2, ls2, run_prompt_file, a.model, a.session)
+                      lm2, ls2, run_prompt_file, a.model, a.session,
+                      state=state, run_id=a.id, front=a.front,
+                      readonly=readonly)
         sys.stdout.write(
             "yield: ожидание >%ss — прогон продолжается в фоне "
             "(переживает смерть этой сессии). pid=%s лог=%s. "
@@ -1127,7 +1605,9 @@ def main():
         return 0
 
     code = apply_retries(code, log_path, pid_path, stall_s, wall_deadline,
-                         run_prompt_file, retry_on_fail, a.model, a.extra)
+                         run_prompt_file, retry_on_fail, a.model, a.extra,
+                         state=state, run_id=a.id, session=a.session,
+                         front=a.front)
 
     # foreground: маркер до EXIT= (агент уже завершён)
     check_compass_overflow(log_path, a.session, set(), allow_log_write=True)
@@ -1138,7 +1618,8 @@ def main():
         os.unlink(pid_path)
     except OSError:
         pass
-    journal_end(a.id, log_path, code, session=a.session)
+    journal_end(a.id, log_path, code, session=a.session, front=a.front,
+                readonly=readonly)
     try:
         out_code = int(code)
     except ValueError:
