@@ -1784,11 +1784,39 @@ def _dir_lock_acquire(lock_dir, timeout_s=5.0, stale_s=30.0):
                 time.sleep(sleep_s)
                 sleep_s = min(sleep_s * 1.5, 0.5)
                 continue
+            # Claim new lock WHILE holding gate — иначе окно rename→mkdir
+            # даёт второму вору mkdir до owner/heartbeat.
+            claimed = False
+            try:
+                os.mkdir(lock_dir)
+                try:
+                    _dir_lock_write_owner(lock_dir, token)
+                except Exception as exc:
+                    try:
+                        os.rmdir(lock_dir)
+                    except Exception:
+                        pass
+                    try:
+                        sys.stderr.write(
+                            "orchlib: lock owner write failed: %s\n" % exc)
+                    except Exception:
+                        pass
+                else:
+                    _dir_lock_start_heartbeat(lock_dir, token, stale_s)
+                    claimed = True
+            except Exception:
+                claimed = False
             _dir_lock_cleanup_stolen(stolen)
             try:
                 os.rmdir(gate)
             except Exception:
                 pass
+            if claimed:
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(sleep_s)
+            sleep_s = min(sleep_s * 1.5, 0.5)
             continue
         except Exception as exc:
             try:
