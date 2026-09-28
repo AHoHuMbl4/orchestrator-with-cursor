@@ -1367,45 +1367,13 @@ def cmd_probe(a, state):
         return orchlib.FRONT_REQUIRED_EXIT
     a.front = front_out
 
-    # статус closed — да; bump бюджета — да; dual-writer — нет (не агент-писатель)
-    if a.front:
-        front_status = getattr(orchlib, "front_status", None)
-        if callable(front_status):
-            status = front_status(a.front)
-            if status in ("cancelled", "rejected"):
-                append_log(log_path, "FRONT_CLOSED=%s" % a.front)
-                journal_gate_refuse(
-                    run_id, None, a.front, role, log_path, 6,
-                    no_front_reason=no_front_reason, session=session)
-                return 6
-        bump = getattr(orchlib, "bump_front_runs", None)
-        if callable(bump):
-            try:
-                used, warn, hard = bump(a.front)
-                append_log(log_path, "FRONT_RUNS=%s %s warn=%s hard=%s" % (
-                    a.front, used, warn, hard))
-                if hard > 0 and used > hard:
-                    append_log(log_path, "BUDGET_HARD=%s %s/%s" % (
-                        a.front, used, hard))
-                    journal_gate_refuse(
-                        run_id, None, a.front, role, log_path, 7,
-                        no_front_reason=no_front_reason, session=session)
-                    return 7
-            except RuntimeError as exc:
-                msg = str(exc)
-                if "front-runs lock busy" in msg:
-                    append_log(log_path, "FRONT_LOCK_BUSY=%s" % a.front)
-                    journal_gate_refuse(
-                        run_id, None, a.front, role, log_path, 9,
-                        no_front_reason=no_front_reason, session=session)
-                    return 9
-                if "front-runs closed" in msg:
-                    append_log(log_path, "FRONT_CLOSED=%s" % a.front)
-                    journal_gate_refuse(
-                        run_id, None, a.front, role, log_path, 6,
-                        no_front_reason=no_front_reason, session=session)
-                    return 6
-                raise
+    # гейты фронта — apply_front_gates; dual-writer — нет (probe не агент-писатель)
+    gate_rc, _ = apply_front_gates(a.front, log_path)
+    if gate_rc is not None:
+        journal_gate_refuse(
+            run_id, None, a.front, role, log_path, gate_rc,
+            no_front_reason=no_front_reason, session=session)
+        return gate_rc
 
     # parent ORCH_RUN_ID ещё не перезаписан — journal_start зафиксирует parent
     journal_start(run_id, None, a.front, role, engine="local",
