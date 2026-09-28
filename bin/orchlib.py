@@ -4248,10 +4248,13 @@ _PROBE_BLOCK_KEYS = (
 )
 _PROBE_CLASS_RE = re.compile(
     r"класс-доказательства:\s*(function|oracle|narrative)\b", re.I)
+# ADDITIVE MARKER: RCPT-A generator/cmd_sha256 fields (compat dual-read)
 _RECEIPT_FIELD_RE = re.compile(
-    r"(?m)^\s*(probe|cmd|exit|oracle_match|ts|critic_id|artifact)\s*:\s*(.*\S)\s*$")
+    r"(?m)^\s*(probe|cmd|exit|oracle_match|ts|critic_id|artifact"
+    r"|generator|cmd_sha256)\s*:\s*(.*\S)\s*$")
 _RECEIPT_INLINE_RE = re.compile(
-    r"\b(probe|cmd|exit|oracle_match|ts|critic_id|artifact)\s*:\s*([^;]+)")
+    r"\b(probe|cmd|exit|oracle_match|ts|critic_id|artifact"
+    r"|generator|cmd_sha256)\s*:\s*([^;]+)")
 
 
 def _role_is_code_or_fix_wave(role):
@@ -4500,15 +4503,234 @@ def find_probe_receipts(run_id, state=None):
     return out
 
 
-def wave_has_valid_probe_receipt(run_id, state=None):
-    """True если есть ≥1 валидная квитанция §3 на артефакт волны."""
-    art = wave_probe_artifact_path(run_id, state=state)
-    for path in find_probe_receipts(run_id, state=state):
-        ok, _reason = parse_probe_receipt(
-            _read_text_silent(path), artifact_path=art, run_id=run_id)
-        if ok:
+def _receipt_require_generator(state=None):
+    """params receipt.require_generator; отсутствует/ошибка → False (fail-open)."""
+    try:
+        if state is None:
+            state = find_state_dir()
+        pf = os.path.join(state, "params.json")
+        if not os.path.isfile(pf):
+            return False
+        with open(pf, "r", encoding="utf-8-sig") as f:
+            p = json.load(f)
+        if not isinstance(p, dict):
+            return False
+        receipt = p.get("receipt")
+        if not isinstance(receipt, dict):
+            return False
+        return bool(receipt.get("require_generator", False))
+    except Exception:
+        return False
+
+
+def _receipt_records_have_generator(text):
+    """True если ≥1 запись квитанции несёт непустой generator."""
+    for rec in _parse_receipt_records(text):
+        gen = str(rec.get("generator") or "").strip()
+        if gen:
             return True
     return False
+
+
+def write_probe_receipt(
+        probe, cmd, exit_code, oracle_match, critic_id, artifact,
+        run_id=None, path=None, state=None, **kwargs):
+    """Единственный writer квитанций §3 → (ok, path|reason).
+
+    ts=time.time() только внутри; параметр ts извне отвергается.
+    generator=orch-probe-receipt/<kit_version()>; cmd_sha256=sha256(cmd utf-8).
+    Multi-record append; после записи — parse_probe_receipt; fail → откат.
+    """
+    if "ts" in kwargs:
+        return False, "ts_rejected"
+    if kwargs:
+        return False, "unexpected_kwargs:%s" % ",".join(sorted(kwargs))
+    if state is None:
+        state = find_state_dir()
+    if path is None:
+        if not run_id:
+            return False, "path_or_run_id_required"
+        d = find_run_dir(run_id, state=state)
+        if not d:
+            d = os.path.join(state, "runs", str(run_id))
+            try:
+                os.makedirs(d, exist_ok=True)
+            except Exception as e:
+                return False, "mkdir_failed:%s" % e
+        path = os.path.join(d, "probe-receipt.md")
+    try:
+        om = oracle_match
+        if isinstance(om, bool):
+            om_s = "true" if om else "false"
+        else:
+            om_s = str(om).strip().lower()
+            if om_s not in ("true", "false"):
+                return False, "oracle_match_bad"
+        exit_s = str(int(exit_code))
+    except (TypeError, ValueError):
+        return False, "exit_not_int"
+    cmd_s = "" if cmd is None else str(cmd)
+    ts = time.time()
+    generator = "orch-probe-receipt/%s" % kit_version()
+    cmd_sha = hashlib.sha256(cmd_s.encode("utf-8")).hexdigest()
+    block = (
+        "probe: %s\n"
+        "cmd: %s\n"
+        "exit: %s\n"
+        "oracle_match: %s\n"
+        "ts: %s\n"
+        "critic_id: %s\n"
+        "artifact: %s\n"
+        "generator: %s\n"
+        "cmd_sha256: %s\n"
+    ) % (
+        probe, cmd_s, exit_s, om_s, ts, critic_id, artifact,
+        generator, cmd_sha,
+    )
+    prev = None
+    existed = os.path.isfile(path)
+    if existed:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                prev = f.read()
+        except Exception as e:
+            return False, "read_failed:%s" % e
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            if existed and prev and not prev.endswith("\n"):
+                f.write("\n")
+            if existed and prev and prev.strip():
+                f.write("\n")
+            f.write(block)
+        with open(path, "r", encoding="utf-8") as f:
+            full = f.read()
+    except Exception as e:
+        return False, "write_failed:%s" % e
+    art_path = None
+    if run_id:
+        art_path = wave_probe_artifact_path(run_id, state=state)
+    if art_path is None and artifact and os.path.isfile(str(artifact)):
+        art_path = str(artifact)
+    ok, reason = parse_probe_receipt(
+        full, artifact_path=art_path, run_id=run_id)
+    if not ok:
+        try:
+            if not existed:
+                os.unlink(path)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(prev if prev is not None else "")
+        except Exception:
+            pass
+        return False, "validate_failed:%s" % reason
+    return True, path
+
+
+def wave_has_valid_probe_receipt(run_id, state=None):
+    """True если есть ≥1 валидная квитанция §3 на артефакт волны.
+
+    ADDITIVE: при params receipt.require_generator=true квитанции без
+    generator не снимают probes_missing (fail-open: ключ отсутствует → false).
+    parse_probe_receipt без params-ветки.
+    """
+    if state is None:
+        state = find_state_dir()
+    art = wave_probe_artifact_path(run_id, state=state)
+    require_gen = _receipt_require_generator(state=state)
+    for path in find_probe_receipts(run_id, state=state):
+        text = _read_text_silent(path)
+        ok, _reason = parse_probe_receipt(
+            text, artifact_path=art, run_id=run_id)
+        if not ok:
+            continue
+        if require_gen and not _receipt_records_have_generator(text):
+            continue
+        return True
+    return False
+
+
+# ADDITIVE MARKER: RCPT-A receipt_handmade begin
+def receipt_handmade(state=None, scan_limit=None):
+    """run_ids волн кода/фикса active-фронтов с квитанцией без generator.
+
+    WARN-скоп (не влияет на probes_missing). Тихие ошибки → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if scan_limit is None:
+            scan_limit = HEALTH_JOURNAL_SCAN_LIMIT
+        path = os.path.join(state, "journal.jsonl")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            return []
+        except Exception:
+            return []
+        if scan_limit and len(lines) > scan_limit:
+            lines = lines[-int(scan_limit):]
+        entries = []
+        for raw in lines:
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+        starts_by_id = _journal_start_index(entries)
+        data = _load_fronts_at(state)
+        active_fids = set()
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            if fr.get("status") != "active":
+                continue
+            fid = fr.get("id")
+            if isinstance(fid, str) and fid:
+                active_fids.add(fid)
+        out = []
+        seen = set()
+        for e in entries:
+            if e.get("kind") != "end":
+                continue
+            rid = e.get("id")
+            if not rid or rid in seen:
+                continue
+            st = starts_by_id.get(rid)
+            if not st:
+                continue
+            fid = st.get("front")
+            if fid not in active_fids:
+                continue
+            if not _role_is_code_or_fix_wave(st.get("role")):
+                continue
+            if st.get("readonly"):
+                continue
+            if _end_is_gate_refuse(e.get("exit"), e.get("gates") or []):
+                continue
+            handmade = False
+            for rpath in find_probe_receipts(rid, state=state):
+                text = _read_text_silent(rpath)
+                records = _parse_receipt_records(text)
+                if not records:
+                    continue
+                if not _receipt_records_have_generator(text):
+                    handmade = True
+                    break
+            if handmade:
+                out.append(rid)
+                seen.add(rid)
+        return out
+    except Exception:
+        return []
+# ADDITIVE MARKER: RCPT-A receipt_handmade end
 
 
 def probes_missing(state=None, scan_limit=None):
@@ -5262,6 +5484,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         # MW2-A: journal kind=chip (входы пишет MW2-B)
         "multi_write_front": [],
         "commit_no_verify": [],
+        # ADDITIVE MARKER: RCPT-A receipt_handmade
+        "receipt_handmade": [],
     }
     try:
         if state is None:
@@ -5573,6 +5797,11 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 state=state, kit_dir=kit_dir, reported_probes=probes)
         except Exception:
             silenced = []
+        # ADDITIVE MARKER: RCPT-A receipt_handmade
+        try:
+            handmade = receipt_handmade(state=state, scan_limit=scan_limit)
+        except Exception:
+            handmade = []
 
         # F-C1 D2: general_resume_chain (wire) + warn fallback (journal)
         try:
@@ -5622,6 +5851,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "general_resume_chain_warn": resume_warn,
             "multi_write_front": multi_write_front,
             "commit_no_verify": commit_no_verify,
+            # ADDITIVE MARKER: RCPT-A receipt_handmade
+            "receipt_handmade": handmade,
         }
         _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
@@ -5657,6 +5888,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "general_resume_chain_warn": resume_warn,
             "multi_write_front": multi_write_front,
             "commit_no_verify": commit_no_verify,
+            # ADDITIVE MARKER: RCPT-A receipt_handmade
+            "receipt_handmade": handmade,
         }
     except Exception:
         return empty
