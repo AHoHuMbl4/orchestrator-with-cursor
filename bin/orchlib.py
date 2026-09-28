@@ -802,18 +802,38 @@ def sessions_dir():
 SESSION_ID_MAX = 64  # Windows MAX_PATH: короче id — меньше риск упереться в лимит
 
 
+def _safe_encode(raw):
+    """Percent-encode session id: '%'→'%%', then non-[A-Za-z0-9._-] → %XX (UTF-8 bytes).
+
+    No truncation — callers apply [:SESSION_ID_MAX] where needed.
+    """
+    s = str(raw or "default")
+    out = []
+    for ch in s:
+        if ch == "%":
+            out.append("%%")
+        elif (
+            ("A" <= ch <= "Z")
+            or ("a" <= ch <= "z")
+            or ("0" <= ch <= "9")
+            or ch in "._-"
+        ):
+            out.append(ch)
+        else:
+            for b in ch.encode("utf-8"):
+                out.append("%%%02X" % b)
+    return "".join(out)
+
+
 def safe_name(session_id):
-    """Инъективное имя: сначала '_'→'__', затем небезопасные символы (в т.ч. '/')→'_'."""
-    import re
-    s = str(session_id or "default").replace("_", "__")
-    return re.sub(r"[^A-Za-z0-9._-]", "_", s)[:SESSION_ID_MAX] or "default"
+    """Инъективное FS-имя: percent-кодирование (_safe_encode) + усечение SESSION_ID_MAX."""
+    return _safe_encode(session_id)[:SESSION_ID_MAX] or "default"
 
 
 def session_dir(session_id):
-    import re
     orig = str(session_id or "default")
-    # та же инъективная схема, что safe_name (до усечения — legacy existing dirs)
-    raw = re.sub(r"[^A-Za-z0-9._-]", "_", orig.replace("_", "__")) or "default"
+    # та же percent-схема, что safe_name (до усечения — legacy existing dirs)
+    raw = _safe_encode(orig) or "default"
     # legacy ≤80 и имена с list_sessions — не режем, если каталог уже есть
     existing = os.path.join(sessions_dir(), raw)
     if os.path.isdir(existing):
