@@ -8,8 +8,10 @@ State — `.orchestration/` в проекте.
 ## A. Файлы кита (что чем запускать)
 
 - Маршрут: роль из `code/` → код → `run-exec.py`; иначе не-код → `run-cloud.py` (явный executor в params перекрывает)
-- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); dual-timer: `--stall-after` (stall по росту run.log) / `--max-wall` (fuse); `--timeout` — алиас stall («stall/no-output, не wall-clock»); EXIT 124 = STALL (retry), EXIT 125 = WALL (не retry); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id)
-- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); `--http-timeout` на HTTP-вызовы; `--wait` dual-timer: `--stall-after` / `--max-wall` (EXIT 124/125 как у run-exec); `--timeout` — алиас stall; при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона
+- `bin/run-exec.py` — локальный CLI для кода: cursor-agent, промт из файла, лог/EXIT/retry (прямая ФС проекта); обязателен `--front <fid>` или `--no-front "<причина>"` (hierarchy≠off); exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); dual-timer: `--stall-after` (stall по росту run.log) / `--max-wall` (fuse); `--timeout` — алиас stall («stall/no-output, не wall-clock»); EXIT 124 = STALL (retry), EXIT 125 = WALL (не retry); при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; env `ORCH_RUN_ID` — id текущего прогона, наследуется parent→child в local-обёртке (летописец parent; parent≠свой id); env `ORCH_FRONT` — в дочерние при `--front`; A2: вклейка «## Владение (A2)» в промт; kill-протокол: `--kill` ТОЧНЫМ run-id (не подстрокой), tombstone отменяет авторетрай; дубль `--id` при живом → exit 11; второй пишущий ран фронта → exit 13 + чип `multi_write_front`; `--no-verify` в логе коммита → чип `commit_no_verify`
+- `bin/run-cloud.py` — Cursor Cloud для не-кода: create→poll→artifacts (`run` / `status` / `artifacts` / `list`); те же `--front`/`--no-front`; exit 8 = `FRONT_REQUIRED`; exit 9 = `FRONT_LOCK_BUSY` (см. секцию C); `--http-timeout` на HTTP-вызовы; `--wait` dual-timer: `--stall-after` / `--max-wall` (EXIT 124/125 как у run-exec); `--timeout` — алиас stall; при overflow compass пишет маркер `COMPASS_OVERFLOW` в лог прогона; cloud-ран пишущий ТОЛЬКО с `--writable` (иначе аналитик); kill-протокол / dual-writer / A2 — как у run-exec
+- `bin/owns.py` — owns-map: поле `owns` в `fronts.json` = канон владений; гейт активации (`--check-activation`): пересечение owns с active-фронтом = отказ; пустые owns = предупреждение
+- `bin/commit-wave.py` — commit_wave: lock → unexpected staged вне owns → `git add -- <owned>` → `git commit` pathspec → unlock; сырой `git commit -a` / `git add -A` агентам запрещён; сумм `SHA256SUMS` не трогает
 - Таймеры (три класса имён): `http_timeout` — один HTTP-запрос (jev/panel/`--http-timeout`); `stall_after` — нет роста сигнала прогресса (лог/события) → вердикт зависания; `max_wall` — fuse wall-clock, отдельный ярлык. params: `execution.stall_s` (optional) и `execution.max_wall_s` (дефолт 86400); compat: `timeout_s` читается как stall. Канон индустрии no-output: CircleCI `no_output_timeout` / Travis `log-timeout` / Jenkins `activity:true` — НЕ GitHub Actions (там wall)
 - Пример: `run-exec.py --id T1 --front KIT --role code/coder.md --prompt-file P.md`
 - Пример вне фронта: `run-exec.py --id smoke --no-front "smoke" --prompt-file P.md`
@@ -31,7 +33,7 @@ State — `.orchestration/` в проекте.
 - `./panel.sh` (корень проекта после install) — запуск панели → `http://127.0.0.1:8765+`
 - `install-local.sh` / `install-local.ps1` — установка скилла, хуков, `/orch-menu`, panel; по умолчанию `TARGET=$HOME` (установка из папки клона из коробки); тест-режим только при явном `ORCH_TEST_INSTALL=1` (конфиги движков не трогает)
 - `uninstall.sh` / `uninstall.ps1` — снятие установки
-- `SHA256SUMS` — целостность дистрибутива кита
+- `SHA256SUMS` — целостность дистрибутива кита; пересбор — ТОЛЬКО командующий; commit_wave сумм не делает
 - `commands/claude-orch-menu.md` — источник `/orch-menu` для Claude (install → `orch-menu.md`)
 - `commands/codex-orch-menu.md` — источник меню для Codex (install → `~/.codex/prompts/orch-menu.md`)
 - `hooks/` — сниппеты хуков движков (подключает install-local)
@@ -60,7 +62,7 @@ State — `.orchestration/` в проекте.
 - `openrouter.key` — API-ключ OpenRouter (gitignore; панель `/api/openrouter-key`; в UI/API только маска)
 - `counters/` — счётчики хуков (nudge / heartbeat / prompt-submit, …)
 - `discovered.json` — снимок `bin/discover.py`
-- `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`)
+- `<state>/fronts.json` — граф фронтов больших проектов (цель, фронты с ролями/deps/статусами/`owns`; топосорт-волны; циклы отвергаются; `orchlib.load_fronts`); owns = канон владений; гейт активации — пересечение с active = отказ, пустые owns = предупреждение
 - статусы фронта: `proposed` / `active` / `stalled` / `cancelled` / `rejected` / `done` (legacy-алиасы при чтении: planned→proposed, running→active, blocked→stalled, failed→rejected)
 - `<state>/fronts/<id>/order.md` — приказ командующего фронту (цель/границы/критерий/CANON); read-only для генерала
 - `<state>/fronts/<id>/compass.md` — курс фронта только (состояние/TODO/следующий шаг + ссылка на order.md; без текста приказа) (`orchlib.front_compass_path`)
