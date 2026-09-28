@@ -1299,6 +1299,192 @@ def cmd_list(state, session=None):
     return 0
 
 
+def _write_failed_oracle_audit(path, probe, cmd, exit_code, critic_id, artifact):
+    """Аудит-квитанция при oracle_match=false.
+
+    write_probe_receipt волны A откатывает запись: parse требует oracle_match
+    true (снятие probes_missing). Автопуть --probe обязан оставить след
+    провала оракула в том же каноне полей + generator (не второй writer).
+    """
+    import hashlib
+    cmd_s = "" if cmd is None else str(cmd)
+    ts = time.time()
+    generator = "orch-probe-receipt/%s" % orchlib.kit_version()
+    cmd_sha = hashlib.sha256(cmd_s.encode("utf-8")).hexdigest()
+    block = (
+        "probe: %s\n"
+        "cmd: %s\n"
+        "exit: %s\n"
+        "oracle_match: false\n"
+        "ts: %s\n"
+        "critic_id: %s\n"
+        "artifact: %s\n"
+        "generator: %s\n"
+        "cmd_sha256: %s\n"
+    ) % (probe, cmd_s, int(exit_code), ts, critic_id, artifact,
+         generator, cmd_sha)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(block)
+    return path
+
+
+def cmd_probe(a, state):
+    """--probe CMD [--oracle N]: исполнить CMD, квитанция §3, без cursor-agent.
+
+    Журнал — существующий start/end; новых полей нет.
+    Dual-writer/agent-guards не применяются: проба не запускает пишущий агент.
+    """
+    run_id = a.id
+    session = a.session
+    cmd = a.probe
+    oracle = int(a.oracle)
+    # роль кода — чтобы start того же id не выбивал волну из скопа probes_missing
+    role = orchlib.normalize_journal_role(a.role) if a.role else "code/coder.md"
+
+    if session:
+        run_dir = os.path.join(orchlib.session_dir(session), "runs", run_id)
+        os.makedirs(run_dir, exist_ok=True)
+        log_path = os.path.join(run_dir, "run.log")
+        receipt_path = os.path.join(run_dir, "probe-receipt.md")
+    else:
+        os.makedirs(state, exist_ok=True)
+        run_dir = os.path.join(state, "runs", run_id)
+        os.makedirs(run_dir, exist_ok=True)
+        log_path = os.path.join(state, "cursor-run-%s.log" % run_id)
+        receipt_path = os.path.join(run_dir, "probe-receipt.md")
+
+    front_out, no_front_reason, front_refuse = orchlib.resolve_front_launch(
+        a.front, a.no_front)
+    if front_refuse is not None:
+        append_log(log_path, front_refuse)
+        sys.stderr.write(front_refuse + "\n")
+        journal_gate_refuse(
+            run_id, None, None, role, log_path,
+            orchlib.FRONT_REQUIRED_EXIT, session=session)
+        return orchlib.FRONT_REQUIRED_EXIT
+    a.front = front_out
+
+    # статус closed — да; bump бюджета — да; dual-writer — нет (не агент-писатель)
+    if a.front:
+        front_status = getattr(orchlib, "front_status", None)
+        if callable(front_status):
+            status = front_status(a.front)
+            if status in ("cancelled", "rejected"):
+                append_log(log_path, "FRONT_CLOSED=%s" % a.front)
+                journal_gate_refuse(
+                    run_id, None, a.front, role, log_path, 6,
+                    no_front_reason=no_front_reason, session=session)
+                return 6
+        bump = getattr(orchlib, "bump_front_runs", None)
+        if callable(bump):
+            try:
+                used, warn, hard = bump(a.front)
+                append_log(log_path, "FRONT_RUNS=%s %s warn=%s hard=%s" % (
+                    a.front, used, warn, hard))
+                if hard > 0 and used > hard:
+                    append_log(log_path, "BUDGET_HARD=%s %s/%s" % (
+                        a.front, used, hard))
+                    journal_gate_refuse(
+                        run_id, None, a.front, role, log_path, 7,
+                        no_front_reason=no_front_reason, session=session)
+                    return 7
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "front-runs lock busy" in msg:
+                    append_log(log_path, "FRONT_LOCK_BUSY=%s" % a.front)
+                    journal_gate_refuse(
+                        run_id, None, a.front, role, log_path, 9,
+                        no_front_reason=no_front_reason, session=session)
+                    return 9
+                if "front-runs closed" in msg:
+                    append_log(log_path, "FRONT_CLOSED=%s" % a.front)
+                    journal_gate_refuse(
+                        run_id, None, a.front, role, log_path, 6,
+                        no_front_reason=no_front_reason, session=session)
+                    return 6
+                raise
+
+    # parent ORCH_RUN_ID ещё не перезаписан — journal_start зафиксирует parent
+    journal_start(run_id, None, a.front, role, engine="local",
+                  no_front_reason=no_front_reason, session=session)
+    os.environ["ORCH_RUN_ID"] = run_id
+    if a.front:
+        os.environ["ORCH_FRONT"] = a.front
+    else:
+        os.environ.pop("ORCH_FRONT", None)
+
+    env = dict(os.environ)
+    env["ORCH_RUN_ID"] = str(run_id)
+    if a.front:
+        env["ORCH_FRONT"] = str(a.front)
+    else:
+        env.pop("ORCH_FRONT", None)
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as log_fh:
+            log_fh.write("PROBE_CMD=%s\n" % cmd)
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(
+            cmd, shell=True, cwd=os.getcwd(), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        exit_code = int(proc.returncode if proc.returncode is not None else 1)
+        out = proc.stdout or b""
+        if out:
+            try:
+                text = out.decode("utf-8", "replace")
+            except Exception:
+                text = ""
+            if text:
+                append_log(log_path, text.rstrip("\n"))
+    except Exception as e:
+        append_log(log_path, "PROBE_EXEC_ERROR=%s" % e)
+        exit_code = 1
+
+    oracle_match = (exit_code == oracle)
+    ok, info = orchlib.write_probe_receipt(
+        probe=run_id,
+        cmd=cmd,
+        exit_code=exit_code,
+        oracle_match=oracle_match,
+        critic_id=run_id,
+        artifact=run_id,
+        run_id=run_id,
+        path=receipt_path,
+        state=state,
+    )
+    if (not ok) and (not oracle_match) and str(info).startswith(
+            "validate_failed:"):
+        # writer A откатывает failed-oracle (и exit_ne_oracle от §1 артефакта);
+        # аудит-след обязателен для --probe при провале оракула
+        info = _write_failed_oracle_audit(
+            receipt_path, probe=run_id, cmd=cmd, exit_code=exit_code,
+            critic_id=run_id, artifact=run_id)
+        ok = True
+
+    if oracle_match:
+        wrapper_exit = 0
+    else:
+        wrapper_exit = exit_code if exit_code != 0 else 1
+
+    append_log(log_path, "EXIT=%s" % wrapper_exit)
+    journal_end(run_id, log_path, wrapper_exit, session=session, front=a.front)
+
+    if not ok:
+        sys.stderr.write("probe receipt failed: %s\n" % info)
+        sys.stdout.write("fail %s\n" % info)
+        return 1
+
+    status = "ok" if oracle_match else "fail"
+    sys.stdout.write("%s %s\n" % (status, info))
+    return wrapper_exit
+
+
 def main():
     orchlib.utf8_stdio()
     if len(sys.argv) > 1 and sys.argv[1] == "--__watch":
@@ -1365,6 +1551,12 @@ def main():
     ap.add_argument("--allow-unknown-role", action="store_true",
                     help="обойти валидацию роли по каталогу кита (exit 12); "
                          "для технического смоука")
+    ap.add_argument("--probe", default=None, metavar="CMD",
+                    help="исполнить CMD (shell), записать квитанцию §3; "
+                         "без --prompt-file — прогон-проба без cursor-agent")
+    ap.add_argument("--oracle", type=int, default=0,
+                    help="ожидаемый exit CMD (default 0); "
+                         "mismatch → ненулевой exit обёртки")
     ap.add_argument("extra", nargs="*", help="доп. флаги cursor-agent наперед")
     a = ap.parse_args()
 
@@ -1398,6 +1590,10 @@ def main():
         return dup_rc
 
     os.makedirs(state, exist_ok=True)
+
+    # --probe без --prompt-file → прогон-проба без cursor-agent
+    if a.probe is not None and a.prompt_file is None:
+        return cmd_probe(a, state)
 
     run_dir = os.path.join(state, "prompt-%s" % a.id)  # совместимость без --session
     if a.session:
