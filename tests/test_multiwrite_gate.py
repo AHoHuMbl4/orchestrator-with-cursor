@@ -148,15 +148,9 @@ class TestOrchlibActivationGate(unittest.TestCase):
         """Живой замер п.2: owns [a/**] vs active [a/b/**] → отказ со свидетелем."""
         fronts = [
             {"id": "FA", "status": "active", "owns": ["a/b/**"]},
-            {"id": "FB", "status": "proposed", "owns": ["a/**"]},
+            {"id": "FB", "status": "active", "owns": ["a/**"]},
         ]
-        ok, msg = orchlib.check_activation_gate(
-            [
-                {"id": "FA", "status": "active", "owns": ["a/b/**"]},
-                {"id": "FB", "status": "active", "owns": ["a/**"]},
-            ],
-            "FB",
-        )
+        ok, msg = orchlib.check_activation_gate(fronts, "FB")
         self.assertFalse(ok)
         self.assertIsNotNone(msg)
         self.assertIn("пересечение", msg)

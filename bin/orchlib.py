@@ -1428,7 +1428,6 @@ def check_activation_gate(fronts, fid, warn_stream=None):
             sys.path.insert(0, bin_dir)
         import owns as _owns  # noqa: E402
     rows = []
-    me = None
     for fr in fronts or []:
         if not isinstance(fr, dict):
             continue
@@ -1444,37 +1443,17 @@ def check_activation_gate(fronts, fid, warn_stream=None):
             globs = []
         st = fr.get("status") or ""
         rows.append((i, globs, st))
-        if i == fid:
-            me = (i, globs, st)
-    if me is None:
-        return False, "неизвестный фронт"
-    _i, my_owns, _st = me
-    if not my_owns:
+    ok, msg = _owns.check_activation_rows(rows, fid)
+    if ok and msg == "owns пуст":
         try:
             warn_stream.write("owns пуст\n")
             warn_stream.flush()
         except Exception:
             pass
         return True, None
-    for g in my_owns:
-        if not _owns.glob_supported(g):
-            return False, "неподдерживаемый glob: %s" % g
-    for other_id, other_owns, status in rows:
-        if other_id == fid:
-            continue
-        if status != "active":
-            continue
-        if not other_owns:
-            continue
-        for g in other_owns:
-            if not _owns.glob_supported(g):
-                return False, "неподдерживаемый glob: %s" % g
-        for g1 in my_owns:
-            for g2 in other_owns:
-                w = _owns.witness(g1, g2)
-                if w:
-                    return False, "пересечение %s (%s ∩ %s)" % (w, fid, other_id)
-    return True, None
+    if ok:
+        return True, None
+    return False, msg
 
 
 def active_owns_overlap_stats(fronts):
@@ -1527,10 +1506,6 @@ def _gate_activations_before_persist(out, raw_status_by_id):
     fronts = out.get("fronts") if isinstance(out, dict) else []
     if not isinstance(fronts, list):
         return
-    out_ids = []
-    for fr in fronts:
-        if isinstance(fr, dict) and fr.get("id"):
-            out_ids.append(fr["id"])
     activating = []
     for fr in fronts:
         if not isinstance(fr, dict):

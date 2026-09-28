@@ -347,19 +347,23 @@ def check_staged(state_dir, env=None, repo_cwd=None):
     return 0, []
 
 
-def check_activation(state_dir, fid):
-    """C1: пересечение owns(fid) с active (exclude-self)."""
-    rows = load_active_fronts(state_dir)
+def check_activation_rows(rows, fid):
+    """Ядро гейта активации: rows = [(id, owns_globs, status), ...].
+
+    Возврат: (ok: bool, msg: str|None).
+    ok=True, msg=\"owns пуст\" — разрешить (caller может предупредить);
+    ok=True, msg=None — OK; ok=False, msg — отказ.
+    """
     by_id = {r[0]: r for r in rows}
     if fid not in by_id:
-        return 1, ["неизвестный фронт"]
+        return False, "неизвестный фронт"
     _fid, my_owns, _st = by_id[fid]
     if not my_owns:
-        return 0, ["owns пуст"]
+        return True, "owns пуст"
 
     for g in my_owns:
         if not glob_supported(g):
-            return 1, ["неподдерживаемый glob: %s" % g]
+            return False, "неподдерживаемый glob: %s" % g
 
     for other_id, other_owns, status in rows:
         if other_id == fid:
@@ -370,15 +374,24 @@ def check_activation(state_dir, fid):
             continue
         for g in other_owns:
             if not glob_supported(g):
-                return 1, ["неподдерживаемый glob: %s" % g]
+                return False, "неподдерживаемый glob: %s" % g
         for g1 in my_owns:
             for g2 in other_owns:
                 w = witness(g1, g2)
                 if w:
-                    return 1, [
-                        "пересечение %s (%s ∩ %s)" % (w, fid, other_id)
-                    ]
-    return 0, []
+                    return False, "пересечение %s (%s ∩ %s)" % (w, fid, other_id)
+    return True, None
+
+
+def check_activation(state_dir, fid):
+    """C1: пересечение owns(fid) с active (exclude-self)."""
+    rows = load_active_fronts(state_dir)
+    ok, msg = check_activation_rows(rows, fid)
+    if ok and msg == "owns пуст":
+        return 0, ["owns пуст"]
+    if ok:
+        return 0, []
+    return 1, [msg] if msg else ["отказ активации"]
 
 
 def main(argv=None):
