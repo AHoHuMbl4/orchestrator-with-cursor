@@ -53,6 +53,7 @@ fb455cfd10569a45d5c9f4b69693937481688a633a27969a7fe3800c327c2bad  ./rules/cards/
 b897017a6c42cb429c7bbfd5c7f2b35c055c786217102fad2806638638fc1fe5  ./rules/cards/запуск/dont-obertki-sab-progony-iz-cwd-repo-plodyat.md
 fb124fc3b21f464d04cab958ce83a2c5253e91ac1f60d1e0ab5b00202f9db3cf  ./rules/cards/запуск/dont-pkill-prompt.md
 b1a7d241b126aaef0110b9385b2d98dcc9f974f37e28b0a054eadfaf9e96ed38  ./rules/cards/запуск/dont-prompt-argv.md
+3a54752cde6bf14fb00d6165f540d4db2aa8a9d6a776d44f6b0561d2e27baedc  ./rules/cards/код/dont-simp-volna-f-jevfast-nashla-legacy-fail.md
 b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/маршрутизация/dont-role-from-head.md
 5e7cafed752e0f74680910aca5d9ab348a8522f7ba68e1be892c08a8a584c4ed  ./rules/cards/маршрутизация/dont-runtime-hit-in-repo.md
 bc963e09816cb7c1c3b0b483b3d045e6b9b24de36669ba4985256fbb5cd3d7ac  ./rules/cards/приёмка/case-e2e-audit-retro-1.md
@@ -65,7 +66,11 @@ b727cd19b4cfa4b17146a459c695d79201b1cb88006d5dd0605a384e32694769  ./rules/cards/
 d3d59a9b250f03e116449676ee7fcc112c9cc9a23254401764837aba44a4807c  ./rules/cards/приёмка/dont-zamer-na-glaz-ne-tot-kod.md
 673c6123e7aaf74d2d9090c8adf04aa4ee4f398d1a8d6fb0d797eae3c3e588ed  ./rules/cards/промты/do-scan-secrets.md
 9d75ab84e02b0aed7f942baf4178825e4c43d0ef0931743e76133f813ac5c6ae  ./rules/cards/промты/dont-freedom-or.md
+2f4ed5db78c29bfa83c4e11f7b1455d64ecd83ab22a37acdc1a099d492ac2aa8  ./rules/cards/промты/dont-general-na-pule-zai-dvazhdy-zakryval-okn.md
 8b35e4f3601d7d9c66854428f4095098ff9e0763c5b6db1001b332b381124a7a  ./rules/cards/промты/dont-kontrakty-dannyh-fixiruj-v-plane-do-starta.md
+00841b31fb275006415d42c8b3e95fe99f561d683bbc2f219e6fd9a880158a60  ./rules/cards/промты/dont-podmena-promta-volny-sohranila-staruyu-s.md
+555f564639e87d0350847d532bbe65b3fcb2ef471836da4a1f212266173fd11d  ./rules/cards/процессы/case-chip-commit-no-verify-matchit-termin-no.md
+701552a6d34109c27cacb4084cbc38bd5d37886452302f044eb1c5ab57421b62  ./rules/cards/процессы/case-chip-multi-write-front-lovit-lyubye-dva.md
 188a17c2c2944f9d5ac8a8ba5b58d166bf91572a642868befdbe187c9ca1ec4f  ./rules/cards/процессы/case-e2e-audit-retro-2.md
 bc240819cebda0d37dade879e3c471df1fb83b448d3dc37afa18532fe5015252  ./rules/cards/процессы/case-ispolnitel-docs-keeper-zavershilsya-end.md
 9cfe526460664438cdbd73e2507413a13799c6a3210ed46682eb14d5a154e3c5  ./rules/cards/процессы/case-prosecutor-bydesign-vs-retro.md
@@ -80,9 +85,11 @@ abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/
 8f7e399dfb7d055ecd7d9bd0196a82f360224c36922258ca55eec99e53caba2c  ./rules/cards/процессы/dont-krugi-kritikov-v-t-ch-plana-sverh-review.md
 837a86e09f820f475b2c14ddac4b3648c7c7fa98421726ede9846e27da103f62  ./rules/cards/процессы/dont-ne-zapuskat-progony-s-front-f-debts-da-i.md
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
+334920f2edf4c42e35c936c098580adf3b705254d292045a04b550771fb5b4d5  ./rules/cards/процессы/dont-poziciya-vladelca-28-09-kolichestvo-krit.md
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
+c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  ./rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-f2a9ca2e2f46422be2bcbdcff8ca6f6983f208e3ac7bf7552d2d4af073480d4d  ./rules/manifest.json
+d19969f69570e2d85f24e0b867fa4851bcf4c361b73c8c1b4fda1ad5d15c7c2a  ./rules/manifest.json
 900ad4ff1c09f50a3ebf7ceaf7cffb9f37e22b8c963093ea81666faf48f5d6ed  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 a3848e3588bcb724046f8161d79650213b2e12647693296b994f7f1cfbafe434  ./skills/orchestration/references/MAP.md
