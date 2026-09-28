@@ -598,13 +598,25 @@ def safe_name(session_id):
 
 def session_dir(session_id):
     import re
-    raw = re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default")) or "default"
+    orig = str(session_id or "default")
+    raw = re.sub(r"[^A-Za-z0-9._-]", "_", orig) or "default"
     # legacy ≤80 и имена с list_sessions — не режем, если каталог уже есть
     existing = os.path.join(sessions_dir(), raw)
     if os.path.isdir(existing):
-        return existing
-    d = os.path.join(sessions_dir(), raw[:SESSION_ID_MAX])
-    os.makedirs(d, exist_ok=True)
+        d = existing
+    else:
+        d = os.path.join(sessions_dir(), raw[:SESSION_ID_MAX])
+        os.makedirs(d, exist_ok=True)
+    # Алиас sessions/<orig-with-slashes> → safe, чтобы realpath совпадал с safe_name
+    if ("/" in orig or "\\" in orig) and raw != orig:
+        alias = os.path.join(sessions_dir(), orig)
+        parent = os.path.dirname(alias)
+        try:
+            os.makedirs(parent, exist_ok=True)
+            if not os.path.lexists(alias):
+                os.symlink(os.path.relpath(d, parent), alias)
+        except Exception:
+            pass
     return d
 
 
