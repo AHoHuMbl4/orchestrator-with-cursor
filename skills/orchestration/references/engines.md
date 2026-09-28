@@ -139,14 +139,21 @@
 мёртв, статус неизвестен (ловушка №19). Длительность заранее неизвестна — и
 не нужна: foreground-ожидание АВТОМАТИЧЕСКИ уходит в фон через --yield-after
 (480 с по умолчанию, 0 = ждать до конца/таймаута); --detach — явный фон с
-мгновенным возвратом; cloud --wait аналогично в фоне с запасом
-timeout_s+200. Прогноз длительности не требуется.
+мгновенным возвратом; cloud `--wait` аналогично в фоне с запасом
+`timeout_s+200` (**stall/no-output**, не wall-clock): `execution.timeout_s`
+читается как stall (compat); CLI `--stall-after` / optional `execution.stall_s`
+=`stall_after`. Прогноз длительности не требуется.
+
+**Три класса таймеров (не путать):** `http_timeout` — один HTTP-запрос
+(`--http-timeout`); `stall_after` — нет роста сигнала прогресса (лог/события),
+CLI `--stall-after`, params `timeout_s` / optional `stall_s`; `max_wall` —
+fuse wall-clock (`--max-wall` / `max_wall_s`), отдельно от stall.
 
 | режим | поведение |
 |---|---|
 | foreground (дефолт) | ждёт; после `--yield-after` (480 с) — авто-уступка в фон (тот же watcher); `0` = ждать до конца/таймаута |
 | `--detach` | явный фон, мгновенный pid+log |
-| cloud `--wait` | в фоне движка с таймаутом ≥ `timeout_s+200` |
+| cloud `--wait` | в фоне движка с запасом ≥ `timeout_s+200` (маржа над **stall/no-output** `stall_after`, не `max_wall` / не `http_timeout`) |
 
 Контроль: `run-exec --id X --status` (жив / exit / вердикт / лог);
 инвентарь: `run-exec --list`.
