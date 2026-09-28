@@ -7,10 +7,10 @@ cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover
 b6745051a4427856f7848f6b816ac202a62c9bf5469bb01e90dd4bf571e687b9  ./bin/jev-advise.py
 32992f4323cca8e5d498daefdd711abf0dc8d2d826ee89a603318c396944d32d  ./bin/menu.py
 9aa6f9e446f9b863e86b0da8b60635e465f061d21cf5c0eb1d6f7bb035383e67  ./bin/orch-lint.py
-eab910d463b92c5d147b8f2949c66d9b9985a3c5fd8c5d3b122dfd7c44877637  ./bin/orchlib.py
+348b7765c4f8a939fef1d248454ef704232f6e863b9a1670e24018c7326bc016  ./bin/orchlib.py
 daa5be8ee3f536af1fb1e0d2b6f8f4e5d77fe7652b8425672cbb1832b2b490f1  ./bin/reground.py
 222b477b4851bfb3710f5a3db87bbcd0a10a9cb9bf485862e09c75548ef0925d  ./bin/run-cloud.py
-234059c16f2c02012645aa62f617788c37be10a3ae22cf182f312d192da0cc40  ./bin/run-exec.py
+c0ed527c4ceaa87e662e9c1ed7d4101b16c3275d7bfc67d9840df3dd14856b4c  ./bin/run-exec.py
 394a6b605e58a1e694dc2123dca5590dbb575cd12259999a43f69f2a82a2ee6c  ./bin/session-entry.py
 4d4188f9d5fc8396e9dcb896538cca98c131c95b8f68157d3be7faa94b19d112  ./bin/verdict.py
 b1be692d7b4458ee9d4f22e40a320aad0cbd532726b93c239400fd2d422e0401  ./bin/write-compass.py
@@ -23,7 +23,7 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 4dda61c1810f08e7145f5959b01d90502617601d2cdcd3941bdfa5fdcf7ce9d7  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-599f753f821ea06e42f3a70d542a97549a96d7be4a3d4e4cad2a766eb888add9  ./panel/index.html
+6777f9ffb070fac93be55ca0f2543dde63b42cd7af5468d5716124dfcf6076ee  ./panel/index.html
 6d0df409e6ad5ff79c28c64d9ab8736da53d952a1c3caf4ac1ef420968ab314a  ./panel/server.py
 aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./params.json
 0ff1972b0bc43a0cc970462afe6cf6a5529fd1371c54fbb93bbb0f14891aaf7a  ./routing/jev-table.json
@@ -79,10 +79,10 @@ abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/
 f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/процессы/dont-phantom-front-f-debts-da-v-journal-count.md
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-2fb6e59137125e5ed52d828db85e1358ca0235bbfdb5a38dbcc16da54ecce77b  ./rules/manifest.json
+77da4f3b2d0fe5e5d3de678e5df8b8eda7e9ca739a9f5a8958fda466b5fe2205  ./rules/manifest.json
 ee384602dcc5fdb06f491a2467d4946b090ef58ba963add72e844784e602959a  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
-2baef7a25e063793f5a838fd0a6dd7e9dda1089c15b0997dae35f8599beaf8c6  ./skills/orchestration/references/MAP.md
+dcf5b333997661c71865acc4f85eb318366f1763295e0763989ebb46ffb50fcf  ./skills/orchestration/references/MAP.md
 2f8bead3a3bcfa2547022cda5351bf138c2e858ca9a4e6c6efbeedc692e3aa29  ./skills/orchestration/references/engines.md
 a471c545c14bb32e39070450a9d703a3f38865ade66f81b0a11347c291da5088  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
@@ -246,7 +246,7 @@ d23bdfa37717f698ce4bbbc2a7985fde079e24ee7a2644eb09f1648579e198e6  ./skills/orche
 22fbaea3e7ffb0632cf00c7d74b65bf4a117fa07d280bfb2ad15c64f69f75406  ./skills/orchestration/references/traps.md
 184def21c77c8ea8e9ccafcf5eaf44c7c7ac8e03679c4ae6a675bc313b6e89b9  ./tests/cause-cleared-born-at.sh
 67426de5f902f9a3697f0743232e346445927fccfeb2e8cd2b6a2ff572c1c113  ./tests/fresh-install-e2e.sh
-7f740266f5eb6d6b889918dffed0d7d66d1b50835ae347bc408678ed601c4870  ./tests/test_isolation.py
+b8928a7c6cbacfdb070ce883e60173a966f3e4c8d1484725b89146026730c029  ./tests/test_isolation.py
 375d4a98ca793ed32a0429cc52ccf749d000d02bea4470655a59e4d7ea9f6cd4  ./tests/test_panel_keys.sh
 47ed42c6ff5c381d47b34abf3a04076352f49c7fc7b9600afeb05965c1f62e20  ./tests/test_rules_c3_detect.py
 d58e6da50782dcfdf255780e77b5744778163214a85cd7fcbe1d0e116ebd9398  ./uninstall.ps1
