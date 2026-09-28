@@ -86,6 +86,116 @@
         "«безопасно/вреда нет» для редкого вреда без бюджета ≥1/n → не доказано"
       ],
       "fallback": "не доказано (Jev advisory; не использовать как доказательство закрытия)"
+    },
+    {
+      "id": "scout-need",
+      "type": "Noul",
+      "yes_at": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "достаточно ли локальных фактов (репозиторий/журнал кита) — web-разведка НЕ нужна?",
+      "fallback": "звать scout (консервативно)"
+    },
+    {
+      "id": "mechanic-vs-fork",
+      "type": "Noul",
+      "yes_at": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "это механика follow-up (да) или развилка, требующая advisor (нет)?",
+      "fallback": "развилка (advisor)"
+    },
+    {
+      "id": "repair-followup-or-fresh",
+      "type": "Noul",
+      "yes_at": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "ремонт — follow-up на том же контексте (да) или нужен fresh-старт?",
+      "fallback": "follow-up"
+    },
+    {
+      "id": "focus-hint-diff",
+      "type": "Choice",
+      "defer_below": 0.35,
+      "confirm_below": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "выбрать 1–5 тем ИЗ списка для подсветки ревью (темы, НЕ карта путей; N критиков не меняется)",
+      "criteria": [
+        "границы/пороги",
+        "формат данных и швы",
+        "обработка ошибок и fail-open",
+        "инварианты качества/несокращение",
+        "совместимость и legacy",
+        "секреты/безопасность",
+        "производительность/бюджеты",
+        "тестопригодность"
+      ],
+      "fallback": "без подсветки (полный слепой промт)"
+    },
+    {
+      "id": "observer-journal-brief",
+      "type": "Choice",
+      "defer_below": 0.35,
+      "confirm_below": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "выбрать 3–6 категорий для brief_theses",
+      "criteria": [
+        "живые прогоны без end",
+        "красные чипы",
+        "столлы/перезапуски",
+        "эскалации и вердикты",
+        "пробелы приёмки/квитанций",
+        "дубли и конфликты id"
+      ],
+      "fallback": "сырой journal-хвост как сейчас (без сводки)"
+    },
+    {
+      "id": "chip-triage",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "выбрать один id — какой чип разбирать первым",
+      "criteria": [
+        "criteria собираются из входного списка id чипов (stdin JSON)"
+      ],
+      "fallback": "FIFO по списку health (исходный порядок)"
+    },
+    {
+      "id": "retro-card-hint",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "выбрать одну категорию карточки-подсказки по итогам волны",
+      "criteria": [
+        "dont — анти-паттерн/урок ошибки",
+        "do — закрепить успешный приём",
+        "case — кейс-прецедент",
+        "none — карточка не нужна"
+      ],
+      "fallback": "без карточки-подсказки"
+    },
+    {
+      "id": "run-queue-prio",
+      "type": "Score",
+      "defer_below": 0.35,
+      "confirm_below": 0.6,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "приоритет запуска первым (0–3)",
+      "criteria": [
+        "0 — можно последним",
+        "1 — не срочно, после приоритетных",
+        "2 — желательно раньше остальных",
+        "3 — запускать первым"
+      ],
+      "fallback": "исходный порядок плана"
     }
   ]
 }
