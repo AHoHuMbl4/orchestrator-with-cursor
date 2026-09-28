@@ -803,14 +803,17 @@ SESSION_ID_MAX = 64  # Windows MAX_PATH: короче id — меньше рис
 
 
 def safe_name(session_id):
+    """Инъективное имя: сначала '_'→'__', затем небезопасные символы (в т.ч. '/')→'_'."""
     import re
-    return re.sub(r"[^A-Za-z0-9._-]", "_", str(session_id or "default"))[:SESSION_ID_MAX] or "default"
+    s = str(session_id or "default").replace("_", "__")
+    return re.sub(r"[^A-Za-z0-9._-]", "_", s)[:SESSION_ID_MAX] or "default"
 
 
 def session_dir(session_id):
     import re
     orig = str(session_id or "default")
-    raw = re.sub(r"[^A-Za-z0-9._-]", "_", orig) or "default"
+    # та же инъективная схема, что safe_name (до усечения — legacy existing dirs)
+    raw = re.sub(r"[^A-Za-z0-9._-]", "_", orig.replace("_", "__")) or "default"
     # legacy ≤80 и имена с list_sessions — не режем, если каталог уже есть
     existing = os.path.join(sessions_dir(), raw)
     if os.path.isdir(existing):
