@@ -473,7 +473,6 @@ class TestLayerB(IsoTempTestCase):
                getattr(self, "_keys", -1))
         )
 
-    @unittest.expectedFailure  # RED: RMW load→patch→save без критической секции на весь RMW
     def test_b_rmw_fronts_lost_update(self):
         """RED RMW fronts: параллельные patch разных полей → lost update."""
         _seed_params(self.state)
@@ -510,7 +509,6 @@ class TestLayerB(IsoTempTestCase):
             "fronts.json.lock (C1-D); panel import запрещён в ISO-C2"
         )
 
-    @unittest.expectedFailure  # RED: save_params без lock на RMW
     def test_b_rmw_params_lost_update(self):
         """RED RMW params: два patch разных ключей → один потерян."""
         _seed_params(self.state)

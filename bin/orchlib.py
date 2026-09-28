@@ -5,6 +5,7 @@
 Кроссплатформенно (Linux/macOS/Windows), python3.6+, только stdlib.
 Единственный источник правды — .orchestration/params.json (+ compass.md).
 """
+import copy
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 try:
     import fcntl
@@ -488,8 +490,154 @@ def _merge(base, over):
     return out
 
 
+# Process-local snapshots for 3-way RMW merge on save_* (load → patch → save).
+_params_base = None
+_fronts_base = None
+
+
+def _leaf_paths(obj, prefix=()):
+    """Yield (path_tuple, value) for nested dict leaves; lists treated as leaves."""
+    if isinstance(obj, dict):
+        if not obj:
+            yield prefix, obj
+            return
+        for k, v in obj.items():
+            for p, val in _leaf_paths(v, prefix + (k,)):
+                yield p, val
+    else:
+        yield prefix, obj
+
+
+def _get_at(obj, path):
+    cur = obj
+    for k in path:
+        if not isinstance(cur, dict) or k not in cur:
+            return None, False
+        cur = cur[k]
+    return cur, True
+
+
+def _set_at(obj, path, value):
+    cur = obj
+    for k in path[:-1]:
+        nxt = cur.get(k)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cur[k] = nxt
+        cur = nxt
+    cur[path[-1]] = value
+
+
+def _three_way_dict_merge(base, ours, theirs):
+    """3-way merge nested dicts by leaf paths; conflicts prefer ours."""
+    if not isinstance(base, dict):
+        base = {}
+    if not isinstance(ours, dict):
+        ours = {}
+    if not isinstance(theirs, dict):
+        theirs = {}
+    result = copy.deepcopy(theirs)
+    paths = set()
+    for obj in (base, ours, theirs):
+        for p, _v in _leaf_paths(obj):
+            if p:
+                paths.add(p)
+    for path in paths:
+        b, hb = _get_at(base, path)
+        o, ho = _get_at(ours, path)
+        t, ht = _get_at(theirs, path)
+        if not ho:
+            continue
+        if hb and o == b:
+            continue  # we didn't change this leaf
+        # we changed: keep ours if they didn't change, or on conflict
+        if (not ht) or (hb and t == b) or o == t:
+            _set_at(result, path, copy.deepcopy(o))
+        else:
+            _set_at(result, path, copy.deepcopy(o))
+    return result
+
+
+def _fronts_by_id(f):
+    out = {}
+    for fr in (f.get("fronts") if isinstance(f, dict) else None) or []:
+        if isinstance(fr, dict) and isinstance(fr.get("id"), str):
+            out[fr["id"]] = fr
+    return out
+
+
+def _three_way_fronts_merge(base, ours, theirs):
+    """3-way merge fronts.json: top-level fields + per-front leaf fields by id."""
+    if not isinstance(base, dict):
+        base = {"goal": "", "fronts": [], "notes": ""}
+    if not isinstance(ours, dict):
+        ours = {"goal": "", "fronts": [], "notes": ""}
+    if not isinstance(theirs, dict):
+        theirs = {"goal": "", "fronts": [], "notes": ""}
+    result = {
+        "goal": theirs.get("goal", "") if isinstance(theirs.get("goal"), str) else "",
+        "notes": theirs.get("notes", "") if isinstance(theirs.get("notes"), str) else "",
+        "fronts": [],
+    }
+    for field in ("goal", "notes"):
+        b = base.get(field, "")
+        o = ours.get(field, "")
+        t = theirs.get(field, "")
+        if o == b:
+            result[field] = t if isinstance(t, str) else ""
+        else:
+            result[field] = o if isinstance(o, str) else ""
+    bb, oo, tt = _fronts_by_id(base), _fronts_by_id(ours), _fronts_by_id(theirs)
+    order = []
+    for src in (theirs.get("fronts") or [], ours.get("fronts") or [], base.get("fronts") or []):
+        for fr in src:
+            if isinstance(fr, dict) and isinstance(fr.get("id"), str):
+                if fr["id"] not in order:
+                    order.append(fr["id"])
+    for fid in order:
+        bfr = bb.get(fid, {})
+        ofr = oo.get(fid)
+        tfr = tt.get(fid)
+        if ofr is None and tfr is not None:
+            merged = copy.deepcopy(tfr)
+        elif tfr is None and ofr is not None:
+            merged = copy.deepcopy(ofr)
+        elif ofr is None and tfr is None:
+            merged = copy.deepcopy(bfr)
+        else:
+            merged = _three_way_dict_merge(bfr, ofr, tfr)
+            merged["id"] = fid
+        result["fronts"].append(merged)
+    return result
+
+
+def _read_params_file(pf):
+    """Read params.json without seeding or updating snapshot."""
+    with open(pf, "r", encoding="utf-8-sig") as f:
+        data = json.load(f)
+    return _merge(DEFAULTS, data)
+
+
+def _write_params_unlocked(p, pf):
+    d = os.path.dirname(pf)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".params-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(p, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, pf)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
 def load_params():
     """Читает params.json; при первом запуске сеет из шаблона kit/params.json."""
+    global _params_base
     pf = params_file()
     if not os.path.exists(pf):
         tpl = os.path.join(KIT_DIR, "params.json")
@@ -503,13 +651,14 @@ def load_params():
         merged = _merge(DEFAULTS, seed)
         save_params(merged)
         _bootstrap_compass(merged)
+        _params_base = copy.deepcopy(merged)
         return merged
     try:
-        with open(pf, "r", encoding="utf-8-sig") as f:
-            data = json.load(f)
+        result = _read_params_file(pf)
     except Exception as e:
         raise ValueError("params.json битый: %s (путь: %s)" % (e, pf))
-    return _merge(DEFAULTS, data)
+    _params_base = copy.deepcopy(result)
+    return result
 
 
 def validate_params(p):
@@ -541,25 +690,36 @@ def validate_params(p):
     return errs
 
 
-def save_params(p):
+def save_params(p, timeout_s=5.0):
+    """Атомарная запись params.json с 3-way merge под lockdir."""
+    global _params_base
     errs = validate_params(p)
     if errs:
         raise ValueError("; ".join(errs))
     pf = params_file()
     d = os.path.dirname(pf)
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".params-", suffix=".json")
+    lock_dir = pf + ".lock"
+    held = _dir_lock_acquire(lock_dir, timeout_s=timeout_s)
+    if not held:
+        raise RuntimeError("params lock busy: %s" % lock_dir)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(p, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, pf)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+        if os.path.exists(pf):
+            try:
+                current = _read_params_file(pf)
+            except Exception:
+                current = copy.deepcopy(DEFAULTS)
+        else:
+            current = copy.deepcopy(DEFAULTS)
+        base = _params_base if _params_base is not None else copy.deepcopy(current)
+        merged = _three_way_dict_merge(base, p, current)
+        errs = validate_params(merged)
+        if errs:
+            raise ValueError("; ".join(errs))
+        _write_params_unlocked(merged, pf)
+        _params_base = copy.deepcopy(merged)
+    finally:
+        _dir_lock_release(lock_dir)
 
 
 def _bootstrap_compass(p):
@@ -1044,23 +1204,32 @@ def load_fronts():
     Legacy-статусы (planned/running/blocked/failed) мигрируются в канон
     при чтении (in-memory; файл не переписывается).
     """
+    global _fronts_base
     pf = fronts_path()
     if not os.path.exists(pf):
-        return {"goal": "", "fronts": [], "notes": ""}
+        empty = {"goal": "", "fronts": [], "notes": ""}
+        _fronts_base = copy.deepcopy(empty)
+        return empty
     try:
         with open(pf, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
     except Exception:
-        return {"goal": "", "fronts": [], "notes": ""}
+        empty = {"goal": "", "fronts": [], "notes": ""}
+        _fronts_base = copy.deepcopy(empty)
+        return empty
     if not isinstance(data, dict):
-        return {"goal": "", "fronts": [], "notes": ""}
+        empty = {"goal": "", "fronts": [], "notes": ""}
+        _fronts_base = copy.deepcopy(empty)
+        return empty
     fronts = data.get("fronts") if isinstance(data.get("fronts"), list) else []
     _migrate_fronts_list(fronts)
-    return {
+    result = {
         "goal": data.get("goal", "") if isinstance(data.get("goal"), str) else "",
         "fronts": fronts,
         "notes": data.get("notes", "") if isinstance(data.get("notes"), str) else "",
     }
+    _fronts_base = copy.deepcopy(result)
+    return result
 
 
 def front_compass_path(fid):
@@ -1165,9 +1334,11 @@ def save_fronts(f, timeout_s=5.0):
     """Атомарная запись fronts.json после валидации.
 
     Legacy-статусы принимаются и перед записью нормализуются в канон.
-    Запись под каталог-замком fronts.json.lock; при busy — RuntimeError
-    (не ValueError: панель ловит ValueError и пишет в обход замка).
+    Запись под каталог-замком fronts.json.lock с 3-way merge по id фронта;
+    при busy — RuntimeError (не ValueError: панель ловит ValueError и пишет
+    в обход замка).
     """
+    global _fronts_base
     pf = fronts_path()
     d = os.path.dirname(pf)
     os.makedirs(d, exist_ok=True)
@@ -1176,16 +1347,38 @@ def save_fronts(f, timeout_s=5.0):
     if not held:
         raise RuntimeError("fronts lock busy: %s" % lock_dir)
     try:
-        fronts = f.get("fronts") if isinstance(f.get("fronts"), list) else []
-        _migrate_fronts_list(fronts)
-        errs = validate_fronts(f if isinstance(f, dict) else {"fronts": fronts})
+        # re-read current under lock for 3-way merge
+        if os.path.exists(pf):
+            try:
+                with open(pf, "r", encoding="utf-8-sig") as fh:
+                    cur_data = json.load(fh)
+            except Exception:
+                cur_data = {"goal": "", "fronts": [], "notes": ""}
+            if not isinstance(cur_data, dict):
+                cur_data = {"goal": "", "fronts": [], "notes": ""}
+            cur_fronts = cur_data.get("fronts") if isinstance(cur_data.get("fronts"), list) else []
+            _migrate_fronts_list(cur_fronts)
+            current = {
+                "goal": cur_data.get("goal", "") if isinstance(cur_data.get("goal"), str) else "",
+                "fronts": cur_fronts,
+                "notes": cur_data.get("notes", "") if isinstance(cur_data.get("notes"), str) else "",
+            }
+        else:
+            current = {"goal": "", "fronts": [], "notes": ""}
+        ours = f if isinstance(f, dict) else {"fronts": []}
+        ours_fronts = ours.get("fronts") if isinstance(ours.get("fronts"), list) else []
+        _migrate_fronts_list(ours_fronts)
+        ours = {
+            "goal": ours.get("goal", "") if isinstance(ours.get("goal"), str) else "",
+            "fronts": ours_fronts,
+            "notes": ours.get("notes", "") if isinstance(ours.get("notes"), str) else "",
+        }
+        base = _fronts_base if _fronts_base is not None else copy.deepcopy(current)
+        out = _three_way_fronts_merge(base, ours, current)
+        _migrate_fronts_list(out.get("fronts") or [])
+        errs = validate_fronts(out)
         if errs:
             raise ValueError(errs)
-        out = {
-            "goal": f.get("goal", "") if isinstance(f.get("goal"), str) else "",
-            "fronts": fronts,
-            "notes": f.get("notes", "") if isinstance(f.get("notes"), str) else "",
-        }
         fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -1198,6 +1391,7 @@ def save_fronts(f, timeout_s=5.0):
             if os.path.exists(tmp):
                 os.unlink(tmp)
             raise
+        _fronts_base = copy.deepcopy(out)
     finally:
         _dir_lock_release(lock_dir)
 
