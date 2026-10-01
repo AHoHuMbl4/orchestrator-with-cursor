@@ -2177,6 +2177,136 @@ def orders_without_basis(state=None):
         return []
 
 
+# --- F-ORDERTRUTH: «без советников» + маркеры допущения --------------------
+# Маркеры Цель-1 приказа фронта (дословно); публичный предикат — для reground W2.
+_ORDER_ASSUMPTION_MARKERS_RE = re.compile(
+    r"(вероятно|похоже|должно быть|наверное|предполагаю|скорее всего|кажется)",
+    re.IGNORECASE | re.UNICODE,
+)
+_ORDER_BEZ_SOVETNIKOV_RE = re.compile(
+    r"без советников", re.IGNORECASE | re.UNICODE)
+# Статусы «живых» фронтов: канон + legacy (не cancelled/rejected/done).
+_ORDERS_SUSPECT_LIVE = frozenset((
+    "active", "stalled", "proposed",
+    "running", "planned", "blocked",
+))
+
+
+def order_suspect_facts(text):
+    """Чистый текст-предикат: (без_советников, markers). Без ФС.
+
+    без_советников — True, если в тексте есть «без советников» (case-insensitive).
+    markers — найденные маркеры допущения Цель-1 (dedup, порядок появления).
+    Публичное API для сканера и reground W2.
+    """
+    if not isinstance(text, str) or not text:
+        return False, []
+    bez = bool(_ORDER_BEZ_SOVETNIKOV_RE.search(text))
+    markers = []
+    seen = set()
+    for m in _ORDER_ASSUMPTION_MARKERS_RE.finditer(text):
+        raw = m.group(1)
+        key = raw.lower()
+        if key not in seen:
+            seen.add(key)
+            markers.append(raw)
+    return bez, markers
+
+
+def _order_assumption_verified(text):
+    """True, если строка начинается с «допущение проверено замером:» + ссылка.
+
+    Как _order_has_basis: только начало строки после lstrip (цитата в теле
+    приказа не считается пометкой-снятием).
+    """
+    if not isinstance(text, str) or not text:
+        return False
+    needle = "допущение проверено замером:"
+    for line in text.splitlines():
+        s = line.lstrip()
+        if not s.startswith(needle):
+            continue
+        rest = s[len(needle):].strip()
+        if rest:
+            return True
+    return False
+
+
+def _role_is_opportunity_advisor(role):
+    role = normalize_journal_role(role)
+    if not isinstance(role, str) or not role:
+        return False
+    return (role == "meta/opportunity-advisor.md"
+            or role == "opportunity-advisor"
+            or role.endswith("opportunity-advisor.md"))
+
+
+def orders_suspect(state=None):
+    """id фронтов с «без советников» + маркерами допущения в order.md.
+
+    Скан fronts/<id>/order.md и fronts/<id>/colonels/*/order.md.
+    Статусы: active/stalled/proposed (+legacy running/planned/blocked);
+    cancelled/rejected/done вне. Флаг: без_советников И markers≥1.
+    Снятие: нет маркеров / advisor journal (front==id) /
+    «допущение проверено замером:» со ссылкой. Dedup; fail-open → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        data = _load_fronts_at(state)
+        journal = _journal_entries_at(state)
+        advisor_fronts = set()
+        for e in journal:
+            if not _role_is_opportunity_advisor(e.get("role")):
+                continue
+            af = e.get("front")
+            if isinstance(af, str) and af:
+                advisor_fronts.add(af)
+        out = []
+        seen = set()
+        for fr in data.get("fronts") or []:
+            if not isinstance(fr, dict):
+                continue
+            fid = fr.get("id")
+            if not isinstance(fid, str) or not fid:
+                continue
+            if fr.get("status") not in _ORDERS_SUSPECT_LIVE:
+                continue
+            if fid in advisor_fronts:
+                continue
+            paths = [os.path.join(state, "fronts", fid, "order.md")]
+            col_root = os.path.join(state, "fronts", fid, "colonels")
+            if os.path.isdir(col_root):
+                try:
+                    for cid in sorted(os.listdir(col_root)):
+                        p = os.path.join(col_root, cid, "order.md")
+                        if os.path.isfile(p):
+                            paths.append(p)
+                except Exception:
+                    pass
+            flagged = False
+            for path in paths:
+                try:
+                    with open(path, "r", encoding="utf-8-sig") as f:
+                        text = f.read()
+                except Exception:
+                    continue
+                if not text or not text.strip():
+                    continue
+                if _order_assumption_verified(text):
+                    continue
+                bez, markers = order_suspect_facts(text)
+                if bez and markers:
+                    flagged = True
+                    break
+            if flagged and fid not in seen:
+                seen.add(fid)
+                out.append(fid)
+        return out
+    except Exception:
+        return []
+
+
 def _role_is_wave_work(role):
     """Роль = работа волны (полковник / code/ / исполнитель домена)."""
     role = normalize_journal_role(role)
@@ -5464,6 +5594,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     empty = {
         "runs_no_front": [],
         "orders_without_basis": [],
+        "orders_suspect": [],
         "fronts_no_prosecutor": [],
         "waves_no_critic": [],
         "code_waves_no_gitwarden": [],
@@ -5553,6 +5684,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 runs_no_front.append(rid)
 
         orders = orders_without_basis(state)
+        orders_suspect_ids = orders_suspect(state)
         data = _load_fronts_at(state)
         fronts_no_prosecutor = []
         waves_no_critic = []
@@ -5835,6 +5967,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         other_chips = {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
+            "orders_suspect": orders_suspect_ids,
             "fronts_no_prosecutor": fronts_no_prosecutor,
             "waves_no_critic": waves_no_critic,
             "code_waves_no_gitwarden": code_waves_no_gitwarden,
@@ -5870,6 +6003,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         return {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
+            "orders_suspect": orders_suspect_ids,
             "fronts_no_prosecutor": fronts_no_prosecutor,
             "waves_no_critic": waves_no_critic,
             "code_waves_no_gitwarden": code_waves_no_gitwarden,
