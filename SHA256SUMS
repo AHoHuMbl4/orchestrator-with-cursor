@@ -8,10 +8,10 @@ cc028aa15a558c7fddaf9635993d36d3d1feacab7236dc4b13b6154c1dbddd51  ./bin/discover
 1b0116d55f24528d39ec43b3f28e7f8573a0f3e707df27f1a2933bf4f715157a  ./bin/jev-advise.py
 d51af295a46566890d442521c6fdb2ce9e525405d17333e31061da679cf475b7  ./bin/menu.py
 9aa6f9e446f9b863e86b0da8b60635e465f061d21cf5c0eb1d6f7bb035383e67  ./bin/orch-lint.py
-14ad894b013f2663c90f0b8ee6b9940a3220100fba7bcb49ecfe49edf128d81a  ./bin/orchlib.py
+fa0e12b126a7ec3c8225dd9405e554e0ee750a6cfbdb855887c308e4a8f83d85  ./bin/orchlib.py
 6001c86d944e689282773bfe04b4b3de6760e141d204ba876894ea8f9bd4dfdb  ./bin/owns.py
 c06a5f40a96f0be48ec882da76c683af83a6e09469f0565b9e12b8b45331f54e  ./bin/probe-receipt.py
-daa5be8ee3f536af1fb1e0d2b6f8f4e5d77fe7652b8425672cbb1832b2b490f1  ./bin/reground.py
+193bbbcaff398f12601806947e2cfd741ee993077da5b178ede9f650e8e10191  ./bin/reground.py
 bf32219617c024a3ee6820585ed9924979545fb7b717fd027b083fed71f2b023  ./bin/run-cloud.py
 acbc443ab0fbc21b8632876298fdde8fba03a74f94fe0ab4dd72034d82905d8d  ./bin/run-exec.py
 394a6b605e58a1e694dc2123dca5590dbb575cd12259999a43f69f2a82a2ee6c  ./bin/session-entry.py
@@ -26,7 +26,7 @@ fbe767fb1e733d8a71bbf98a1b0fc87732c671ca491ed13dfbb99fb8977e85d6  ./hooks/kimi-c
 0c21984629bf51cb5fe1fc5ac9a37b65e25a3b7fc3bf27d3735654f194e6597b  ./install-local.sh
 8e2dfd561c8432466d0b7c7c16b70a43151d6c6c373f938619eb561cbe8aa133  ./install-notes.md
 f4b190f5d1a48fc071d1aa711c5ed5ef582ba65f5b8e0fd1e5f39e192c4c8caa  ./install.sh
-d63e3fa50c452bbaf48154acc5a52c3189dd22bb0bf61aa930f976b8c9616cb7  ./panel/index.html
+228c53ceda937a0d489975bd419529ff73177df6b12fdbb8f256448d6fcb1cf1  ./panel/index.html
 dc986ca5b6570e076b3763e233164a7c2e81aa1f1ef59e8505a7ff2b7338d97c  ./panel/server.py
 aa7013e8be255fec459621f30cf45e03d43d41736a4a23a250362d8aa27dd54e  ./params.json
 e58ecf1f2d5d06aac43b18e4f1f0d4e2a2d2e7933bf02d0ef9bb9c6b70d9105c  ./routing/jev-table.json
@@ -89,12 +89,12 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  ./rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-d19969f69570e2d85f24e0b867fa4851bcf4c361b73c8c1b4fda1ad5d15c7c2a  ./rules/manifest.json
-900ad4ff1c09f50a3ebf7ceaf7cffb9f37e22b8c963093ea81666faf48f5d6ed  ./skills/orchestration/SKILL.md
+f97819968b5b80ec8aa7bab23920ca18314eade169fbdf829e67e2a1b7578734  ./rules/manifest.json
+4bd792a282e6dfff1b665457d6ef65191ed41bd683de0037862c0098d0a67983  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
-a3848e3588bcb724046f8161d79650213b2e12647693296b994f7f1cfbafe434  ./skills/orchestration/references/MAP.md
+b3b68f58c929512b0186153d41b821c57eb8b6682f760a3e014b72c94baf1030  ./skills/orchestration/references/MAP.md
 9b7373b66c863166383a8a8624e0e2361398e69bdd242e9bc3dad54c2e862a86  ./skills/orchestration/references/engines.md
-7cf11b3ecb31507ac1e3ee8c8567d677abc1172bf71d15269c54b149cc2b2a5c  ./skills/orchestration/references/planning.md
+f49e30b07a2fefe821284f39ed9e072c9a3c0bc0559a19c66a97df36f1c150ec  ./skills/orchestration/references/planning.md
 e53c47836aca186c04bf722fba583b8f11b839a23aa5c067fc60cf414f42c8f6  ./skills/orchestration/references/roles/_index.md
 fa20ccabe8bd59108f1cd5bfeff28e613e67a789b07477ce7340d110c75bb782  ./skills/orchestration/references/roles/_template.md
 022bb333259e2c284039bedfaebf10b50bd1f2517e6834d03666e545b3431860  ./skills/orchestration/references/roles/business/business-model-canvas-facilitator.md
@@ -263,6 +263,8 @@ a6db917b7e39e95015153dcc737d6add2e172178ccac4f3d14720b962fb26549  ./tests/test_j
 451e93d0b1a069af294c979f811393ea7c59936948d24648d8a7751f2fbbac41  ./tests/test_multiwrite.py
 9098ddc5d44d0436eaba2a5ea710aad5de0b2e96fed4b845958d40301b9c44d5  ./tests/test_multiwrite_gate.py
 506906e655b0f92faf04a9588a922549d1feeaf479e59d67d44493b3e1a2aaea  ./tests/test_multiwrite_wrap.py
+d6f0740e78fbff6b1bab7a2788a478b8e6f375b0820773de18266393578a96d4  ./tests/test_ordertruth.py
+c486ccc76fd46d35c748f6da7ee5e96723f2265739786617707f1f331940807e  ./tests/test_ordertruth_reground.py
 375d4a98ca793ed32a0429cc52ccf749d000d02bea4470655a59e4d7ea9f6cd4  ./tests/test_panel_keys.sh
 466f49e4716cc875fca2703408c64e154ebea6347ea63392b39ab6f65bf32e1c  ./tests/test_receipt.py
 75ecb2e7b7f9af2f2f60089a276853a5b28d1133be7c44b72bb3fa3366eb2665  ./tests/test_receipt_wrap.py
