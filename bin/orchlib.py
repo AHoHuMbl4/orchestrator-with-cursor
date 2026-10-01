@@ -2307,6 +2307,105 @@ def orders_suspect(state=None):
         return []
 
 
+# --- F-MUSTMAP MM-C2: handoff_oversize / project_md_missing / mustmap_stale ---
+HANDOFF_MAX_CHARS = 2000
+
+
+def _hierarchy_graph_active(state):
+    """True, если в fronts.json есть хотя бы один фронт (иерархия стартовала)."""
+    try:
+        fronts = (_load_fronts_at(state).get("fronts") or [])
+        return isinstance(fronts, list) and len(fronts) > 0
+    except Exception:
+        return False
+
+
+def handoff_oversize(state=None):
+    """handoff.md >2000 символов при непустом графе фронтов.
+
+    Нет файла / иерархия не стартовала / ≤2000 → []. Fail-open → [].
+    Значение: «handoff.md:<len>».
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if not _hierarchy_graph_active(state):
+            return []
+        path = os.path.join(state, "handoff.md")
+        if not os.path.isfile(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                text = f.read()
+        except Exception:
+            return []
+        n = len(text)
+        if n > HANDOFF_MAX_CHARS:
+            return ["handoff.md:%d" % n]
+        return []
+    except Exception:
+        return []
+
+
+def project_md_missing(state=None):
+    """Нет PROJECT.md рядом со state при непустом графе фронтов.
+
+    PROJECT.md = dirname(state)/PROJECT.md. Fail-open → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if not _hierarchy_graph_active(state):
+            return []
+        project_md = os.path.join(os.path.dirname(state), "PROJECT.md")
+        if os.path.isfile(project_md):
+            return []
+        return ["PROJECT.md"]
+    except Exception:
+        return []
+
+
+def mustmap_stale(kit_dir=None):
+    """audit/mustmap/mustmap.json устарел vs doctrine_files (mtime).
+
+    Нет файла → [] (fail-open). Битый JSON / нет doctrine_files → [\"invalid\"].
+    mtime(doctrine) > mtime(mustmap) → список устаревших rel-путей.
+    """
+    try:
+        if kit_dir is None:
+            kit_dir = KIT_DIR
+        path = os.path.join(kit_dir, "audit", "mustmap", "mustmap.json")
+        if not os.path.isfile(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return ["invalid"]
+        if not isinstance(data, dict):
+            return ["invalid"]
+        doctrine = data.get("doctrine_files")
+        if not isinstance(doctrine, list) or not doctrine:
+            return ["invalid"]
+        try:
+            mm_mtime = os.path.getmtime(path)
+        except Exception:
+            return ["invalid"]
+        stale = []
+        for rel in doctrine:
+            if not isinstance(rel, str) or not rel:
+                continue
+            fp = os.path.join(kit_dir, rel)
+            try:
+                if os.path.isfile(fp) and os.path.getmtime(fp) > mm_mtime:
+                    stale.append(rel.replace("\\", "/"))
+            except Exception:
+                continue
+        return stale
+    except Exception:
+        return []
+
+
 def _role_is_wave_work(role):
     """Роль = работа волны (полковник / code/ / исполнитель домена)."""
     role = normalize_journal_role(role)
@@ -5617,6 +5716,10 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "commit_no_verify": [],
         # ADDITIVE MARKER: RCPT-A receipt_handmade
         "receipt_handmade": [],
+        # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
+        "handoff_oversize": [],
+        "project_md_missing": [],
+        "mustmap_stale": [],
     }
     try:
         if state is None:
@@ -5935,6 +6038,20 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             handmade = []
 
+        # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
+        try:
+            handoff_over = handoff_oversize(state=state)
+        except Exception:
+            handoff_over = []
+        try:
+            project_missing = project_md_missing(state=state)
+        except Exception:
+            project_missing = []
+        try:
+            mustmap_stale_ids = mustmap_stale(kit_dir=kit_dir)
+        except Exception:
+            mustmap_stale_ids = []
+
         # F-C1 D2: general_resume_chain (wire) + warn fallback (journal)
         try:
             resume_chain = general_resume_chain(state=state)
@@ -5986,6 +6103,10 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "commit_no_verify": commit_no_verify,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
+            # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
+            "handoff_oversize": handoff_over,
+            "project_md_missing": project_missing,
+            "mustmap_stale": mustmap_stale_ids,
         }
         _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
@@ -6024,6 +6145,10 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "commit_no_verify": commit_no_verify,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
+            # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
+            "handoff_oversize": handoff_over,
+            "project_md_missing": project_missing,
+            "mustmap_stale": mustmap_stale_ids,
         }
     except Exception:
         return empty
