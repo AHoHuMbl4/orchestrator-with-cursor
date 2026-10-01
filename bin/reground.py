@@ -50,8 +50,24 @@ NUDGE_TEXT = (
     "Перечитай compass сейчас и подтверди одним абзацем: (1) цель; "
     "(2) какая строка TODO сейчас в работе; (3) ведёт ли следующий шаг "
     "к цели. Если делаешь работу исполнителя сам — остановись и делегируй. "
-    "При расхождении — вернись к последней закрытой строке TODO."
+    "При расхождении — вернись к последней закрытой строке TODO.\n"
+    "Система работы\n"
+    "развилка → советник с разведчиками\n"
+    "слова-допущения (= выбор) в приказе запрещают «без советников»\n"
+    "критики проверяют готовое, альтернатив НЕ генерируют\n"
+    "руки командира → работа у фронта"
 )
+
+# Карточка DON'T (ссылка id/путь; тело не вклеиваем).
+_ORDER_SUSPECT_CARD_ID = "dont-kejs-vladelca-30-09-komanduyuschij-dvazh"
+_ORDER_SUSPECT_CARD_PATH = (
+    "rules/cards/процессы/dont-kejs-vladelca-30-09-komanduyuschij-dvazh.md"
+)
+_ORDER_SUSPECT_WARN = (
+    "⛔ ПРЕДПОЛОЖЕНИЕ = ВЫБОР → НУЖЕН СОВЕТНИК: в order.md «без советников» "
+    "вместе со словами-допущениями (предположение = выбор). "
+    "Карточка: %s (%s)"
+) % (_ORDER_SUSPECT_CARD_ID, _ORDER_SUSPECT_CARD_PATH)
 
 _MAP_MD = os.path.join(
     orchlib.KIT_DIR, "skills", "orchestration", "references", "MAP.md"
@@ -199,6 +215,63 @@ def _read_pending_compass_flag(path):
     if any(isinstance(o, dict) and o.get("test") for o in overflows):
         return None
     return overflows
+
+
+def _order_suspect_pending_path(sid):
+    """sessions/<sid>/pending_order_suspect.json — флажок доставки в prompt-submit."""
+    return os.path.join(orchlib.session_dir(sid), "pending_order_suspect.json")
+
+
+def _order_suspect_counter_path(sid):
+    """counters/order-suspect-<safe_sid>.json — отдельно от counters/<sid>.json нуджа."""
+    return os.path.join(
+        orchlib.find_state_dir(), "counters",
+        "order-suspect-%s.json" % orchlib.safe_name(sid),
+    )
+
+
+def _bump_order_suspect_counter(sid):
+    """Инкремент счётчика order-suspect; схема counters/<sid>.json не трогается."""
+    path = _order_suspect_counter_path(sid)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    n = 0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            n = int(json.load(f).get("count", 0) or 0)
+    except Exception:
+        n = 0
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"count": n + 1}, f, ensure_ascii=False)
+
+
+def _write_pending_order_suspect(sid, path, markers):
+    """Поставить pending_order_suspect.json (consume-on-delivery в prompt-submit)."""
+    flag = _order_suspect_pending_path(sid)
+    os.makedirs(os.path.dirname(flag), exist_ok=True)
+    with open(flag, "w", encoding="utf-8") as f:
+        json.dump({
+            "path": path,
+            "markers": list(markers) if markers else [],
+            "ts": time.time(),
+        }, f, ensure_ascii=False)
+
+
+def _consume_pending_order_suspect(sid):
+    """Прочитать pending; вернуть warn-текст или \"\"; unlink (consume-on-delivery)."""
+    flag = _order_suspect_pending_path(sid)
+    if not os.path.exists(flag):
+        return ""
+    try:
+        with open(flag, "r", encoding="utf-8") as f:
+            json.load(f)  # валидность; тело не нужно — текст фиксирован
+        warn = _ORDER_SUSPECT_WARN
+    except Exception:
+        warn = ""
+    try:
+        os.unlink(flag)
+    except Exception:
+        pass
+    return warn
 
 
 def counter_file(session_id):
@@ -517,6 +590,12 @@ def cmd_pre_tool(engine, fmt):
             )
             sys.stderr.write(msg + "\n")
             return 2
+        # F-ORDERTRUTH C2: без советников + маркеры допущения → stderr, exit 0
+        # (гейт обоснования выше не меняем; текст — proposed, не диск)
+        bez, markers = orchlib.order_suspect_facts(text or "")
+        if bez and markers:
+            sys.stderr.write(_ORDER_SUSPECT_WARN + "\n")
+            return 0
     return 0
 
 
@@ -749,6 +828,22 @@ def cmd_post_tool(engine, fmt):
                     [{"path": os.path.normpath(os.path.abspath(wpath)),
                       "size": size, "limit": limit}]))
 
+    # F-ORDERTRUTH C2: Write|Edit order.md — без_советников + маркеры → pending
+    # (текст С ДИСКА; НЕ deny; чистый → тишина)
+    if wpath and orchlib.is_order_md_path(wpath):
+        try:
+            with open(wpath, "r", encoding="utf-8-sig") as f:
+                disk_text = f.read()
+        except Exception:
+            disk_text = ""
+        bez, markers = orchlib.order_suspect_facts(disk_text)
+        if bez and markers:
+            try:
+                _write_pending_order_suspect(session_id, wpath, markers)
+                _bump_order_suspect_counter(session_id)
+            except Exception as e:
+                sys.stderr.write("order-suspect pending failed: %s\n" % e)
+
     # F-RULES R2: вклейки по адресу роли×post-tool (≤3); безадресный → 0
     rules_lines = _rules_step_lines(ev, session_id, "post-tool")
     if rules_lines:
@@ -883,6 +978,10 @@ def cmd_prompt_submit(engine, fmt):
         return
     kit_ver, kit_update = kit_paste_for_session(sid)
     kit_line = "Kit: %s" % kit_ver
+    # F-ORDERTRUTH C2: pending_order_suspect — В НАЧАЛЕ (до early-return Kit/head+Kit)
+    # как pending_compass_guard: вклейка в head + consume-on-delivery unlink
+    order_suspect_warn = _consume_pending_order_suspect(sid)
+    order_suspect_prefix = (order_suspect_warn + "\n") if order_suspect_warn else ""
     # гард: живое превышение ИЛИ pending-флаг (сессия / state) → громкий блок
     # (после блока обновления кита, если он есть)
     live_ov = orchlib.compass_overflows(p)
@@ -936,7 +1035,7 @@ def cmd_prompt_submit(engine, fmt):
     except Exception:
         pass
 
-    # префикс: kit_update → compass-guard → hands → NOFRONT → детекторы → чужой state
+    # префикс: kit_update → compass-guard → order-suspect → hands → NOFRONT → детекторы → чужой state
     kit_prefix = kit_update if kit_update else ""
     guard_prefix = (guard + "\n") if guard else ""
     hands_prefix = ""
@@ -993,8 +1092,8 @@ def cmd_prompt_submit(engine, fmt):
     det_prefix = ("\n".join(det_lines) + "\n") if det_lines else ""
     foreign = foreign_state_warning()
     foreign_prefix = (foreign + "\n") if foreign else ""
-    head = (kit_prefix + guard_prefix + hands_prefix + nofront_prefix
-            + det_prefix + foreign_prefix)
+    head = (kit_prefix + guard_prefix + order_suspect_prefix + hands_prefix
+            + nofront_prefix + det_prefix + foreign_prefix)
 
     # F-RULES R2: вклейки по адресу роли×prompt-submit (≤3); mtime-кэш не трогаем
     rules_lines = _rules_step_lines(ev, sid, "prompt-submit")
