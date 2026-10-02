@@ -65,6 +65,21 @@ MUSTMAP_PATH = os.path.join(REPO_ROOT, "audit", "mustmap", "mustmap.json")
 QUESTION_TYPES = frozenset(["choice", "noul", "score"])
 MUST_CHECK_ROLES = frozenset(["commander", "general", "colonel"])
 MUST_BRIEF_MAX = 96
+# Батчи MUST + score на каждый id (multi-choice Jev не тянет — замер в артефакте)
+MUST_CHECK_BATCH_SIZE = 6
+MUST_CHECK_QID_PREFIX = "must-check-b"  # legacy; актуальные qid = MM-*
+MUST_CHECK_CLEAN = "чисто (advisory)"
+MUST_CHECK_UNCERTAIN = (
+    "неопределённо — сверь MUST вручную (полный конвейер)"
+)
+MUST_CHECK_UNCOVERED_MIN = 2.0
+MUST_CHECK_SCORE_CRITERIA = [
+    "0 — полностью покрыт планом",
+    "1 — частично/косвенно упомянут",
+    "2 — слабо, есть пробел",
+    "3 — не покрыт планом",
+]
+MUST_CHECK_MECHANIC = "score"  # multi-choice отвергнут живой пробой
 # Запрещённые «разрешающие» формулировки в выводе must-check
 _MUST_CHECK_FORBIDDEN_RE = re.compile(
     r"разрешено|можно\s+стартовать|approved|green\s+to\s+go",
@@ -608,8 +623,60 @@ def parse_must_ids_flag(raw):
     return [p.strip() for p in s.split(",") if p.strip()]
 
 
+def batch_must_ids(ordered_ids, batch_size=MUST_CHECK_BATCH_SIZE):
+    """Разбить id на батчи; batch_size клипуется в [5, 8]."""
+    ids = [str(x) for x in (ordered_ids or []) if str(x)]
+    try:
+        bs = int(batch_size)
+    except (TypeError, ValueError):
+        bs = MUST_CHECK_BATCH_SIZE
+    if bs < 5:
+        bs = 5
+    elif bs > 8:
+        bs = 8
+    if not ids:
+        return []
+    return [ids[i:i + bs] for i in range(0, len(ids), bs)]
+
+
+def build_must_check_questions(criteria, instructions, ordered_ids=None,
+                               batch_size=MUST_CHECK_BATCH_SIZE):
+    """Score на каждый MUST батча (5–8); все вопросы — одним jev_decisions.
+
+    Механика MUST_CHECK_MECHANIC=score: multi-choice батчи дали conf~0.1
+    и не различали bad/good — см. замер в артефакте W1R.
+    qid = MM-id (как run-queue-prio). score≥2 при band=high → подсветка.
+    """
+    criteria = dict(criteria or {})
+    criteria.pop("_from_input", None)
+    if ordered_ids is None:
+        ordered = list(criteria.keys())
+    else:
+        ordered = [str(x) for x in ordered_ids if str(x) in criteria]
+    batches = batch_must_ids(ordered, batch_size=batch_size)
+    n = len(batches)
+    base = instructions or ""
+    out = {}
+    for bi, batch in enumerate(batches):
+        for mid in batch:
+            label = criteria[mid]
+            instr = (
+                "%s MUST %s (%s): целый 0|1|2|3; "
+                "A полный конвейер→0 (вкл. смежные), B тонкий→2|3"
+                % (base, mid, label)
+            )
+            if n > 1:
+                instr = "%s [батч %d/%d]" % (instr, bi + 1, n)
+            out[mid] = {
+                "type": "score",
+                "instructions": instr,
+                "criteria": list(MUST_CHECK_SCORE_CRITERIA),
+            }
+    return out
+
+
 def format_must_check_highlight(picked_ids, criteria):
-    """Строка подсветки: «подсвечено: …» или «чисто (advisory)».
+    """Строка «подсвечено: id: суть; …» или MUST_CHECK_CLEAN при пустом.
 
     Запрещённые токены в label MUST заменяются на «…» in-place —
     строка «подсвечено:» не схлопывается в «чисто».
@@ -620,7 +687,7 @@ def format_must_check_highlight(picked_ids, criteria):
         label = _MUST_CHECK_FORBIDDEN_RE.sub("…", label)
         parts.append("%s: %s" % (mid, label))
     if not parts:
-        return "чисто (advisory)"
+        return MUST_CHECK_CLEAN
     return "подсвечено: " + "; ".join(parts)
 
 
@@ -757,7 +824,7 @@ def build_auto_questions(point, state):
         }
 
     if pid == "must-check":
-        # criteria динамически из выборки MUST (как chip-triage из входа)
+        # criteria динамически из выборки MUST; multi-choice батчи 5–8
         crit_obj = _must_check_criteria_from_state(state)
         if not crit_obj and isinstance(criteria, dict):
             # убрать заглушку _from_input; реальных id нет
@@ -766,13 +833,7 @@ def build_auto_questions(point, state):
                 for k, v in criteria.items()
                 if k != "_from_input"
             }
-        return {
-            pid: {
-                "type": "choice",
-                "instructions": instructions,
-                "criteria": crit_obj,
-            }
-        }
+        return build_must_check_questions(crit_obj, instructions)
 
     if pid == "run-queue-prio":
         runs = state if isinstance(state, list) else []
@@ -863,7 +924,7 @@ def advisory_text_for_point(point_id, advice_map, extra=None):
             % (choice or "?"))
 
     if point_id == "must-check":
-        highlight = extra.get("highlight") or "чисто (advisory)"
+        highlight = extra.get("highlight") or MUST_CHECK_UNCERTAIN
         return highlight
 
     if point_id == "retro-card-hint":
@@ -1000,34 +1061,144 @@ def wrap_chip_triage(point, advice_map, answers, original_order):
 
 
 def wrap_must_check(point, advice_map, answers, criteria_obj):
-    """→ highlight «подсвечено: …» / «чисто (advisory)»; multi min=0 max=N.
+    """→ highlight: подсвечено / чисто (advisory) / неопределённо.
 
-    Cardinality динамическая (max = N выбранных MUST) — не в _CHOICE_CARDINALITY.
+    Score-механика (qid=MM-*): подсветка = score≥UNCOVERED_MIN и band=high
+    (≥ confirm_below). Семантика:
+    - high-пробелы → «подсвечено: …» (даже если рядом mid/low)
+    - CLEAN только если КАЖДЫЙ qid band=high И score < UNCOVERED_MIN
+    - любой mid/low/absent без high-пробелов → «неопределённо…»
+    (никогда «чисто» при mid/low/неуверенности)
     """
     criteria_obj = dict(criteria_obj or {})
-    # убрать заглушку таблицы
     criteria_obj.pop("_from_input", None)
-    band = _band_of(advice_map)
-    amin = 0
-    amax = len(criteria_obj)
-    choice_raw = None
-    for src in (answers or {}).values():
-        if isinstance(src, dict) and "choice" in src:
-            choice_raw = src.get("choice")
-            break
-    if choice_raw is None:
-        for src in (advice_map or {}).values():
-            if isinstance(src, dict) and "choice" in src:
-                choice_raw = src.get("choice")
-                break
+    ordered = list(criteria_obj.keys())
+
+    if not ordered:
+        highlight = MUST_CHECK_CLEAN
+        return {
+            "highlight": highlight,
+            "selected": [],
+            "criteria": criteria_obj,
+            "advisory_text": advisory_text_for_point(
+                "must-check", advice_map, {"highlight": highlight}),
+        }
+
+    # legacy multi-choice батчи must-check-b* (если вдруг ответили так)
+    legacy_batch = [
+        q for q in (answers or {})
+        if str(q).startswith(MUST_CHECK_QID_PREFIX)
+    ]
+    if legacy_batch and not any(mid in (answers or {}) for mid in ordered):
+        return _wrap_must_check_legacy_choice(
+            point, advice_map, answers, criteria_obj, legacy_batch)
+
+    any_non_high = False
     picked = []
-    if band in ("mid", "high") and amax > 0:
-        picked = validate_choice_against_criteria(
-            choice_raw, criteria_obj, amin, amax)
-    highlight = format_must_check_highlight(picked, criteria_obj)
+    seen = set()
+
+    for mid in ordered:
+        adv = (advice_map or {}).get(mid)
+        ans = (answers or {}).get(mid)
+        if not isinstance(adv, dict) and not isinstance(ans, dict):
+            any_non_high = True
+            continue
+        adv = adv if isinstance(adv, dict) else {}
+        ans = ans if isinstance(ans, dict) else {}
+        band = adv.get("band") or "absent"
+        # mid/low/absent не тянут «чисто» и не попадают в подсветку
+        if band != "high":
+            any_non_high = True
+            continue
+        sc = ans.get("score")
+        if sc is None:
+            sc = adv.get("score")
+        try:
+            scf = float(sc)
+        except (TypeError, ValueError):
+            any_non_high = True
+            continue
+        if scf >= MUST_CHECK_UNCOVERED_MIN:
+            if mid not in seen:
+                seen.add(mid)
+                picked.append(mid)
+
+    if picked:
+        highlight = format_must_check_highlight(picked, criteria_obj)
+        selected = picked
+    elif any_non_high:
+        highlight = MUST_CHECK_UNCERTAIN
+        selected = []
+    else:
+        highlight = MUST_CHECK_CLEAN
+        selected = []
+
     return {
         "highlight": highlight,
-        "selected": picked,
+        "selected": selected,
+        "criteria": criteria_obj,
+        "advisory_text": advisory_text_for_point(
+            "must-check", advice_map, {"highlight": highlight}),
+    }
+
+
+def _wrap_must_check_legacy_choice(point, advice_map, answers, criteria_obj,
+                                  batch_qids):
+    """Совместимость: старые must-check-b* choice-батчи."""
+    any_weak = False
+    all_high = True
+    picked = []
+    seen = set()
+
+    def _batch_sort_key(qid):
+        suf = qid[len(MUST_CHECK_QID_PREFIX):]
+        try:
+            return (0, int(suf))
+        except (TypeError, ValueError):
+            return (1, qid)
+
+    for qid in sorted(batch_qids, key=_batch_sort_key):
+        adv = (advice_map or {}).get(qid) or {}
+        ans = (answers or {}).get(qid) or {}
+        if not isinstance(adv, dict) and not isinstance(ans, dict):
+            any_weak = True
+            all_high = False
+            continue
+        band = (adv or {}).get("band") or "absent"
+        if band in ("low", "absent"):
+            any_weak = True
+            all_high = False
+            continue
+        if band != "high":
+            all_high = False
+        if band not in ("mid", "high"):
+            any_weak = True
+            all_high = False
+            continue
+        choice_raw = ans.get("choice") if isinstance(ans, dict) else None
+        if choice_raw is None and isinstance(adv, dict):
+            choice_raw = adv.get("choice")
+        for mid in validate_choice_against_criteria(
+                choice_raw, criteria_obj, 0, len(criteria_obj) or 1):
+            if mid in criteria_obj and mid not in seen:
+                seen.add(mid)
+                picked.append(mid)
+
+    if any_weak:
+        highlight = MUST_CHECK_UNCERTAIN
+        selected = []
+    elif picked:
+        highlight = format_must_check_highlight(picked, criteria_obj)
+        selected = picked
+    elif all_high:
+        highlight = MUST_CHECK_CLEAN
+        selected = []
+    else:
+        highlight = MUST_CHECK_UNCERTAIN
+        selected = []
+    return {
+        "highlight": highlight,
+        "selected": selected,
         "criteria": criteria_obj,
         "advisory_text": advisory_text_for_point(
             "must-check", advice_map, {"highlight": highlight}),
@@ -1196,10 +1367,10 @@ def fail_open_advisory_extras(point, state, raw_tail):
         extra["advisory_text"] = _advisory_phrase(
             "порядок FIFO (fail-open)")
     elif pid == "must-check":
-        # пустая подсветка + без разрешающих слов
-        extra["highlight"] = "чисто (advisory)"
+        # fail-open: НЕ «чисто» — неопределённо + полный конвейер
+        extra["highlight"] = MUST_CHECK_UNCERTAIN
         extra["selected"] = []
-        extra["advisory_text"] = "чисто (advisory)"
+        extra["advisory_text"] = MUST_CHECK_UNCERTAIN
     elif pid == "run-queue-prio":
         original = []
         if isinstance(state, list):
@@ -1245,12 +1416,19 @@ def _emit_must_check_stdout(highlight, result):
     Запрещённые «разрешающие» токены (в т.ч. внутри label MUST вроде MM-190)
     вычищаются in-place → «…». НИКОГДА не схлопываем «подсвечено: …»
     в «чисто (advisory)» из-за подстроки в тексте MUST.
+    Пустой highlight → неопределённо (не «чисто»).
+    Scrub также criteria/selected labels в JSON (probe grep по полному stdout).
     """
-    line = _scrub_must_check_text(highlight or "чисто (advisory)")
+    line = _scrub_must_check_text(highlight or MUST_CHECK_UNCERTAIN)
     for key in ("highlight", "advisory_text", "error"):
         val = result.get(key)
         if isinstance(val, str):
             result[key] = _scrub_must_check_text(val)
+    crit = result.get("criteria")
+    if isinstance(crit, dict):
+        result["criteria"] = {
+            str(k): _scrub_must_check_text(str(v)) for k, v in crit.items()
+        }
     sys.stdout.write(line + "\n")
     sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
 
@@ -1291,8 +1469,8 @@ def cmd_must_check(args):
     try:
         mustmap = load_mustmap()
     except Exception as e:
-        # mustmap недоступен — fail-open (инфра), не usage
-        highlight = "чисто (advisory)"
+        # mustmap недоступен — fail-open (инфра), не usage; НЕ «чисто»
+        highlight = MUST_CHECK_UNCERTAIN
         result = {
             "ok": False,
             "point": "must-check",
@@ -1327,25 +1505,29 @@ def cmd_must_check(args):
         "role": role,
         "answers": {},
         "advice": {},
-        "highlight": "чисто (advisory)",
+        "highlight": MUST_CHECK_UNCERTAIN,
         "selected": [],
         "fallback": point.get("fallback"),
         "error": None,
-        "advisory_text": "чисто (advisory)",
+        "advisory_text": MUST_CHECK_UNCERTAIN,
     }
 
     def fail_open_mc(reason):
         msg = _mask_secrets(reason, key)
         result = dict(empty)
         result["error"] = "причина: %s" % msg
-        result["highlight"] = "чисто (advisory)"
-        result["advisory_text"] = "чисто (advisory)"
+        result["highlight"] = MUST_CHECK_UNCERTAIN
+        result["advisory_text"] = MUST_CHECK_UNCERTAIN
         try:
             append_journal(state_dir, {
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "caller": caller,
                 "point": "must-check",
-                "question_ids": ["must-check"] if criteria else [],
+                "question_ids": list(
+                    build_must_check_questions(
+                        criteria, point.get("instructions") or "",
+                        ordered_ids=ordered).keys()
+                ) if criteria else [],
                 "band": {},
                 "confidence": None,
                 "noul": None,
@@ -1358,11 +1540,13 @@ def cmd_must_check(args):
         _emit_must_check_stdout(result["highlight"], result)
         return 0
 
-    # пустая выборка — без API, чисто
+    # пустая выборка — без API, чисто (нечего сверять)
     if not criteria:
         result = dict(empty)
         result["ok"] = True
         result["error"] = None
+        result["highlight"] = MUST_CHECK_CLEAN
+        result["advisory_text"] = MUST_CHECK_CLEAN
         result["thresholds"] = {
             "defer_below": defer_below,
             "confirm_below": confirm_below,
@@ -1371,14 +1555,9 @@ def cmd_must_check(args):
         _emit_must_check_stdout(result["highlight"], result)
         return 0
 
-    # state для Jev = план; criteria в question; musts в structured для wrap
-    questions = {
-        "must-check": {
-            "type": "choice",
-            "instructions": point.get("instructions") or "",
-            "criteria": criteria,
-        }
-    }
+    # батчи multi-choice — один вызов jev_decisions (как run-queue-prio)
+    questions = build_must_check_questions(
+        criteria, point.get("instructions") or "", ordered_ids=ordered)
     # для apply_advisory_wrapper / journal consistency
     wrap_state = {"plan": plan_text, "musts": criteria}
 
@@ -1415,13 +1594,22 @@ def cmd_must_check(args):
                 "reason": "решай сам",
             }
 
+    # батчи без ответа → absent (неопределённо)
+    for qid in questions:
+        if qid not in advice:
+            advice[qid] = {
+                "band": "absent",
+                "action": "defer",
+                "reason": "решай сам",
+            }
+
     advice, wrap_extra = apply_advisory_wrapper(
         point, advice, answers, wrap_state, None, defer_below)
 
     usage = response.get("usage") or {}
     cost = usage.get("cost")
     bands, confs, nouls = _journal_advice_fields(advice)
-    highlight = wrap_extra.get("highlight") or "чисто (advisory)"
+    highlight = wrap_extra.get("highlight") or MUST_CHECK_UNCERTAIN
     result = {
         "ok": True,
         "point": "must-check",

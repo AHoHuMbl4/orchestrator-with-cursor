@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """MC-C1: офлайн-тесты must-check (подмена jev_decisions, без сети).
 
-Группы: (а) thin/full plan; (б) negative разрешающих слов;
+Группы: (а) thin/full plan + low-conf; (б) negative разрешающих слов;
 (в) fail-open; (г) id vs --must-text; (д) неизвестная роль.
 
 Запуск: cd /root/orchestrator-with-cursor && python3 -m pytest tests/test_mustcheck.py -q
@@ -30,6 +30,9 @@ MUST_SUITE = "MM-131"
 MUST_WARDEN = "MM-132"
 # all/prompt: label содержит «разрешено» — регрессия scrub (не схлопывать подсветку)
 MUST_SCRUB = "MM-190"
+
+UNCERTAIN = "неопределённо — сверь MUST вручную (полный конвейер)"
+CLEAN = "чисто (advisory)"
 
 # (б) запрет разрешающих формулировок в выводе
 APPROVE_RE = re.compile(
@@ -65,15 +68,28 @@ def _load_advise():
     return mod
 
 
-def _fixture_choice(choice, confidence, qid=POINT_ID):
-    ans = {"type": "choice", "choice": choice}
-    if confidence is not None:
-        ans["confidence"] = confidence
-    return {
-        "model": "typesafe/jev-1.13",
-        "answers": {qid: ans},
-        "usage": {"cost": 0},
-    }
+def _fixture_scores(uncovered_ids, confidence, score_hit=3.0, score_ok=0.0):
+    """Callable-fixture: score на каждый qid из questions.
+
+    uncovered_ids → score_hit; остальные → score_ok. confidence — на все.
+    """
+    wanted = set(uncovered_ids or [])
+
+    def _fake(_state, questions, **_kwargs):
+        answers = {}
+        for qid in (questions or {}):
+            sc = score_hit if qid in wanted else score_ok
+            ans = {"type": "score", "score": sc}
+            if confidence is not None:
+                ans["confidence"] = confidence
+            answers[qid] = ans
+        return {
+            "model": "typesafe/jev-1.13",
+            "answers": answers,
+            "usage": {"cost": 0},
+        }
+
+    return _fake
 
 
 def _write_plan(td, text, name="plan.txt"):
@@ -141,7 +157,7 @@ def _ids_from_highlight(highlight):
 
 
 class TestMustCheckGroupA_ThinFull(unittest.TestCase):
-    """(а) тонкий план → подсветка MUST свиты/warden; полный → чисто (advisory)."""
+    """(а) thin → подсветка; full+high → чисто; low-conf empty → неопределённо."""
 
     @classmethod
     def setUpClass(cls):
@@ -158,8 +174,7 @@ class TestMustCheckGroupA_ThinFull(unittest.TestCase):
     def test_a_thin_plan_highlights_suite_warden(self):
         with tempfile.TemporaryDirectory(prefix="mc-a-thin-") as td:
             plan = _write_plan(td, THIN_PLAN)
-            # тонкий: Jev возвращает релевантные MUST свиты/warden
-            fix = _fixture_choice([MUST_SUITE, MUST_WARDEN], 0.9)
+            fix = _fixture_scores([MUST_SUITE, MUST_WARDEN], 0.9)
             code, highlight, data, _err = _run_must_check(
                 self.mod, _base_argv(plan), fix)
         self.assertEqual(code, 0)
@@ -170,18 +185,95 @@ class TestMustCheckGroupA_ThinFull(unittest.TestCase):
         selected = data.get("selected") or []
         self.assertIn(MUST_SUITE, selected)
         self.assertIn(MUST_WARDEN, selected)
-        self.assertNotEqual(highlight, "чисто (advisory)")
+        self.assertNotEqual(highlight, CLEAN)
+        self.assertNotIn("неопределённо", highlight)
 
     def test_a_full_plan_clean_advisory(self):
         with tempfile.TemporaryDirectory(prefix="mc-a-full-") as td:
             plan = _write_plan(td, FULL_PLAN)
-            # полный: пустой choice / low band → без подсветки
-            fix = _fixture_choice([], 0.1)
+            # полный: score=0 + высокий conf по всем → чисто
+            fix = _fixture_scores([], 0.9)
             code, highlight, data, _err = _run_must_check(
                 self.mod, _base_argv(plan), fix)
         self.assertEqual(code, 0)
-        self.assertIn("чисто (advisory)", highlight)
-        self.assertEqual(data.get("highlight"), "чисто (advisory)")
+        self.assertIn(CLEAN, highlight)
+        self.assertEqual(data.get("highlight"), CLEAN)
+        self.assertEqual(data.get("selected") or [], [])
+
+    def test_a_low_conf_empty_uncertain(self):
+        """Явно: low confidence + empty (score=0) → неопределённо, НЕ чисто."""
+        with tempfile.TemporaryDirectory(prefix="mc-a-low-") as td:
+            plan = _write_plan(td, FULL_PLAN)
+            fix = _fixture_scores([], 0.11)
+            code, highlight, data, _err = _run_must_check(
+                self.mod, _base_argv(plan), fix)
+        self.assertEqual(code, 0)
+        self.assertIn(UNCERTAIN, highlight)
+        self.assertEqual(data.get("highlight"), UNCERTAIN)
+        self.assertNotIn(CLEAN, highlight)
+        self.assertNotEqual(data.get("highlight"), CLEAN)
+        self.assertEqual(data.get("selected") or [], [])
+
+    def test_a_mid_conf_empty_uncertain(self):
+        """mid confidence (между defer и confirm) + score=0 → неопределённо, НЕ чисто."""
+        with tempfile.TemporaryDirectory(prefix="mc-a-mid0-") as td:
+            plan = _write_plan(td, FULL_PLAN)
+            # defer_below=0.2, confirm_below=0.3 → 0.25 = mid
+            fix = _fixture_scores([], 0.25)
+            code, highlight, data, _err = _run_must_check(
+                self.mod, _base_argv(plan), fix)
+        self.assertEqual(code, 0)
+        self.assertIn(UNCERTAIN, highlight)
+        self.assertEqual(data.get("highlight"), UNCERTAIN)
+        self.assertNotIn(CLEAN, highlight)
+        self.assertNotEqual(data.get("highlight"), CLEAN)
+        self.assertEqual(data.get("selected") or [], [])
+
+    def test_a_mid_conf_hit_uncertain(self):
+        """mid confidence + score≥2 → неопределённо (mid не в подсветку)."""
+        with tempfile.TemporaryDirectory(prefix="mc-a-mid2-") as td:
+            plan = _write_plan(td, THIN_PLAN)
+            fix = _fixture_scores([MUST_SUITE, MUST_WARDEN], 0.25)
+            code, highlight, data, _err = _run_must_check(
+                self.mod, _base_argv(plan), fix)
+        self.assertEqual(code, 0)
+        self.assertIn(UNCERTAIN, highlight)
+        self.assertEqual(data.get("highlight"), UNCERTAIN)
+        self.assertNotIn(CLEAN, highlight)
+        self.assertNotIn("подсвечено", highlight)
+        self.assertEqual(data.get("selected") or [], [])
+
+    def test_a_mixed_low_high_covered_uncertain(self):
+        """low + high(covered, score=0) → неопределённо, НЕ чисто."""
+        ids_flag = "%s,%s" % (MUST_SUITE, MUST_WARDEN)
+
+        def fix(_state, questions, **_kwargs):
+            answers = {}
+            for qid in (questions or {}):
+                if qid == MUST_SUITE:
+                    conf, sc = 0.95, 0.0  # high + covered
+                else:
+                    conf, sc = 0.11, 0.0  # low + covered
+                answers[qid] = {
+                    "type": "score", "score": sc, "confidence": conf,
+                }
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": answers,
+                "usage": {"cost": 0},
+            }
+
+        with tempfile.TemporaryDirectory(prefix="mc-a-mix-") as td:
+            plan = _write_plan(td, FULL_PLAN)
+            code, highlight, data, _err = _run_must_check(
+                self.mod,
+                _base_argv(plan, ["--must-ids", ids_flag]),
+                fix)
+        self.assertEqual(code, 0)
+        self.assertIn(UNCERTAIN, highlight)
+        self.assertEqual(data.get("highlight"), UNCERTAIN)
+        self.assertNotIn(CLEAN, highlight)
+        self.assertNotEqual(data.get("highlight"), CLEAN)
         self.assertEqual(data.get("selected") or [], [])
 
 
@@ -192,6 +284,7 @@ class TestMustCheckGroupB_NegativeApprove(unittest.TestCase):
     scrub-поля highlight/advisory_text/error. Выборка ограничена
     MM-131/MM-132 (--must-ids), чтобы не ловить «разрешено» из чужих
     текстов mustmap в criteria (ложное срабатывание regex).
+    «неопределённо» — допустимо.
     """
 
     @classmethod
@@ -223,9 +316,9 @@ class TestMustCheckGroupB_NegativeApprove(unittest.TestCase):
             code, highlight, data, err = _run_must_check(
                 self.mod,
                 _base_argv(plan, ["--must-ids", ids_flag]),
-                _fixture_choice([], 0.2))
+                _fixture_scores([], 0.9))
         self.assertEqual(code, 0)
-        self.assertIn("чисто (advisory)", highlight)
+        self.assertIn(CLEAN, highlight)
         self._assert_no_approve(
             self._user_facing_blob(highlight, data, err), "full-plan")
 
@@ -236,15 +329,28 @@ class TestMustCheckGroupB_NegativeApprove(unittest.TestCase):
             code, highlight, data, err = _run_must_check(
                 self.mod,
                 _base_argv(plan, ["--must-ids", ids_flag]),
-                _fixture_choice([MUST_SUITE, MUST_WARDEN], 0.95))
+                _fixture_scores([MUST_SUITE, MUST_WARDEN], 0.95))
         self.assertEqual(code, 0)
         self.assertIn("подсвечено:", highlight)
         self._assert_no_approve(
             self._user_facing_blob(highlight, data, err), "highlight")
 
+    def test_b_uncertain_no_approve_words(self):
+        ids_flag = "%s,%s" % (MUST_SUITE, MUST_WARDEN)
+        with tempfile.TemporaryDirectory(prefix="mc-b-unc-") as td:
+            plan = _write_plan(td, FULL_PLAN)
+            code, highlight, data, err = _run_must_check(
+                self.mod,
+                _base_argv(plan, ["--must-ids", ids_flag]),
+                _fixture_scores([], 0.1))
+        self.assertEqual(code, 0)
+        self.assertIn(UNCERTAIN, highlight)
+        self._assert_no_approve(
+            self._user_facing_blob(highlight, data, err), "uncertain")
+
 
 class TestMustCheckGroupC_FailOpen(unittest.TestCase):
-    """(в) API недоступен (jev_decisions raises) → пустая подсветка + причина, exit 0."""
+    """(в) API недоступен → неопределённо + причина, exit 0 (НЕ чисто)."""
 
     @classmethod
     def setUpClass(cls):
@@ -259,8 +365,10 @@ class TestMustCheckGroupC_FailOpen(unittest.TestCase):
             code, highlight, data, _err = _run_must_check(
                 self.mod, _base_argv(plan), boom)
         self.assertEqual(code, 0)
-        self.assertEqual(highlight, "чисто (advisory)")
-        self.assertEqual(data.get("highlight"), "чисто (advisory)")
+        self.assertIn(UNCERTAIN, highlight)
+        self.assertEqual(data.get("highlight"), UNCERTAIN)
+        self.assertNotIn(CLEAN, highlight)
+        self.assertNotEqual(data.get("highlight"), CLEAN)
         self.assertEqual(data.get("selected") or [], [])
         self.assertFalse(data.get("ok"))
         err = data.get("error") or ""
@@ -277,7 +385,7 @@ class TestMustCheckGroupD_IdVsMustText(unittest.TestCase):
 
     def test_d_id_mode_and_must_text_same_ids(self):
         must_ids_flag = "%s,%s" % (MUST_SUITE, MUST_WARDEN)
-        fix = _fixture_choice([MUST_SUITE, MUST_WARDEN], 0.9)
+        fix = _fixture_scores([MUST_SUITE, MUST_WARDEN], 0.9)
 
         with tempfile.TemporaryDirectory(prefix="mc-d-") as td:
             plan = _write_plan(td, THIN_PLAN)
@@ -286,7 +394,7 @@ class TestMustCheckGroupD_IdVsMustText(unittest.TestCase):
                 self.mod,
                 _base_argv(plan, ["--must-ids", must_ids_flag]),
                 fix)
-            # --must-text: полные тексты MUST в criteria
+            # --must-text: полные тексты MUST в instructions
             code2, hi2, data2, _ = _run_must_check(
                 self.mod,
                 _base_argv(plan, ["--must-ids", must_ids_flag, "--must-text"]),
@@ -302,7 +410,6 @@ class TestMustCheckGroupD_IdVsMustText(unittest.TestCase):
             sorted(data1.get("selected") or []),
             sorted(data2.get("selected") or []),
         )
-        # labels различаются (brief vs full), но id в подсветке совпадают
         self.assertIn("подсвечено:", hi1)
         self.assertIn("подсвечено:", hi2)
 
@@ -367,18 +474,53 @@ class TestMustCheckScrubMM190Regression(unittest.TestCase):
             code, highlight, data, _err = _run_must_check(
                 self.mod,
                 _base_argv(plan, ["--must-ids", MUST_SCRUB]),
-                _fixture_choice([MUST_SCRUB], 0.9),
+                _fixture_scores([MUST_SCRUB], 0.9),
             )
         self.assertEqual(code, 0)
         self.assertTrue(
             highlight.startswith("подсвечено: MM-190"),
             "ожидали подсветку MM-190, получили: %r" % highlight,
         )
-        self.assertNotEqual(highlight, "чисто (advisory)")
-        self.assertNotEqual(data.get("highlight"), "чисто (advisory)")
+        self.assertNotEqual(highlight, CLEAN)
+        self.assertNotEqual(data.get("highlight"), CLEAN)
         self.assertIn(MUST_SCRUB, data.get("selected") or [])
         # scrub in-place: токен «разрешено» заменён, но префикс подсветки жив
         self.assertNotIn("разрешено", highlight.lower())
+
+
+class TestMustCheckScoreQuestions(unittest.TestCase):
+    """Механика: jev_decisions получает score-вопросы по MM-* (батчи 5–8)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_advise()
+
+    def test_score_multiple_mm_qids_for_full_role(self):
+        seen = {"n": 0, "qids": [], "types": set()}
+
+        def capture(state, questions, **_k):
+            seen["n"] += 1
+            seen["qids"] = sorted(questions.keys())
+            for q in questions.values():
+                seen["types"].add((q or {}).get("type"))
+            return _fixture_scores([], 0.9)(state, questions)
+
+        with tempfile.TemporaryDirectory(prefix="mc-score-") as td:
+            plan = _write_plan(td, FULL_PLAN)
+            code, highlight, _data, _err = _run_must_check(
+                self.mod, _base_argv(plan), capture)
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["n"], 1)
+        self.assertGreaterEqual(len(seen["qids"]), 2)
+        self.assertEqual(seen["types"], {"score"})
+        for qid in seen["qids"]:
+            self.assertTrue(
+                qid.startswith("MM-"),
+                "unexpected qid %r" % qid,
+            )
+        self.assertEqual(highlight, CLEAN)
+        # батчи 5–8: при 30 MUST → несколько батчей, qid всё равно MM-*
+        self.assertGreaterEqual(len(seen["qids"]), 10)
 
 
 if __name__ == "__main__":
