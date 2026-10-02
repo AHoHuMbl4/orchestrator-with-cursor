@@ -60,6 +60,7 @@ b1a7d241b126aaef0110b9385b2d98dcc9f974f37e28b0a054eadfaf9e96ed38  ./rules/cards/
 b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  ./rules/cards/маршрутизация/dont-role-from-head.md
 5e7cafed752e0f74680910aca5d9ab348a8522f7ba68e1be892c08a8a584c4ed  ./rules/cards/маршрутизация/dont-runtime-hit-in-repo.md
 bc963e09816cb7c1c3b0b483b3d045e6b9b24de36669ba4985256fbb5cd3d7ac  ./rules/cards/приёмка/case-e2e-audit-retro-1.md
+4408a5a0aa8c3490954c7b22722d820514dbbc970ca438239cfc0118678db0fe  ./rules/cards/приёмка/case-mm-c1-d3-w1-end-problems-ispolnitel-ches.md
 90a38528002cdfbb2546e08c7b022da41efd24fef7813338f9df8d62d24d1a2c  ./rules/cards/приёмка/do-zelenyj-rabotaet-na-poligone-prinyat-vol.md
 f6f599c078ff4e51db01050600ec03bd7b8159a306faaef2f17bcf4ba5bd52bb  ./rules/cards/приёмка/dont-ne-glushit-signal-detektora-bez-prichiny.md
 ecd251856d53b0a8b61bf01226037e46e0b2eb84e3158f7fc2edc830c073f2d2  ./rules/cards/приёмка/dont-ne-trebovat-all-chips-green-na-priemke-d.md
@@ -95,7 +96,7 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  ./rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-264e1e953ce577c2609d9246b73557a57c48246299a37bdec915747e2265f8ee  ./rules/manifest.json
+2290223a4de0fe2342f67608f2022570d8c6feb06a8babb98dd74518f7bb8967  ./rules/manifest.json
 92763c3c2eea8503f6b620654e5219af9e78ffb0902bdcfd888dba0fe516a3df  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 0ad54f3aada9e638d48947698d7b9daf752ac118d37cfd2ff9db49ba39edce45  ./skills/orchestration/references/MAP.md

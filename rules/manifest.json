@@ -686,6 +686,17 @@
       "created": 1790910773.8595147,
       "born_at": 1790910773.8595147,
       "run_ref": "prosecutor-auto-F-MUSTMAP-20"
+    },
+    {
+      "id": "case-mm-c1-d3-w1-end-problems-ispolnitel-ches",
+      "type": "CASE",
+      "кому": "commander",
+      "когда": "retro",
+      "категория": "приёмка",
+      "hit": 0,
+      "created": 1790921348.174412,
+      "born_at": 1790921348.174412,
+      "run_ref": "MM-C1-D3-W1"
     }
   ],
   "aliases": {}
