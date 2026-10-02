@@ -41,6 +41,11 @@ SUBAGENT_RESUME_WINDOW_MIN = 30
 _FRONT_GENERAL_ROLE = "meta/front-general.md"
 _FRONT_ID_RE = re.compile(r"Фронт (F-[A-Z0-9]+)")
 
+# Счётчики обязанностей (to=commander|general) — снимок из mustmap.json при правке.
+_MUSTMAP_REL = "audit/mustmap/mustmap.json"
+_MUSTMAP_CMD_N = 104
+_MUSTMAP_GEN_N = 25
+
 NUDGE_TEXT = (
     "СВЕРКА КУРСА: ты — оркестратор. Твои правила: исполнение через "
     "исполнителей (не сам), промты из библиотеки ролей, приёмка замером, "
@@ -51,12 +56,34 @@ NUDGE_TEXT = (
     "(2) какая строка TODO сейчас в работе; (3) ведёт ли следующий шаг "
     "к цели. Если делаешь работу исполнителя сам — остановись и делегируй. "
     "При расхождении — вернись к последней закрытой строке TODO.\n"
+    "{mustmap}\n"
     "Система работы\n"
     "развилка → советник с разведчиками\n"
-    "слова-допущения (= выбор) в приказе запрещают «без советников»\n"
+    "перед нарезкой/replan — planning.md (MM-001); без советников только при нуле выбора\n"
     "критики проверяют готовое, альтернатив НЕ генерируют\n"
     "руки командира → работа у фронта"
 )
+
+
+def _mustmap_nudge_block():
+    """Компактный MUST-реестр для нуджа сверки; нет/битый файл → тишина (fail-open)."""
+    path = os.path.join(orchlib.KIT_DIR, "audit", "mustmap", "mustmap.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return ""
+        imps = data.get("imperatives")
+        if not isinstance(imps, list):
+            return ""
+        return (
+            "MUST (commander/general/colonel)\n"
+            "реестр: %s\n"
+            "обязанности: commander=%d general=%d\n"
+            "перед волной сверь свои MUST (status=prompt)"
+        ) % (_MUSTMAP_REL, _MUSTMAP_CMD_N, _MUSTMAP_GEN_N)
+    except Exception:
+        return ""
 
 # Карточка DON'T (ссылка id/путь; тело не вклеиваем).
 _ORDER_SUSPECT_CARD_ID = "dont-kejs-vladelca-30-09-komanduyuschij-dvazh"
@@ -812,6 +839,7 @@ def cmd_post_tool(engine, fmt):
             minutes=int(elapsed // 60), calls=since_nudge_calls,
             summary=orchlib.params_summary(p),
             compass=compass_of(p, session_id),
+            mustmap=_mustmap_nudge_block(),
         )[:9000])
         data["last_nudge_ts"] = now
         data["calls_at_nudge"] = data["calls"]
@@ -1030,6 +1058,7 @@ def cmd_prompt_submit(engine, fmt):
             minutes=pending.get("minutes", 0), calls=0,
             summary=orchlib.params_summary(p),
             compass=compass_of(p, sid),
+            mustmap=_mustmap_nudge_block(),
         )[:4000] + "\n---\n"
         os.unlink(flag)
     except Exception:
