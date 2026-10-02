@@ -251,7 +251,7 @@ status: mechanism=70; prompt=150; human=9
 | MM-204 | all | Compass фронта ≤4000 символов (замер len/wc -m) | compass>4000 → PROBLEMS | mechanism | write-compass.py | `skills/orchestration/SKILL.md:463` |
 | MM-205 | all | kill --id точным run-id; дубль --id живой → exit 11; второй пишущий ран фронта → exit 13 + multi_write_front | второй writer → exit 13 | mechanism | multi_write_front | `skills/orchestration/SKILL.md:474` |
 | MM-206 | all | Второй пишущий ран фронта → exit 13 + чип multi_write_front | два live-писателя одного фронта → отказ dual-writer | mechanism | multi_write_front | `skills/orchestration/SKILL.md:476` |
-| MM-207 | all | Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing | Jev cannot close gates/HITL | prompt | — | `skills/orchestration/SKILL.md:483` |
+| MM-207 | all | Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 18 по routing/jev-table.json, вкл. must-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы) | Jev cannot close gates/HITL | prompt | — | `skills/orchestration/SKILL.md:485` |
 | MM-208 | all | ЗАПРЕТЫ Jev: critic-prefilter, kt-prefilter; закрытие волн/probes_missing силой Jev; авто-Approve HITL | запрещённый jev-id → не вызывать | prompt | — | `skills/orchestration/SKILL.md:485` |
 | MM-209 | all | План через критиков на каждом уровне; граф/фронт безусловно; задачи — если нетривиально | plan critic wave before start | prompt | — | `skills/orchestration/SKILL.md:517` |
 | MM-210 | all | Эскалация: 2 неудачных круга любого уровня → доклад уровнем выше | 2 фейла → эскалация вверх, не третий круг | prompt | — | `skills/orchestration/SKILL.md:524` |
