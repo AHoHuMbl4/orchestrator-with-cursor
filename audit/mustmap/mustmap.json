@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-02T02:19:31Z",
+  "generated_at": "2026-10-02T05:51:21Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -1876,11 +1876,11 @@
     {
       "id": "MM-207",
       "to": "all",
-      "text": "Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing",
+      "text": "Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 18 по routing/jev-table.json, вкл. must-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы)",
       "check": "Jev cannot close gates/HITL",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/SKILL.md:483"
+      "source": "skills/orchestration/SKILL.md:485"
     },
     {
       "id": "MM-208",
