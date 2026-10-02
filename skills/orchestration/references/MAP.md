@@ -21,6 +21,9 @@ State — `.orchestration/` в проекте.
 - `panel/server.py` — `/api/health`: красные чипы из `orchlib.health_red_chips` (в т.ч. runs_no_front, orders_without_basis, fronts_no_prosecutor, waves_no_critic, code_waves_no_gitwarden, budget_warn, advisors_without_scouts, commander_no_children, wave_no_docs, rules_*, lint_failures, probes_missing, chip_silenced, general_resume_chain; WARN: general_resume_chain_warn); кэш по mtime journal+fronts + HEAD хэш кита; F-ACCEPT: probes_missing/chip_silenced не фильтровать
 - Семантика чипов (`orchlib.health_red_chips`, mask 3b73688): `advisors_without_scouts` — покрытие советника: ветка `parent==advisor.id` (без изменений) ИЛИ cloud-scout с пустым parent в окне советника при `front=None` (`--no-front`) либо том же front; scout с другим непустым front — не покрытие. `general_resume_chain` — wire: агент с >1 distinct фронтом генерала; в красный чип только активные цепочки: (а) ≥1 фронт цепочки в fronts.json со status ∉ {done,cancelled,rejected}, ИЛИ (б) последний промт генерала моложе `GENERAL_RESUME_LIVE_WINDOW_S`=1800с; закрытые фронты + неживое окно → история, чип не краснеет
 - `orders_suspect` — детектор лживых «без советников»; снятие = маркеры ушли ИЛИ advisor-записи по фронту в журнале ИЛИ пометка «допущение проверено замером:» в order.md
+- `handoff_oversize` — handoff >2000 симв при активной иерархии
+- `project_md_missing` — нет PROJECT.md при старте иерархии
+- `mustmap_stale` — доктрина новее audit/mustmap/mustmap.json
 - `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
