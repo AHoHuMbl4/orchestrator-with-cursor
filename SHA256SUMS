@@ -52,6 +52,7 @@ ba13b1b047dad67e4c4c3479fba670868bf8dee0dbfb39e6bb91c75eba32dff4  ./rules/archiv
 7f23f57f21963da4bebc250841b9c0cd4d4970a360399e32e0b7dba52487d4c8  ./rules/archive/процессы/dont-plan-bez-vladelca-uslovnoj-retro-kartoch.md
 fb455cfd10569a45d5c9f4b69693937481688a633a27969a7fe3800c327c2bad  ./rules/cards/запуск/case-dup-id-exit11.md
 6056392c383a2ad00a65eceeafb670a5b381678998cb3edd787e1f3862cc96a2  ./rules/cards/запуск/case-end-records-front-on-start.md
+a7e8f7c0e3e1dd8fac39e3415e699a1066ac8179225aa248c824d1f07da9a1ac  ./rules/cards/запуск/dont-avtoprokuror-volny-zanimaet-pishuschij-r.md
 6eba58366347d288b03fa23cf7eac372040f71cec1f44b6dc48d2e4c6aa3b96f  ./rules/cards/запуск/dont-avtoprokurorskie-id-prosecutor-auto-f-pe.md
 b897017a6c42cb429c7bbfd5c7f2b35c055c786217102fad2806638638fc1fe5  ./rules/cards/запуск/dont-obertki-sab-progony-iz-cwd-repo-plodyat.md
 fb124fc3b21f464d04cab958ce83a2c5253e91ac1f60d1e0ab5b00202f9db3cf  ./rules/cards/запуск/dont-pkill-prompt.md
@@ -96,7 +97,7 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  ./rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-2290223a4de0fe2342f67608f2022570d8c6feb06a8babb98dd74518f7bb8967  ./rules/manifest.json
+6bc578b50888b7fcf04559ed49b62ce919167774236f23c4b662be43c6add1ff  ./rules/manifest.json
 92763c3c2eea8503f6b620654e5219af9e78ffb0902bdcfd888dba0fe516a3df  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 0ad54f3aada9e638d48947698d7b9daf752ac118d37cfd2ff9db49ba39edce45  ./skills/orchestration/references/MAP.md

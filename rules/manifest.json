@@ -697,6 +697,17 @@
       "created": 1790921348.174412,
       "born_at": 1790921348.174412,
       "run_ref": "MM-C1-D3-W1"
+    },
+    {
+      "id": "dont-avtoprokuror-volny-zanimaet-pishuschij-r",
+      "type": "DON'T",
+      "кому": "commander",
+      "когда": "chip-red",
+      "категория": "запуск",
+      "hit": 0,
+      "created": 1790921773.7949939,
+      "born_at": 1790921773.7949939,
+      "run_ref": "prosecutor-auto-F-MUSTCHECK-8"
     }
   ],
   "aliases": {}
