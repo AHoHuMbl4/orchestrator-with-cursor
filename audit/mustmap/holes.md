@@ -1156,3 +1156,31 @@
 - MM-185: вне owns → journal — «journal end без front — by-design не ПРОБЛЕМА; старт после max_rounds при доке э»
 - MM-186: вне owns → run-exec — «Никогда не переходи на субагентов без явного «да» владельца в этой сессии»
 - MM-197: вне owns → run-exec — «Первая строка рабочего промта: роль: <путь>; run-exec/run-cloud — передавай --ro»
+
+## W2/W3-итог (пересборка)
+
+### п.1 → status=mechanism (10)
+- MM-004 → `handoff_oversize`
+- MM-035 → `project_md_missing`
+- MM-073 → `write-compass лимит 4000`
+- MM-117 → `write-compass лимит 4000`
+- MM-045 → `FRONT_DUAL_WRITER`
+- MM-087 → `FRONT_DUAL_WRITER`
+- MM-036 → `probes_missing`
+- MM-098 → `probes_missing`
+- MM-003 → `reground foreign_state`
+- MM-008 → `orch-lint`
+
+### п.2 → status=mechanism, mechanism=mustmap_nudge (68)
+- все прочие бывшие `status=prompt` с `to∈{commander,general}` (83 − 10 п.1 − 5 п.3 = 68)
+
+### п.3 → status=human, mechanism=null (5)
+- MM-014 → human
+- MM-068 → human
+- MM-070 → human
+- MM-095 → human
+- MM-103 → human
+
+незакрытые prompt-дыры: 67 (все to∉{commander,general})
+
+оговорка про mustmap_nudge: доставка реестра обязана появляться в канале (вклейка), детекции нарушения нет — промт-надежда усиленна доставкой; для 5 judgment-дыр риск принят владельцем (проверить утверждением в докладе фронта).

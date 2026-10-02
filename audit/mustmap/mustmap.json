@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-01T23:08:30Z",
+  "generated_at": "2026-10-02T02:19:31Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -24,8 +24,8 @@
       "to": "commander",
       "text": "Читай planning.md перед нарезкой нетривиальной и при каждом replan",
       "check": "planning.md before nontrivial split",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:11"
     },
     {
@@ -42,8 +42,8 @@
       "to": "commander",
       "text": "Изоляция state: 1 проект = 1 папка с .orchestration; чужое дерево = подхват чужого state; STATE БЕЗ ПРОЕКТА — остановиться",
       "check": "хук STATE БЕЗ ПРОЕКТА → стоп и развести папки",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "reground foreign_state",
       "source": "skills/orchestration/SKILL.md:24"
     },
     {
@@ -51,8 +51,8 @@
       "to": "commander",
       "text": "HANDOFF .orchestration/handoff.md ≤2000 символов; обновляет командующий на границах волн и перед закрытием сессии",
       "check": "границы волн/закрытие → handoff обновлён ≤2000",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "handoff_oversize",
       "source": "skills/orchestration/SKILL.md:30"
     },
     {
@@ -69,8 +69,8 @@
       "to": "commander",
       "text": "Иерархия промтов — не импровизируй; каскад домен→поддомен→роль только по _index.md, не листать ~146 файлов",
       "check": "выбор роли → только _index.md каскадом",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:43"
     },
     {
@@ -78,8 +78,8 @@
       "to": "commander",
       "text": "Не листай ~146 файлов ролей — только каталог _index.md",
       "check": "поиск роли → только _index.md",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:51"
     },
     {
@@ -87,8 +87,8 @@
       "to": "commander",
       "text": "Роли нет — фабрика по _template.md + строка в _index.md; роль остаётся навсегда",
       "check": "нет роли → фабрика по шаблону и _index.md",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "orch-lint",
       "source": "skills/orchestration/SKILL.md:54"
     },
     {
@@ -96,8 +96,8 @@
       "to": "commander",
       "text": "В промте роли обязательно заполняй АРТЕФАКТ — приёмка замером по нему",
       "check": "промт роли → поле АРТЕФАКТ заполнено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:57"
     },
     {
@@ -105,8 +105,8 @@
       "to": "commander",
       "text": "Критики волны — всегда шаблон критика из библиотеки; критик не задаёт вопросов и не видит лог исполнителя",
       "check": "критик видит лог → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:59"
     },
     {
@@ -123,8 +123,8 @@
       "to": "commander",
       "text": "Режим auto: роль code/ → код-задача; иначе не-код; объяви владельцу одной строкой",
       "check": "старт пачки → объявить режим одной строкой",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:70"
     },
     {
@@ -141,7 +141,7 @@
       "to": "commander",
       "text": "Кураторство контекста в промте local-cursor НЕ нужно — агент сам читает/правит ФС",
       "check": "лишнее кураторство CLI → не нужно",
-      "status": "prompt",
+      "status": "human",
       "mechanism": null,
       "source": "skills/orchestration/SKILL.md:79"
     },
@@ -159,8 +159,8 @@
       "to": "commander",
       "text": "Cloud-код-протокол — только явный fallback при недоступности CLI, не авто-выбор",
       "check": "код через cloud → только явный fallback",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:86"
     },
     {
@@ -204,8 +204,8 @@
       "to": "commander",
       "text": "Молчаливый переход на субагентов запрещён всегда; вопросы недоступны → пауза≥10м + доклад текстом + разреженные ретраи",
       "check": "молча subagents → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:113"
     },
     {
@@ -213,8 +213,8 @@
       "to": "commander",
       "text": "Молчаливый переход на субагентов запрещён всегда",
       "check": "нет явного да → субагенты не включаются",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:116"
     },
     {
@@ -222,8 +222,8 @@
       "to": "commander",
       "text": "Авто-режим без вопросов: Assumptions → compass ДО волн → раздел Допущения в финале; on_cursor_fail ask → субагенты НЕ молча",
       "check": "вопросы недоступны → Assumptions+доклад, не silent switch",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:122"
     },
     {
@@ -240,8 +240,8 @@
       "to": "commander",
       "text": "Любая задача через fresh-исполнителя; сам не исполняешь; напрямую — только мета-вопросы о сессии",
       "check": "задача владельца → только через исполнителя",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:137"
     },
     {
@@ -258,8 +258,8 @@
       "to": "commander",
       "text": "Промт проверяющего содержит ТОЛЬКО артефакт+критерий+адресат; ЗАПРЕЩЕНЫ карты «где проверить»",
       "check": "промт критика → без карт локаций/grep-директив",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:155"
     },
     {
@@ -267,8 +267,8 @@
       "to": "commander",
       "text": "Механика не опциональна: роль ТОЛЬКО через _index.md; промт ТОЛЬКО из шаблона (исключение — ремонтный follow-up)",
       "check": "пропуск шаблона вне follow-up → ошибка курса",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:182"
     },
     {
@@ -276,8 +276,8 @@
       "to": "commander",
       "text": "Оптимизировать механику запрещено; шаг невозможен → отступление в compass + доклад; строка Механика: в отчёте волны",
       "check": "нет строки Механика: → критики ловят",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:185"
     },
     {
@@ -285,8 +285,8 @@
       "to": "commander",
       "text": "Критики исследований проверяют утверждения с URL; слабые — выкинуть или пометить",
       "check": "утверждение без URL → выкинуть/пометить",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:197"
     },
     {
@@ -303,8 +303,8 @@
       "to": "commander",
       "text": "Косяк волны: возврат ТОЛЬКО git-механиками (reset/revert), не чинить поверх",
       "check": "чинить поверх чекпоинта → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:211"
     },
     {
@@ -312,8 +312,8 @@
       "to": "commander",
       "text": "Пересбор SHA256SUMS — не зона commit_wave, только командующий",
       "check": "агент пересобрал SHA256SUMS → вне зоны",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:219"
     },
     {
@@ -330,8 +330,8 @@
       "to": "commander",
       "text": "При старте иерархии командующий создаёт PROJECT.md; docs-keeper ведёт перезаписью, не дописыванием",
       "check": "нет PROJECT.md при иерархии → создать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "project_md_missing",
       "source": "skills/orchestration/SKILL.md:239"
     },
     {
@@ -339,8 +339,8 @@
       "to": "commander",
       "text": "Готов = процесс завершился И критерий подтверждён замером; со слов исполнителя — никогда",
       "check": "принятие со слов → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "probes_missing",
       "source": "skills/orchestration/SKILL.md:262"
     },
     {
@@ -348,8 +348,8 @@
       "to": "commander",
       "text": "Фейл — один перезапуск; второй подряд — разбери или доложи; завис повторно — стоп ветки",
       "check": "второй фейл без доклада → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:264"
     },
     {
@@ -357,8 +357,8 @@
       "to": "commander",
       "text": "Завис — стоп, разбор, перезапуск; повторный завис — стоп ветки, доклад",
       "check": "повторный stall → стоп ветки",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:266"
     },
     {
@@ -366,8 +366,8 @@
       "to": "commander",
       "text": "stall_after EXIT 124 retry; max_wall EXIT 125 без retry; частые таймауты = дробить, не поднимать лимиты",
       "check": "таймауты → replan мельче",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:268"
     },
     {
@@ -375,8 +375,8 @@
       "to": "commander",
       "text": "Частые таймауты = ошибка декомпозиции: дробить, а не поднимать лимиты",
       "check": "частые timeout → replan мельче, не ↑timeout",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:279"
     },
     {
@@ -384,8 +384,8 @@
       "to": "commander",
       "text": "Замер-гигиена: SHA в выводе; не глушить вывод проверок; ключ-мис = кривая проба",
       "check": "measurement prints SHA; no >/dev/null on checks",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:283"
     },
     {
@@ -393,8 +393,8 @@
       "to": "commander",
       "text": "Перед пачкой — фундамент planning.md; неоднозначность → СТОП/вопросы или Assumptions",
       "check": "пачка без фундамента → не стартовать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:287"
     },
     {
@@ -411,8 +411,8 @@
       "to": "commander",
       "text": "Авто при превышении порога: Assumptions, не вечный стоп",
       "check": "auto over threshold → Assumptions continue",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:295"
     },
     {
@@ -420,8 +420,8 @@
       "to": "commander",
       "text": "Параллельный залп — только на независимых задачах; пишущие — по одной на область",
       "check": "пересечение файлов пишущих → сериализация",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "FRONT_DUAL_WRITER",
       "source": "skills/orchestration/SKILL.md:298"
     },
     {
@@ -429,8 +429,8 @@
       "to": "commander",
       "text": "Синтез N артефактов — отдельная волна, не оркестратор; report-synthesizer; synthesizer только reconciliation",
       "check": "оркестратор сам сшил отчёт → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:309"
     },
     {
@@ -438,8 +438,8 @@
       "to": "commander",
       "text": "Ремонтный follow-up — тому же agent-id; единственный случай без шаблона; >2 ремонтных кругов → стоп и доклад",
       "check": "3+ repair → стоп/доклад",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:333"
     },
     {
@@ -447,8 +447,8 @@
       "to": "commander",
       "text": "hierarchy=off — иерархия ЗАПРЕЩЕНА, всегда плоский режим",
       "check": "hierarchy=off → фронты не создавать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:350"
     },
     {
@@ -456,8 +456,8 @@
       "to": "commander",
       "text": "Приёмка уровня: командир читает ТОЛЬКО отчёт-выжимку; сырьё и нижний код не читаются",
       "check": "командир уровня → нет чтения сырья",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:372"
     },
     {
@@ -474,8 +474,8 @@
       "to": "commander",
       "text": "Без OK наблюдателя следующая волна не стартует",
       "check": "observer OK gate before next wave",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:391"
     },
     {
@@ -492,8 +492,8 @@
       "to": "commander",
       "text": "Инспектор вызовов на КТ: вход journal.jsonl; отчёт прокурору и владельцу",
       "check": "КТ без инспектора при запуске → пробел процесса",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:404"
     },
     {
@@ -573,8 +573,8 @@
       "to": "commander",
       "text": "Чек-лист статуса: развилки/руки/компас — директива генералу, не делать самому",
       "check": "командующий чинит compass фронта сам → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:487"
     },
     {
@@ -627,7 +627,7 @@
       "to": "commander",
       "text": "Качество > токены: не режь осознанную сложность ради экономии",
       "check": "don't cut quality for token save",
-      "status": "prompt",
+      "status": "human",
       "mechanism": null,
       "source": "skills/orchestration/SKILL.md:554"
     },
@@ -636,8 +636,8 @@
       "to": "commander",
       "text": "Зависшее окно: stalled НЕ cancelled; новый генерал: order+compass+журнал; бегущие не перезапускать",
       "check": "stalled resume = acceptance window",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:559"
     },
     {
@@ -645,7 +645,7 @@
       "to": "commander",
       "text": "По умолчанию НИЧЕГО не спрашивай у владельца; меню — только если позвал «меню»",
       "check": "лишние вопросы меню → нарушение",
-      "status": "prompt",
+      "status": "human",
       "mechanism": null,
       "source": "skills/orchestration/SKILL.md:570"
     },
@@ -654,8 +654,8 @@
       "to": "commander",
       "text": "Пишущая задача parallel_per_task=1 + критики; spike — отдельное решение не по дефолту",
       "check": "spike по дефолту → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:577"
     },
     {
@@ -672,8 +672,8 @@
       "to": "commander",
       "text": "COMPASS ПРЕВЫШЕН фронта: НЕ ужимать самому; директива генералу через воронку; повтор → stalled",
       "check": "overflow → order general rewrite",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "write-compass лимит 4000",
       "source": "skills/orchestration/SKILL.md:643"
     },
     {
@@ -717,8 +717,8 @@
       "to": "commander",
       "text": "order.md пишет командующий; генерал RO; compass фронта пишет генерал через воронку",
       "check": "генерал пишет order фронта → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/FLOW.md:85"
     },
     {
@@ -726,8 +726,8 @@
       "to": "commander",
       "text": "Нет измеримого критерия — не декомпозируй: сначала добудь критерий",
       "check": "no measurable done → no split",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:9"
     },
     {
@@ -735,8 +735,8 @@
       "to": "commander",
       "text": "Запиши в compass цель, критерий, границы и TODO-чеклист до нарезки",
       "check": "compass has goal+criterion+TODO before split",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:13"
     },
     {
@@ -753,8 +753,8 @@
       "to": "commander",
       "text": "Никогда не задавай вопросов исполнителям: нерешённое — владельцу или Assumptions",
       "check": "вопрос исполнителю → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:29"
     },
     {
@@ -762,8 +762,8 @@
       "to": "commander",
       "text": "Перед разбиением jev need-split/split-quality; низкий quality → пересобрать; иначе без советников: выбора нет",
       "check": "split без jev/пометки → нарушение",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:47"
     },
     {
@@ -771,8 +771,8 @@
       "to": "commander",
       "text": "Низкий split-quality → пересобрать до критиков плана",
       "check": "low split-quality → re-split",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:53"
     },
     {
@@ -780,8 +780,8 @@
       "to": "commander",
       "text": "Артефакт всегда обязателен кроме чисто мета-диалога",
       "check": "non-meta tasks need artifact path",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:56"
     },
     {
@@ -798,8 +798,8 @@
       "to": "commander",
       "text": "Пишущая задача — всегда ОДИН исполнитель; parallel_per_task только READ-ONLY",
       "check": "writers: parallel_per_task=1",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "FRONT_DUAL_WRITER",
       "source": "skills/orchestration/references/planning.md:69"
     },
     {
@@ -807,8 +807,8 @@
       "to": "commander",
       "text": "depends_on в state НЕ заводим — рёбра в TODO compass",
       "check": "no machine depends_on in task state",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:89"
     },
     {
@@ -816,8 +816,8 @@
       "to": "commander",
       "text": "Валидация декомпозиции: ведёт к критерию / нет дыр / нет дублей / самодостаточна; иначе переделай",
       "check": "хоть один «нет» → переделка до запуска",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:95"
     },
     {
@@ -825,8 +825,8 @@
       "to": "commander",
       "text": "Фундамент до волн обязателен: gate→декомпозиция→роли→критерии критиков→прогноз",
       "check": "пачка без §3.6 → не стартовать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:107"
     },
     {
@@ -834,8 +834,8 @@
       "to": "commander",
       "text": "PROJECT.md обновляется перезаписью, не дописыванием; расхождение = PROBLEMS",
       "check": "docs-keeper сверка → расхождение PROBLEMS",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:142"
     },
     {
@@ -870,7 +870,7 @@
       "to": "commander",
       "text": "narrative не самообъявляемый; артефакт-оракул narrative быть не может",
       "check": "narrative class restricted",
-      "status": "prompt",
+      "status": "human",
       "mechanism": null,
       "source": "skills/orchestration/references/planning.md:255"
     },
@@ -879,8 +879,8 @@
       "to": "commander",
       "text": "Ремонт плана = новая волна критиков плана (не ремонтный follow-up артефакта)",
       "check": "follow-up на план → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:354"
     },
     {
@@ -897,8 +897,8 @@
       "to": "commander",
       "text": "Между волнами gate: критерии зелёные замером + сверка с compass",
       "check": "волна без замера/сверки → не закрывать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "probes_missing",
       "source": "skills/orchestration/references/planning.md:416"
     },
     {
@@ -906,8 +906,8 @@
       "to": "commander",
       "text": "Финальная сшивка — волна синтеза, не текст оркестратора в своём контексте",
       "check": "commander doesn't stitch N arts himself",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:422"
     },
     {
@@ -915,8 +915,8 @@
       "to": "commander",
       "text": "Волна перекрёстной сверки — только независимые источники; основной источник волн в границах запрещён by design",
       "check": "основной источник в cross-check → by design запрет",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:424"
     },
     {
@@ -924,8 +924,8 @@
       "to": "commander",
       "text": "Partial-fail replan: зелёные не перезапускаются; только красные и зависимые",
       "check": "зелёный узел → не перезапускать",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:432"
     },
     {
@@ -933,8 +933,8 @@
       "to": "commander",
       "text": "Анти-паттерн: premature decomposition / мелкая нарезка / гигант / нет сверки compass / каскад / полный restart /↑timeout",
       "check": "decomposition anti-patterns avoided",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:443"
     },
     {
@@ -942,7 +942,7 @@
       "to": "commander",
       "text": "Анти-паттерн: резать до фиксации цели/критерия",
       "check": "premature decomposition → запрещено",
-      "status": "prompt",
+      "status": "human",
       "mechanism": null,
       "source": "skills/orchestration/references/planning.md:445"
     },
@@ -951,8 +951,8 @@
       "to": "commander",
       "text": "Наблюдатель запускается командующим на КТ; запуск обычный НЕ --readonly (нужен Write метки)",
       "check": "observer not --readonly",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-observer.md:4"
     },
     {
@@ -987,8 +987,8 @@
       "to": "general",
       "text": "Архитектура-контракты — всегда первая волна фронта",
       "check": "contracts first wave",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:418"
     },
     {
@@ -996,8 +996,8 @@
       "to": "general",
       "text": "Подзадачи только через полковников; order в colonels/<cid>/order.md; сырьё — только raw-brief",
       "check": "генерал пишет код → нарушение с первого раза",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:431"
     },
     {
@@ -1005,8 +1005,8 @@
       "to": "general",
       "text": "Руки генерала НОЛЬ: только обёртки/выжимки/write-compass/order полковникам/доклад; Write/Edit проекта = нарушение с первого раза",
       "check": "general Write/Edit project = violation",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:437"
     },
     {
@@ -1023,8 +1023,8 @@
       "to": "general",
       "text": "Активный фронт без записей исполнителей за окно → stalled + новый генерал",
       "check": "нет journal исполнителей → stalled",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:448"
     },
     {
@@ -1032,8 +1032,8 @@
       "to": "general",
       "text": "Короткие окна: 1 волна≈1 окно; resume только того же фронта; потолок ~2ч — штатный resume",
       "check": "вечное окно → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:457"
     },
     {
@@ -1050,8 +1050,8 @@
       "to": "general",
       "text": "Генералы волны слепы друг к другу НАПРОЧЬ; coordination только через командующего",
       "check": "перекрёстное чтение runs → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:488"
     },
     {
@@ -1059,8 +1059,8 @@
       "to": "general",
       "text": "Прямой запуск исполнителей генералом — только тривиальные замеры; NEVER для работ",
       "check": "работа ≠ замер → только через полковника",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/SKILL.md:509"
     },
     {
@@ -1068,8 +1068,8 @@
       "to": "general",
       "text": "Закрытие фронта: compass≤4000 + order + advisor + швы",
       "check": "front done criteria unmet → PROBLEMS/stalled",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "write-compass лимит 4000",
       "source": "skills/orchestration/references/FLOW.md:78"
     },
     {
@@ -1077,8 +1077,8 @@
       "to": "general",
       "text": "order.md пишет командующий; генерал только читает",
       "check": "general never writes front order.md",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/FLOW.md:85"
     },
     {
@@ -1086,8 +1086,8 @@
       "to": "general",
       "text": "Генерал/полковник сырьё не читают — только raw-brief ≤15 строк вверх",
       "check": "чтение сырья командиром → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/FLOW.md:113"
     },
     {
@@ -1095,8 +1095,8 @@
       "to": "general",
       "text": "Бегущие волны при новом генерале НЕ перезапускать; start без end = бежит",
       "check": "дубль бегущей волны → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/FLOW.md:115"
     },
     {
@@ -1104,8 +1104,8 @@
       "to": "general",
       "text": "Границы волны: СВОИ пути + запрет чужих; назначение фронтов непересекающееся",
       "check": "пересечение файлов фронтов → ошибка графа",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:195"
     },
     {
@@ -1113,8 +1113,8 @@
       "to": "general",
       "text": "САМОисполнение работы полковника/исполнителя запрещено — стоп и делегируй",
       "check": "general self-exec → stop+delegate",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:334"
     },
     {
@@ -1122,8 +1122,8 @@
       "to": "general",
       "text": "Оркестратору по часам не рвать генерала — только по границам работ или дрейфу",
       "check": "таймер окна → не повод рвать руками",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/planning.md:338"
     },
     {
@@ -1131,8 +1131,8 @@
       "to": "general",
       "text": "Инструменты генерала исчерпывающие (а–д); всё остальное запрещено; Write/Edit проекта = нарушение с первого раза",
       "check": "Shell-правка кода → сразу стоп",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-general.md:7"
     },
     {
@@ -1140,8 +1140,8 @@
       "to": "general",
       "text": "Write/Edit/Shell правок проекта = нарушение с первого раза — остановись и запусти полковника",
       "check": "urge to edit → stop+delegate colonel",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-general.md:13"
     },
     {
@@ -1149,8 +1149,8 @@
       "to": "general",
       "text": "Чужие runs/вердикты параллельных фронтов НЕ читать; с параллельными НЕ координироваться — через командующего",
       "check": "координация с соседним генералом → запрещено",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-general.md:16"
     },
     {
@@ -1167,8 +1167,8 @@
       "to": "general",
       "text": "Возобновление: сверь journal start/end; не дублируй бегущее; память прошлого окна не предполагай",
       "check": "resume from journal not memory",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-general.md:34"
     },
     {
@@ -1176,8 +1176,8 @@
       "to": "general",
       "text": "НИКОГДА подглядывание к параллельным линиям; самовольная остановка по чужим результатам",
       "check": "координация/стоп по чужому → анти-паттерн",
-      "status": "prompt",
-      "mechanism": null,
+      "status": "mechanism",
+      "mechanism": "mustmap_nudge",
       "source": "skills/orchestration/references/roles/meta/front-general.md:55"
     },
     {
