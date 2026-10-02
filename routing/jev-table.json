@@ -196,6 +196,19 @@
         "3 — запускать первым"
       ],
       "fallback": "исходный порядок плана"
+    },
+    {
+      "id": "must-check",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "advisory": true,
+      "auto_question": true,
+      "instructions": "какие из перечисленных MUST (id + краткая суть) не покрыты планом волны",
+      "criteria": {
+        "_from_input": "criteria собираются из выборки MUST роли (id → краткая суть)"
+      },
+      "fallback": "без подсветки, полный конвейер"
     }
   ]
 }

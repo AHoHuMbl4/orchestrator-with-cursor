@@ -60,8 +60,16 @@ DEFAULT_YES_AT = 0.6
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABLE_PATH = os.path.join(REPO_ROOT, "routing", "jev-table.json")
+MUSTMAP_PATH = os.path.join(REPO_ROOT, "audit", "mustmap", "mustmap.json")
 
 QUESTION_TYPES = frozenset(["choice", "noul", "score"])
+MUST_CHECK_ROLES = frozenset(["commander", "general", "colonel"])
+MUST_BRIEF_MAX = 96
+# Запрещённые «разрешающие» формулировки в выводе must-check
+_MUST_CHECK_FORBIDDEN_RE = re.compile(
+    r"разрешено|можно\s+стартовать|approved|green\s+to\s+go",
+    re.IGNORECASE,
+)
 
 
 class _AdviseArgumentParser(argparse.ArgumentParser):
@@ -423,6 +431,7 @@ ADVISORY_AUTO_POINTS = frozenset([
     "chip-triage",
     "retro-card-hint",
     "run-queue-prio",
+    "must-check",
 ])
 
 HINT_BLOCK_FOOTER = (
@@ -517,6 +526,121 @@ def normalize_chip_input(data):
                 out.append("%s#%d" % (chip, n))
         return out
     return []
+
+
+def load_mustmap(path=None):
+    """READ-ONLY: audit/mustmap/mustmap.json → dict."""
+    p = path or MUSTMAP_PATH
+    with open(p, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or "imperatives" not in data:
+        raise ValueError("mustmap без imperatives: %s" % p)
+    return data
+
+
+def brief_must_text(text, max_len=MUST_BRIEF_MAX):
+    """Однострочная суть MUST: whitespace → пробел, обрезка длинных."""
+    s = " ".join(str(text or "").split())
+    if len(s) <= max_len:
+        return s
+    if max_len <= 1:
+        return s[:max_len]
+    return s[: max_len - 1].rstrip() + "…"
+
+
+def select_role_musts(mustmap, role, must_ids=None, full_text=False):
+    """Выборка MUST: status==prompt AND to∈{role, all}.
+
+    Возвращает (ordered_ids, criteria_obj {id: label}).
+    must_ids — явное подмножество; id вне выборки → ValueError.
+    full_text — значения criteria = полный text; иначе краткая суть.
+    """
+    role = str(role or "").strip()
+    if role not in MUST_CHECK_ROLES:
+        raise ValueError(
+            "must-check: роль должна быть одной из %s, получено: %r"
+            % (sorted(MUST_CHECK_ROLES), role)
+        )
+    selected = []
+    for item in mustmap.get("imperatives") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "prompt":
+            continue
+        to = item.get("to")
+        if to not in (role, "all"):
+            continue
+        mid = item.get("id")
+        if mid is None:
+            continue
+        text = item.get("text") or ""
+        selected.append((str(mid), str(text)))
+    by_id = {mid: text for mid, text in selected}
+    ordered = [mid for mid, _ in selected]
+    if must_ids is not None:
+        wanted = []
+        for raw in must_ids:
+            mid = str(raw).strip()
+            if not mid:
+                continue
+            if mid not in by_id:
+                raise ValueError(
+                    "must-check: id %r вне выборки роли %s"
+                    % (mid, role)
+                )
+            if mid not in wanted:
+                wanted.append(mid)
+        ordered = wanted
+    criteria = {}
+    for mid in ordered:
+        text = by_id[mid]
+        criteria[mid] = text if full_text else brief_must_text(text)
+    return ordered, criteria
+
+
+def parse_must_ids_flag(raw):
+    """'id1,id2' → list[str]; пустая строка → []."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return []
+    return [p.strip() for p in s.split(",") if p.strip()]
+
+
+def format_must_check_highlight(picked_ids, criteria):
+    """Строка подсветки: «подсвечено: …» или «чисто (advisory)».
+
+    Запрещённые токены в label MUST заменяются на «…» in-place —
+    строка «подсвечено:» не схлопывается в «чисто».
+    """
+    parts = []
+    for mid in picked_ids or []:
+        label = str((criteria or {}).get(mid, mid))
+        label = _MUST_CHECK_FORBIDDEN_RE.sub("…", label)
+        parts.append("%s: %s" % (mid, label))
+    if not parts:
+        return "чисто (advisory)"
+    return "подсвечено: " + "; ".join(parts)
+
+
+def _scrub_must_check_text(text):
+    """In-place scrub запрещённых токенов; строку целиком не обнулять."""
+    if not isinstance(text, str):
+        return text
+    return _MUST_CHECK_FORBIDDEN_RE.sub("…", text)
+
+def _must_check_criteria_from_state(state):
+    """Достать динамические criteria must-check из structured state.
+
+    Producer: cmd_must_check кладёт wrap_state={"plan": …, "musts": criteria}.
+    """
+    state = coerce_structured_state(state)
+    if isinstance(state, dict):
+        musts = state.get("musts")
+        if isinstance(musts, dict) and musts:
+            return {str(k): str(v) for k, v in musts.items()}
+    return {}
 
 
 def coerce_structured_state(state):
@@ -632,6 +756,24 @@ def build_auto_questions(point, state):
             }
         }
 
+    if pid == "must-check":
+        # criteria динамически из выборки MUST (как chip-triage из входа)
+        crit_obj = _must_check_criteria_from_state(state)
+        if not crit_obj and isinstance(criteria, dict):
+            # убрать заглушку _from_input; реальных id нет
+            crit_obj = {
+                str(k): str(v)
+                for k, v in criteria.items()
+                if k != "_from_input"
+            }
+        return {
+            pid: {
+                "type": "choice",
+                "instructions": instructions,
+                "criteria": crit_obj,
+            }
+        }
+
     if pid == "run-queue-prio":
         runs = state if isinstance(state, list) else []
         ids = []
@@ -719,6 +861,10 @@ def advisory_text_for_point(point_id, advice_map, extra=None):
         return _advisory_phrase(
             "первым разбирать %s (остальные в исходном порядке)"
             % (choice or "?"))
+
+    if point_id == "must-check":
+        highlight = extra.get("highlight") or "чисто (advisory)"
+        return highlight
 
     if point_id == "retro-card-hint":
         cats = extra.get("categories") or []
@@ -853,6 +999,41 @@ def wrap_chip_triage(point, advice_map, answers, original_order):
     }
 
 
+def wrap_must_check(point, advice_map, answers, criteria_obj):
+    """→ highlight «подсвечено: …» / «чисто (advisory)»; multi min=0 max=N.
+
+    Cardinality динамическая (max = N выбранных MUST) — не в _CHOICE_CARDINALITY.
+    """
+    criteria_obj = dict(criteria_obj or {})
+    # убрать заглушку таблицы
+    criteria_obj.pop("_from_input", None)
+    band = _band_of(advice_map)
+    amin = 0
+    amax = len(criteria_obj)
+    choice_raw = None
+    for src in (answers or {}).values():
+        if isinstance(src, dict) and "choice" in src:
+            choice_raw = src.get("choice")
+            break
+    if choice_raw is None:
+        for src in (advice_map or {}).values():
+            if isinstance(src, dict) and "choice" in src:
+                choice_raw = src.get("choice")
+                break
+    picked = []
+    if band in ("mid", "high") and amax > 0:
+        picked = validate_choice_against_criteria(
+            choice_raw, criteria_obj, amin, amax)
+    highlight = format_must_check_highlight(picked, criteria_obj)
+    return {
+        "highlight": highlight,
+        "selected": picked,
+        "criteria": criteria_obj,
+        "advisory_text": advisory_text_for_point(
+            "must-check", advice_map, {"highlight": highlight}),
+    }
+
+
 def wrap_run_queue_prio(point, advice_map, answers, original_order,
                         defer_below):
     original_order = list(original_order or [])
@@ -964,6 +1145,16 @@ def apply_advisory_wrapper(point, advice_map, answers, state, raw_tail,
     elif pid == "chip-triage":
         original = normalize_chip_input(state)
         extra = wrap_chip_triage(point, advice_map, answers, original)
+    elif pid == "must-check":
+        crit = _must_check_criteria_from_state(state)
+        if not crit:
+            pt_crit = point.get("criteria") or {}
+            if isinstance(pt_crit, dict):
+                crit = {
+                    str(k): str(v) for k, v in pt_crit.items()
+                    if k != "_from_input"
+                }
+        extra = wrap_must_check(point, advice_map, answers, crit)
     elif pid == "run-queue-prio":
         original = []
         if isinstance(state, list):
@@ -1004,6 +1195,11 @@ def fail_open_advisory_extras(point, state, raw_tail):
         extra["recommended_order"] = list(original)
         extra["advisory_text"] = _advisory_phrase(
             "порядок FIFO (fail-open)")
+    elif pid == "must-check":
+        # пустая подсветка + без разрешающих слов
+        extra["highlight"] = "чисто (advisory)"
+        extra["selected"] = []
+        extra["advisory_text"] = "чисто (advisory)"
     elif pid == "run-queue-prio":
         original = []
         if isinstance(state, list):
@@ -1037,6 +1233,234 @@ def cmd_list_table(table_path):
     return 0
 
 
+def _must_check_usage_error(msg):
+    """Ошибка использования must-check: stderr + exit ≠ 0 (не fail-open)."""
+    sys.stderr.write("must-check: %s\n" % msg)
+    return 2
+
+
+def _emit_must_check_stdout(highlight, result):
+    """Обязательные фразы на stdout; JSON следом для машинного разбора.
+
+    Запрещённые «разрешающие» токены (в т.ч. внутри label MUST вроде MM-190)
+    вычищаются in-place → «…». НИКОГДА не схлопываем «подсвечено: …»
+    в «чисто (advisory)» из-за подстроки в тексте MUST.
+    """
+    line = _scrub_must_check_text(highlight or "чисто (advisory)")
+    for key in ("highlight", "advisory_text", "error"):
+        val = result.get(key)
+        if isinstance(val, str):
+            result[key] = _scrub_must_check_text(val)
+    sys.stdout.write(line + "\n")
+    sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
+
+
+def cmd_must_check(args):
+    """CLI-хелпер --point must-check --role --plan-file [--must-ids|--must-text]."""
+    role = getattr(args, "role", None)
+    if not role:
+        return _must_check_usage_error(
+            "нужен --role (commander|general|colonel)")
+    role = str(role).strip()
+    if role not in MUST_CHECK_ROLES:
+        return _must_check_usage_error(
+            "роль должна быть одной из %s, получено: %r"
+            % (sorted(MUST_CHECK_ROLES), role))
+
+    plan_file = getattr(args, "plan_file", None)
+    if not plan_file:
+        return _must_check_usage_error("нужен --plan-file <файл>")
+    try:
+        with open(plan_file, "r", encoding="utf-8") as f:
+            plan_text = f.read()
+    except Exception as e:
+        return _must_check_usage_error(
+            "не удалось прочитать --plan-file %r: %s" % (plan_file, e))
+
+    caller = args.caller or "must-check"
+    state_dir = orchlib.find_state_dir()
+    key_path = args.key_path or default_key_path()
+    key = None
+
+    try:
+        table = load_table(args.table_path)
+        point = point_by_id(table, "must-check")
+    except Exception as e:
+        return _must_check_usage_error("таблица/точка: %s" % e)
+
+    try:
+        mustmap = load_mustmap()
+    except Exception as e:
+        # mustmap недоступен — fail-open (инфра), не usage
+        highlight = "чисто (advisory)"
+        result = {
+            "ok": False,
+            "point": "must-check",
+            "caller": caller,
+            "role": role,
+            "answers": {},
+            "advice": {},
+            "highlight": highlight,
+            "selected": [],
+            "fallback": point.get("fallback"),
+            "error": "причина: mustmap: %s" % e,
+            "advisory_text": highlight,
+        }
+        _emit_must_check_stdout(highlight, result)
+        return 0
+
+    must_ids = parse_must_ids_flag(getattr(args, "must_ids", None))
+    full_text = bool(getattr(args, "must_text", False))
+    try:
+        ordered, criteria = select_role_musts(
+            mustmap, role, must_ids=must_ids, full_text=full_text)
+    except ValueError as e:
+        return _must_check_usage_error(str(e).replace("must-check: ", "", 1))
+
+    defer_below, confirm_below, yes_at = resolve_thresholds(
+        point, args.defer_below, args.confirm_below, args.yes_at)
+
+    empty = {
+        "ok": False,
+        "point": "must-check",
+        "caller": caller,
+        "role": role,
+        "answers": {},
+        "advice": {},
+        "highlight": "чисто (advisory)",
+        "selected": [],
+        "fallback": point.get("fallback"),
+        "error": None,
+        "advisory_text": "чисто (advisory)",
+    }
+
+    def fail_open_mc(reason):
+        msg = _mask_secrets(reason, key)
+        result = dict(empty)
+        result["error"] = "причина: %s" % msg
+        result["highlight"] = "чисто (advisory)"
+        result["advisory_text"] = "чисто (advisory)"
+        try:
+            append_journal(state_dir, {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "caller": caller,
+                "point": "must-check",
+                "question_ids": ["must-check"] if criteria else [],
+                "band": {},
+                "confidence": None,
+                "noul": None,
+                "cost": None,
+                "status": "error",
+                "error": msg,
+            })
+        except Exception:
+            pass
+        _emit_must_check_stdout(result["highlight"], result)
+        return 0
+
+    # пустая выборка — без API, чисто
+    if not criteria:
+        result = dict(empty)
+        result["ok"] = True
+        result["error"] = None
+        result["thresholds"] = {
+            "defer_below": defer_below,
+            "confirm_below": confirm_below,
+            "yes_at": yes_at,
+        }
+        _emit_must_check_stdout(result["highlight"], result)
+        return 0
+
+    # state для Jev = план; criteria в question; musts в structured для wrap
+    questions = {
+        "must-check": {
+            "type": "choice",
+            "instructions": point.get("instructions") or "",
+            "criteria": criteria,
+        }
+    }
+    # для apply_advisory_wrapper / journal consistency
+    wrap_state = {"plan": plan_text, "musts": criteria}
+
+    try:
+        key = load_openrouter_key(key_path)
+    except Exception as e:
+        return fail_open_mc("ключ: %s" % e)
+
+    try:
+        response = jev_decisions(
+            plan_text, questions,
+            model=args.model,
+            key=key,
+            session_id=args.session_id,
+            api_url=args.api_url,
+        )
+    except Exception as e:
+        return fail_open_mc(_mask_secrets(e, key))
+
+    answers = response.get("answers") or {}
+    advice = {}
+    for qid, ans in answers.items():
+        if isinstance(ans, dict):
+            advice[qid] = advise_answer(
+                ans,
+                defer_below=defer_below,
+                confirm_below=confirm_below,
+                yes_at=yes_at,
+            )
+        else:
+            advice[qid] = {
+                "band": "absent",
+                "action": "defer",
+                "reason": "решай сам",
+            }
+
+    advice, wrap_extra = apply_advisory_wrapper(
+        point, advice, answers, wrap_state, None, defer_below)
+
+    usage = response.get("usage") or {}
+    cost = usage.get("cost")
+    bands, confs, nouls = _journal_advice_fields(advice)
+    highlight = wrap_extra.get("highlight") or "чисто (advisory)"
+    result = {
+        "ok": True,
+        "point": "must-check",
+        "caller": caller,
+        "role": role,
+        "fallback": point.get("fallback"),
+        "thresholds": {
+            "defer_below": defer_below,
+            "confirm_below": confirm_below,
+            "yes_at": yes_at,
+        },
+        "model": response.get("model"),
+        "answers": answers,
+        "advice": advice,
+        "usage": usage,
+        "error": None,
+    }
+    result.update(wrap_extra)
+    result["highlight"] = highlight
+    try:
+        append_journal(state_dir, {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "caller": caller,
+            "point": "must-check",
+            "question_ids": list(questions.keys()),
+            "band": bands,
+            "confidence": confs or None,
+            "noul": nouls or None,
+            "cost": cost,
+            "status": "ok",
+            "error": None,
+        })
+    except Exception as e:
+        result["journal_error"] = _mask_secrets(e, key)
+
+    _emit_must_check_stdout(highlight, result)
+    return 0
+
+
 def main(argv=None):
     orchlib.utf8_stdio()
     ap = _AdviseArgumentParser(
@@ -1066,6 +1490,15 @@ def main(argv=None):
                     help="override пути к openrouter.key (тесты)")
     ap.add_argument("--session-id", default=None)
     ap.add_argument("--model", default=MODEL_ID)
+    # must-check CLI
+    ap.add_argument("--role", default=None,
+                    help="must-check: роль (commander|general|colonel)")
+    ap.add_argument("--plan-file", default=None,
+                    help="must-check: файл с текстом плана волны")
+    ap.add_argument("--must-ids", default=None,
+                    help="must-check: явное подмножество id через запятую")
+    ap.add_argument("--must-text", action="store_true",
+                    help="must-check: полные тексты MUST в criteria")
     args = ap.parse_args(argv)
 
     if args.list_table:
@@ -1077,6 +1510,10 @@ def main(argv=None):
             sys.stdout.write(json.dumps(
                 {"points": [], "error": str(e)}, ensure_ascii=False) + "\n")
             return 0
+
+    # --- must-check dedicated path (usage errors ≠ fail-open) ---
+    if args.point == "must-check":
+        return cmd_must_check(args)
 
     # --- advise path ---
     empty = {
