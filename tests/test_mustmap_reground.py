@@ -136,8 +136,6 @@ def _must_block_lines(text):
                 if s.startswith("Сессия:") or s.startswith("Kit:"):
                     break
                 block.append(lines[j])
-                if len(block) >= 5:
-                    break
             return block
     return []
 
@@ -158,8 +156,6 @@ def _sistema_block_lines(text):
                 if s.startswith("MUST "):
                     break
                 block.append(lines[j])
-                if len(block) >= 5:
-                    break
             return block
     return []
 
