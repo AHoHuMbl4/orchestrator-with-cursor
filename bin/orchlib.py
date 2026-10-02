@@ -2177,6 +2177,75 @@ def orders_without_basis(state=None):
         return []
 
 
+# --- F-ADVERSARIAL ADV-C1: A2 order_no_mechanics (V2) ---------------------
+# Якоря механики запуска — ТОЛЬКО точные литералы-подстроки (без regex).
+# Расширение списка = отдельная волна.
+ORDER_MECHANICS_ANCHORS = (
+    "run-exec",
+    "run-cloud",
+    "ORCHESTRATION_DIR",
+    "--session",
+    "--front",
+    "--prompt-file",
+    "--probe",
+    "bin/",
+    "python3",
+    "cursor-agent",
+    "PATH=",
+)
+
+
+def _order_has_mechanics(text):
+    """True, если в тексте есть ≥1 якорь механики (точная подстрока).
+
+    Якоря — ORDER_MECHANICS_ANCHORS (литералы, без regex).
+    """
+    if not text:
+        return False
+    for anchor in ORDER_MECHANICS_ANCHORS:
+        if anchor in text:
+            return True
+    return False
+
+
+def orders_without_mechanics(state=None):
+    """Относительные пути order.md с basis=true без якорей механики (posix).
+
+    Walk как у orders_without_basis: fronts/<id>/order.md и
+    fronts/<id>/colonels/<cid>/order.md.
+    ЛОВИТ: _order_has_basis True И якоря нет.
+    МОЛЧИТ (не в списке): basis=false ИЛИ якорь есть.
+    Пустой/битый файл — пропуск. Ошибки ФС — [] / skip.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        fronts_root = os.path.join(state, "fronts")
+        if not os.path.isdir(fronts_root):
+            return []
+        out = []
+        for dirpath, _dirnames, filenames in os.walk(fronts_root):
+            if "order.md" not in filenames:
+                continue
+            path = os.path.join(dirpath, "order.md")
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    text = f.read()
+            except Exception:
+                continue
+            if not text or not text.strip():
+                continue
+            if not _order_has_basis(text):
+                continue
+            if _order_has_mechanics(text):
+                continue
+            rel = os.path.relpath(path, state)
+            out.append(rel.replace(os.sep, "/"))
+        return out
+    except Exception:
+        return []
+
+
 # --- F-ORDERTRUTH: «без советников» + маркеры допущения --------------------
 # Маркеры Цель-1 приказа фронта (дословно); публичный предикат — для reground W2.
 _ORDER_ASSUMPTION_MARKERS_RE = re.compile(
@@ -5720,6 +5789,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "handoff_oversize": [],
         "project_md_missing": [],
         "mustmap_stale": [],
+        # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
+        "order_no_mechanics": [],
     }
     try:
         if state is None:
@@ -5787,6 +5858,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 runs_no_front.append(rid)
 
         orders = orders_without_basis(state)
+        order_no_mechanics_ids = orders_without_mechanics(state)
         orders_suspect_ids = orders_suspect(state)
         data = _load_fronts_at(state)
         fronts_no_prosecutor = []
@@ -6107,6 +6179,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "handoff_oversize": handoff_over,
             "project_md_missing": project_missing,
             "mustmap_stale": mustmap_stale_ids,
+            # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
+            "order_no_mechanics": order_no_mechanics_ids,
         }
         _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
@@ -6149,6 +6223,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "handoff_oversize": handoff_over,
             "project_md_missing": project_missing,
             "mustmap_stale": mustmap_stale_ids,
+            # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
+            "order_no_mechanics": order_no_mechanics_ids,
         }
     except Exception:
         return empty
