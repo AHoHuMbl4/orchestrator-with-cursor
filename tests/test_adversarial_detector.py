@@ -33,7 +33,6 @@ REQUIRED_TOP = ("version", "scenarios")
 REQUIRED_SC = ("id", "attack", "class", "input", "expect")
 REQUIRED_EXPECT = ("mechanism", "oracle", "detail")
 ANCHORS = orchlib.ORDER_MECHANICS_ANCHORS
-A7_SK_RE = re.compile(r"sk-[A-Za-z0-9]{40}(?:[^A-Za-z0-9]|$)")
 
 
 def _measure(line):
@@ -106,10 +105,6 @@ def _input_text(sc):
     return inp.get("prompt") or ""
 
 
-def _has_anchor(text):
-    return any(a in text for a in ANCHORS)
-
-
 # ---------------------------------------------------------------------------
 # (1) валидатор схемы + инвентарь
 # ---------------------------------------------------------------------------
@@ -163,7 +158,7 @@ class TestScenariosSchema(unittest.TestCase):
                 allows.append(sc)
                 text = _input_text(sc)
                 self.assertTrue(
-                    _has_anchor(text),
+                    any(a in text for a in ANCHORS),
                     "allow %s must have ≥1 mechanics anchor" % sc["id"],
                 )
                 sid = sc["id"]
@@ -180,27 +175,7 @@ class TestScenariosSchema(unittest.TestCase):
 
         self.assertGreaterEqual(len(allows), 3, "need ≥3 allow scenarios")
 
-        # allow#1 / #2a / #2b by id convention or structure
-        if allow1 is None:
-            allow1 = next(
-                (s for s in allows
-                 if s["expect"]["oracle"] == "silence"
-                 and orchlib._order_has_basis(_input_text(s))),
-                None,
-            )
-        if allow2a is None:
-            allow2a = next(
-                (s for s in allows
-                 if s["expect"]["oracle"] == "silence"
-                 and not orchlib._order_has_basis(_input_text(s))),
-                None,
-            )
-        if allow2b is None:
-            allow2b = next(
-                (s for s in allows
-                 if s["expect"]["oracle"] == "chip:orders_without_basis"),
-                None,
-            )
+        # allow#1 / #2a / #2b — только по id; нет id → честный fail
         self.assertIsNotNone(allow1, "allow#1 missing")
         self.assertIsNotNone(allow2a, "allow#2a missing")
         self.assertIsNotNone(allow2b, "allow#2b missing")
@@ -339,21 +314,6 @@ class TestWiringMuteChip(unittest.TestCase):
         # other_chips path also contains the key (same return dict)
         self.assertIn("order_no_mechanics", chips)
         _measure("RESULT wiring OK")
-
-    def test_mute_chip_would_fail_if_missing_from_health(self):
-        """Контракт: ключ обязан быть в health; отсутствие = красный."""
-        _measure("WIRING assert key present (mute-chip oracle)")
-        root, state = _mk_poly(prefix="adv-mute-", fid="F-M")
-        try:
-            open(os.path.join(state, "journal.jsonl"), "w").close()
-            with _EnvState(state):
-                chips = orchlib.health_red_chips(state=state, kit_dir=REPO)
-            # Simulate mute: if someone removed key from return but left empty
-            empty_has = True  # by contract / source check above
-            health_has = "order_no_mechanics" in chips
-            self.assertTrue(empty_has and health_has)
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
