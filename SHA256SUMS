@@ -72,10 +72,12 @@ d3d59a9b250f03e116449676ee7fcc112c9cc9a23254401764837aba44a4807c  ./rules/cards/
 2f4ed5db78c29bfa83c4e11f7b1455d64ecd83ab22a37acdc1a099d492ac2aa8  ./rules/cards/промты/dont-general-na-pule-zai-dvazhdy-zakryval-okn.md
 8b35e4f3601d7d9c66854428f4095098ff9e0763c5b6db1001b332b381124a7a  ./rules/cards/промты/dont-kontrakty-dannyh-fixiruj-v-plane-do-starta.md
 00841b31fb275006415d42c8b3e95fe99f561d683bbc2f219e6fd9a880158a60  ./rules/cards/промты/dont-podmena-promta-volny-sohranila-staruyu-s.md
+c31e73b9556164c11ed438fc4e837f9fcb9d06c67d98d33115ff2a8733b570dd  ./rules/cards/промты/dont-prokuror-f-mustmap-20-prikaz-volny-mm-c2.md
 555f564639e87d0350847d532bbe65b3fcb2ef471836da4a1f212266173fd11d  ./rules/cards/процессы/case-chip-commit-no-verify-matchit-termin-no.md
 701552a6d34109c27cacb4084cbc38bd5d37886452302f044eb1c5ab57421b62  ./rules/cards/процессы/case-chip-multi-write-front-lovit-lyubye-dva.md
 188a17c2c2944f9d5ac8a8ba5b58d166bf91572a642868befdbe187c9ca1ec4f  ./rules/cards/процессы/case-e2e-audit-retro-2.md
 bc240819cebda0d37dade879e3c471df1fb83b448d3dc37afa18532fe5015252  ./rules/cards/процессы/case-ispolnitel-docs-keeper-zavershilsya-end.md
+525a18ac348e27b0c29987562d351135855a57c44bbc6be9c50dc099719eb788  ./rules/cards/процессы/case-kejs-s-poligona-2-general-ran-snova-zany.md
 9cfe526460664438cdbd73e2507413a13799c6a3210ed46682eb14d5a154e3c5  ./rules/cards/процессы/case-prosecutor-bydesign-vs-retro.md
 37ea5e7f28fb704b932053321ddf0f09dcf662940e5d71ac86fd32e50f7d4f99  ./rules/cards/процессы/case-put-1-polzovatelya-obyazan-imet-e2e.md
 160fe81dfab75602045b731db4049b47b2197626261e07e5fcb92cf72a0efbe3  ./rules/cards/процессы/dont-chitat-chuzhie-fronts-i-seyat-chuzhie-fid.md
@@ -83,6 +85,7 @@ bc240819cebda0d37dade879e3c471df1fb83b448d3dc37afa18532fe5015252  ./rules/cards/
 49801b00ae781a742965367894ca8a7e23555242eb7ff8e23c0037e14b67ae20  ./rules/cards/процессы/dont-diagnostika-razvedka-sredy-delaetsya-ruk.md
 2c6bc049c3db317a967f9dfc8a13b007894aa689e5346e6b42e5c74c089df45f  ./rules/cards/процессы/dont-evristika-puti-vmesto-yavnogo-flaga.md
 9dfa55fe483ac1a1279bd9ea8d8f28ec30fd0814a6a76846e8cb00e18f8d62eb  ./rules/cards/процессы/dont-front-strogo-id-fronta-iz-fronts-json-pr.md
+c9fe359f3de5d193190d42e43e1d6bab0735d3fcaa58bef7fdfba0929d35ea18  ./rules/cards/процессы/dont-kejs-vladelca-30-09-komanduyuschij-dvazh.md
 28cdd8f373ade8547b102ca6d1e269fead79cce36258fa6a661ce78495d9cd0d  ./rules/cards/процессы/dont-komandir-rabotaet-rukami-vmesto-fronta.md
 abf1398ddc09c5b54e441fcc58a0ca5dbcae0209d1d484ef8d85b37304c23ac7  ./rules/cards/процессы/dont-komandirskaya-volna-bez-fronta-seriya-ru.md
 8f7e399dfb7d055ecd7d9bd0196a82f360224c36922258ca55eec99e53caba2c  ./rules/cards/процессы/dont-krugi-kritikov-v-t-ch-plana-sverh-review.md
@@ -92,7 +95,7 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  ./rules/cards/
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  ./rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  ./rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  ./rules/causes/DET-IMPL.md
-f97819968b5b80ec8aa7bab23920ca18314eade169fbdf829e67e2a1b7578734  ./rules/manifest.json
+264e1e953ce577c2609d9246b73557a57c48246299a37bdec915747e2265f8ee  ./rules/manifest.json
 7b8ef2ae3895ee553092deaea361f69a51ba9d6bea95469f9e7106ed9239f9af  ./skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  ./skills/orchestration/references/FLOW.md
 647be40369b9f6c876b9f631252e0ab62d30f5578ef507f1cf2402d03eff163f  ./skills/orchestration/references/MAP.md

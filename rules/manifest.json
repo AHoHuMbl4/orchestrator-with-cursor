@@ -675,6 +675,17 @@
       "created": 1790878025.8868024,
       "born_at": 1790878025.8868024,
       "run_ref": "owner-case-faithless-no-advisor"
+    },
+    {
+      "id": "dont-prokuror-f-mustmap-20-prikaz-volny-mm-c2",
+      "type": "DON'T",
+      "кому": "general",
+      "когда": "launch",
+      "категория": "промты",
+      "hit": 0,
+      "created": 1790910773.8595147,
+      "born_at": 1790910773.8595147,
+      "run_ref": "prosecutor-auto-F-MUSTMAP-20"
     }
   ],
   "aliases": {}
