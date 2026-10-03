@@ -57,6 +57,7 @@ a7e8f7c0e3e1dd8fac39e3415e699a1066ac8179225aa248c824d1f07da9a1ac  rules/cards/з
 b897017a6c42cb429c7bbfd5c7f2b35c055c786217102fad2806638638fc1fe5  rules/cards/запуск/dont-obertki-sab-progony-iz-cwd-repo-plodyat.md
 fb124fc3b21f464d04cab958ce83a2c5253e91ac1f60d1e0ab5b00202f9db3cf  rules/cards/запуск/dont-pkill-prompt.md
 b1a7d241b126aaef0110b9385b2d98dcc9f974f37e28b0a054eadfaf9e96ed38  rules/cards/запуск/dont-prompt-argv.md
+138ef68f3e111a9e0c442d4aff465d85c72b060e92f07724733b83e87818ffcc  rules/cards/запуск/dont-summy-xargs-ne-stdin.md
 3a54752cde6bf14fb00d6165f540d4db2aa8a9d6a776d44f6b0561d2e27baedc  rules/cards/код/dont-simp-volna-f-jevfast-nashla-legacy-fail.md
 b77ca90155aa4e82824d61a81e54d8f7e7c7e112e4dd2c00f38a5f2c03a0418e  rules/cards/маршрутизация/dont-role-from-head.md
 5e7cafed752e0f74680910aca5d9ab348a8522f7ba68e1be892c08a8a584c4ed  rules/cards/маршрутизация/dont-runtime-hit-in-repo.md
@@ -98,7 +99,7 @@ f6701bd8e176b0803917d43789086017a79a755b4e2267f653c6b13daee0c145  rules/cards/п
 b870df20e921d63c70ddcb99200d687ab8c2c55fa6cc847f417922860077497e  rules/cards/процессы/dont-vechnyj-general-resume-fronty.md
 c29d411d7e21d3e2713d35ca98b742b92fa3c5b8ebdea248d1c498f0dbf50758  rules/cards/тесты/dont-test-kodirovaniya-formata-proglyadel-ide.md
 9c265f53db48fc403666c75cb4b5d16e9c95ba737080b46f2002b8c93bb51b88  rules/causes/DET-IMPL.md
-7d2b9f39cddc189d6c3f82e9f0915c9c99a4cea670d46c3d7e829764fd69a30e  rules/manifest.json
+3ccbc5f075e63df87976092a67fcae8fc0237a061a6b9d2f8aac22d19c80e573  rules/manifest.json
 0bc6326e1ec6419b71e06ec4d0b8203b2a7283656b3ee4094a48601a3e904ba0  skills/orchestration/SKILL.md
 b3d6f573bee0834944596b42add302612c55cbd177e7823c229fff83db76de7f  skills/orchestration/references/FLOW.md
 3ba5f499c5ce5756000beee8552887a27d7a2c46a9143bcd804ca64c40851faa  skills/orchestration/references/MAP.md
