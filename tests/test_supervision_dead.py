@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -175,19 +176,17 @@ _LIVE_SNAPSHOT = {}
 
 
 def _live_snapshot():
+    """Рекурсивный снимок живого state (mtime_ns, size) — вкл. подкаталоги."""
     out = {}
-    live = LIVE_STATE
-    try:
-        for name in os.listdir(live):
-            p = os.path.join(live, name)
-            if os.path.isfile(p):
-                try:
-                    st = os.stat(p)
-                    out[name] = (st.st_mtime_ns, st.st_size)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    for root, _dirs, files in os.walk(LIVE_STATE):
+        for name in files:
+            p = os.path.join(root, name)
+            rel = os.path.relpath(p, LIVE_STATE)
+            try:
+                st = os.stat(p)
+                out[rel] = (st.st_mtime_ns, st.st_size)
+            except Exception:
+                pass
     return out
 
 
@@ -197,11 +196,40 @@ def setUpModule():
 
 
 def tearDownModule():
+    # Оракул «живой state не писался»: всё неизменно, НО journal.jsonl —
+    # файл новых писателей волны — разрешён только в прирост строками БЕЗ
+    # чипов supervision_dead (живая чужая запись допускается). Исключения —
+    # только housekeeping-маркеры живости САМОЙ живой сессии (reground.py
+    # heartbeat-*.json и sessions/*/last-seen): волновые писатели их не
+    # трогают в принципе.
     after = _live_snapshot()
-    for name, before in _LIVE_SNAPSHOT.items():
-        if name == "journal.jsonl":
-            continue  # живые волны пишут журнал; наш оракул — свои полигоны
-        assert after.get(name) == before, "live state touched: %s" % name
+
+    def _live_housekeeping(rel):
+        return (rel.startswith("counters" + os.sep)
+                and os.path.basename(rel).startswith("heartbeat-")) or (
+            rel.startswith("sessions" + os.sep)
+            and rel.endswith(os.sep + "last-seen"))
+
+    for rel in after:
+        assert rel in _LIVE_SNAPSHOT or _live_housekeeping(rel), (
+            "live state touched (new file): %s" % rel)
+    for rel, before in _LIVE_SNAPSHOT.items():
+        now_stat = after.get(rel)
+        if rel == "journal.jsonl":
+            assert now_stat is not None, "live journal исчез"
+            assert now_stat[1] >= before[1], "live journal усох"
+            with open(os.path.join(LIVE_STATE, rel), "rb") as f:
+                f.seek(before[1])
+                grown = f.read()
+            for line in grown.splitlines():
+                if b"supervision_dead" in line and b'"chip"' in line:
+                    raise AssertionError(
+                        "live journal получил чип supervision_dead: %r"
+                        % line[:200])
+            continue
+        if _live_housekeeping(rel):
+            continue  # маркеры живости живой сессии — не запись волны
+        assert now_stat == before, "live state touched: %s" % rel
 
 
 class SupTemp(unittest.TestCase):
@@ -937,6 +965,409 @@ class TestPanelLabelAndBigJournal(SupTemp):
                  if c.get("id") == "BJ1"]), 1, "повторный скан — стабильно")
         _measure("MEASURE (10b) журнал >5000 строк → детектор по полному "
                  "журналу стабилен")
+
+
+# ---------------------------------------------------------------------------
+# FOLLOW-UP (круг ревью ×3): дубль-id, свежесть маркера, единое окно,
+# диспетчер, session-кодировка, дедуп, readonly
+# ---------------------------------------------------------------------------
+
+
+class TestFollowUpDupIdDoesNotMaskDeath(SupTemp):
+    """(follow-up 1) дубль-id не гасит смерть живого оригинала."""
+
+    def test_dup_rejected_then_original_killed_chip(self):
+        fake = _fake_agent_dir(self.state)
+        rid = "DUPF"
+        prompt = self._prompt("p-dupf.md")
+        wrapper = subprocess.Popen(
+            [sys.executable, RUN_EXEC, "--id", rid, "--front", FRONT,
+             "--role", ROLE_PROS, "--prompt-file", prompt,
+             "--no-reground-line", "--yield-after", "0"],
+            cwd=REPO, env=self._env(fake),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pid_path = os.path.join(self.state, "cursor-run-%s.pid" % rid)
+        try:
+            deadline = time.time() + 20
+            pid = None
+            while time.time() < deadline:
+                if os.path.isfile(pid_path):
+                    pid = rex.read_pid_file(pid_path)
+                    if pid and rex.pid_alive(pid):
+                        break
+                time.sleep(0.2)
+            self.assertTrue(pid and rex.pid_alive(pid), "оригинал не жив")
+            # дубль-id отвергнут: пара + чип nonstart_exit_11
+            r2 = self._run_wrapper(
+                ["--id", rid, "--front", FRONT, "--role", ROLE_PROS,
+                 "--prompt-file", prompt])
+            self.assertEqual(r2.returncode, 11)
+            chips = [c for c in _sup_chips(self.state)
+                     if c.get("id") == rid]
+            self.assertEqual(len(chips), 1)
+            self.assertEqual(chips[0].get("cause"), "nonstart_exit_11")
+            # сторож оригинала НЕ вышел по чужому end: kill оригинала мимо
+            # обёртки → чип смерти ≤60 с (дубль-id не гасит чужую смерть)
+            t_kill = time.time()
+            wrapper.send_signal(signal.SIGKILL)
+            wrapper.wait(timeout=10)
+            os.kill(pid, signal.SIGKILL)
+            death_chip = None
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                death_chips = [c for c in _sup_chips(self.state)
+                               if c.get("id") == rid
+                               and c.get("cause") == "runtime_pid_dead"]
+                if death_chips:
+                    death_chip = death_chips[0]
+                    break
+                time.sleep(0.3)
+            self.assertIsNotNone(death_chip,
+                                 "смерть оригинала не детектирована ≤60с")
+            self.assertLessEqual(time.time() - t_kill, 60.0)
+            # скан тоже видит смерть оригинала (инкарнация не погашена)
+            events = orchlib.supervision_dead_events(state=self.state)
+            self.assertIn(
+                rid, [e.get("id") for e in events
+                      if e.get("cause") == "runtime_pid_dead"])
+            ids = orchlib.supervision_dead_ids(state=self.state)
+            self.assertIn(rid, ids)
+            _measure("MEASURE (FU1) живой надзор + дубль-id отвергнут → "
+                     "kill оригинала → чип runtime_pid_dead ≤60 с")
+        finally:
+            try:
+                wrapper.send_signal(signal.SIGKILL)
+                wrapper.wait(timeout=5)
+            except Exception:
+                pass
+
+
+class TestFollowUpMarkerFreshness(SupTemp):
+    """(follow-up 2) маркер/TOMBSTONE — тишина только ≤60 с, не бессрочно."""
+
+    def _seed_open_run(self, rid, ts=None):
+        _seed_journal(self.state, [{
+            "ts": ts if ts is not None else time.time() - 300,
+            "kind": "start", "id": rid, "engine": "local",
+            "front": FRONT, "role": ROLE_PROS,
+        }])
+
+    def test_stale_retry_marker_chip_by_scan(self):
+        self._seed_open_run("MF1")
+        log = os.path.join(self.state, "cursor-run-MF1.log")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("RETRY=1/1 (prev EXIT=4)\n")
+        stale = time.time() - 120
+        os.utime(log, (stale, stale))
+        with open(os.path.join(self.state, "cursor-run-MF1.pid"), "w",
+                  encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        orchlib.supervision_dead_scan(state=self.state)
+        chips = [c for c in _sup_chips(self.state) if c.get("id") == "MF1"]
+        self.assertEqual(len(chips), 1,
+                         "замороженный RETRY-маркер (>60с) — не индульгенция")
+        self.assertEqual(chips[0].get("cause"), "runtime_pid_dead")
+        _measure("MEASURE (FU2a) RETRY-маркер + мёртвый pid + лог заморожен "
+                 ">60с → чип сканом")
+
+    def test_stale_exit_marker_chip_by_scan(self):
+        # гибель обёртки в зазоре EXIT=→journal_end
+        self._seed_open_run("MF2")
+        log = os.path.join(self.state, "cursor-run-MF2.log")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("FAKE_AGENT_START\n\nEXIT=4\n")
+        stale = time.time() - 120
+        os.utime(log, (stale, stale))
+        with open(os.path.join(self.state, "cursor-run-MF2.pid"), "w",
+                  encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        orchlib.supervision_dead_scan(state=self.state)
+        chips = [c for c in _sup_chips(self.state) if c.get("id") == "MF2"]
+        self.assertEqual(len(chips), 1,
+                         "замороженный EXIT= без end (>60с) → чип")
+        self.assertEqual(chips[0].get("cause"), "runtime_pid_dead")
+        _measure("MEASURE (FU2b) зазор EXIT=→end при гибели обёртки → чип")
+
+    def test_stale_marker_chip_by_watchdog(self):
+        self._seed_open_run("MF3")
+        log = os.path.join(self.state, "cursor-run-MF3.log")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("RETRY=1/1 (prev EXIT=4)\n")
+        stale = time.time() - 120
+        os.utime(log, (stale, stale))
+        pid_path = os.path.join(self.state, "cursor-run-MF3.pid")
+        with open(pid_path, "w", encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        t0 = time.time()
+        rex.supervision_watch(
+            "MF3", self.state, None, FRONT, ROLE_PROS, pid_path, log,
+            time.time() - 300, poll_s=0.3)
+        chips = [c for c in _sup_chips(self.state)
+                 if c.get("id") == "MF3"
+                 and c.get("cause") == "runtime_pid_dead"]
+        self.assertEqual(len(chips), 1, "сторож чипует по протухшему маркеру")
+        self.assertLess(time.time() - t0, 60.0)
+        _measure("MEASURE (FU2c) сторож: мёртвый pid + протухший маркер → "
+                 "чип ≤60 с (не выходит в вечную тишину)")
+
+    def test_fresh_tombstone_silence_stale_tombstone_chip(self):
+        # свежий TOMBSTONE (--kill в обработке) — тишина; протухший — чип
+        self._seed_open_run("MF4")
+        log = os.path.join(self.state, "cursor-run-MF4.log")
+        open(log, "w", encoding="utf-8").close()
+        pid_path = os.path.join(self.state, "cursor-run-MF4.pid")
+        with open(pid_path, "w", encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        ts_path = os.path.join(self.state, "cursor-run-MF4.TOMBSTONE")
+        open(ts_path, "w", encoding="utf-8").close()
+        self.assertEqual(orchlib.supervision_dead_events(
+            state=self.state), [], "свежий TOMBSTONE — тишина")
+        stale = time.time() - 120
+        os.utime(ts_path, (stale, stale))
+        events = orchlib.supervision_dead_events(state=self.state)
+        self.assertEqual([e.get("cause") for e in events],
+                         ["runtime_pid_dead"],
+                         "протухший TOMBSTONE без end — чип")
+        _measure("MEASURE (FU2d) TOMBSTONE свеж → тишина; протухший (>60с) "
+                 "без end → событие смерти")
+
+
+class TestFollowUpNoPidSingleWindow(SupTemp):
+    """(follow-up 3) pid никогда не появлялся — ЕДИНОЕ окно ≤60 с."""
+
+    def test_never_pid_chip_within_single_window(self):
+        start_ts = time.time() - 59.0
+        _seed_journal(self.state, [{
+            "ts": start_ts, "kind": "start", "id": "NP1",
+            "engine": "local", "front": FRONT, "role": ROLE_PROS,
+        }])
+        # ни pid-файла, ни лога, ни маркера: сторож обязан дать чип по
+        # истечении единственного 60-с окна от journal_start (не ~120 с)
+        t0 = time.time()
+        rex.supervision_watch(
+            "NP1", self.state, None, FRONT, ROLE_PROS,
+            os.path.join(self.state, "cursor-run-NP1.pid"),
+            os.path.join(self.state, "cursor-run-NP1.log"),
+            start_ts, poll_s=0.3)
+        elapsed_call = time.time() - t0
+        self.assertLess(elapsed_call, 10.0,
+                        "чип в первом окне, без второго 60-с ожидания")
+        chips = [c for c in _sup_chips(self.state)
+                 if c.get("id") == "NP1"
+                 and c.get("cause") == "runtime_no_pid"]
+        self.assertEqual(len(chips), 1)
+        self.assertLess(
+            chips[0].get("ts", 0) - start_ts, 65.0,
+            "сигнал ≤60 с от journal_start (+поллинг)")
+        _measure("MEASURE (FU3) pid не появился → чип runtime_no_pid в "
+                 "единственном окне ≤60 с от journal_start")
+
+
+class TestFollowUpExit10Dispatcher(SupTemp):
+    """(follow-up 4) exit-10 хук — только путь запуска рана."""
+
+    def _break_params(self):
+        with open(os.path.join(self.state, "params.json"), "w",
+                  encoding="utf-8") as f:
+            f.write("{ битый json\n")
+
+    def test_status_and_kill_no_false_chip(self):
+        self._break_params()
+        rc = self._main_argv(["--status", "--id", "ST10", "--role", ROLE_PROS])
+        self.assertEqual(rc, 10)
+        rc2 = self._main_argv(["--kill", "K10"])
+        self.assertEqual(rc2, 10)
+        rc3 = self._main_argv(["--list"])
+        self.assertEqual(rc3, 10)
+        self.assertEqual(_read_journal(self.state), [],
+                         "управляющие команды при битом params — без пар/чипов")
+        _measure("MEASURE (FU4a) --status/--kill/--list при битом params → "
+                 "exit 10 без ложного чипа supervision_dead")
+
+    def test_launch_path_still_pairs_and_chips(self):
+        self._break_params()
+        prompt = self._prompt("p-fu4.md")
+        rc = self._main_argv(
+            ["--id", "NS10F", "--front", FRONT, "--role", ROLE_PROS,
+             "--prompt-file", prompt])
+        self.assertEqual(rc, 10)
+        j = _read_journal(self.state)
+        self.assertEqual(len([e for e in j if e.get("kind") == "start"
+                              and e.get("id") == "NS10F"]), 1)
+        chips = [c for c in _sup_chips(self.state)
+                 if c.get("id") == "NS10F"]
+        self.assertEqual(len(chips), 1,
+                         "путь запуска рана — пара + чип как раньше")
+        _measure("MEASURE (FU4b) запуск рана при битом params → пара + чип "
+                 "(поведение сохранено)")
+
+
+class TestFollowUpSessionEncoding(SupTemp):
+    """(follow-up 5) session id с кодировкой/усечением — без ложного no_pid."""
+
+    def _seed_session_run(self, rid, sid, pid, ts=None):
+        sdir = orchlib.session_dir(sid)  # кодировка/усечение как в проде
+        run_dir = os.path.join(sdir, "runs", rid)
+        os.makedirs(run_dir, exist_ok=True)
+        if pid is not None:
+            rex.write_pid_file(os.path.join(run_dir, "run.pid"), pid)
+        _seed_journal(self.state, [{
+            "ts": ts if ts is not None else time.time() - 300,
+            "kind": "start", "id": rid, "engine": "local",
+            "front": FRONT, "role": ROLE_PROS, "session": sid,
+        }])
+
+    def test_encodable_session_live_pid_silence(self):
+        child = _sleep_child(60)
+        try:
+            sid = "séssion ид + 2026/окт"
+            self._seed_session_run("SE1", sid, child.pid)
+            self.assertEqual(orchlib.supervision_dead_events(
+                state=self.state), [],
+                "кодируемый session id: живой pid найден — тишина")
+            _measure("MEASURE (FU5a) session id с percent-кодировкой + "
+                     "живой pid → тишина (пути совпадают с session_dir)")
+        finally:
+            child.send_signal(signal.SIGKILL)
+            child.wait(timeout=5)
+
+    def test_long_session_dead_pid_detected(self):
+        sid = "session-" + "x" * 80  # длиннее SESSION_ID_MAX → усечение
+        self._seed_session_run("SE2", sid, _dead_pid())
+        events = orchlib.supervision_dead_events(state=self.state)
+        self.assertEqual(
+            [(e.get("id"), e.get("cause")) for e in events],
+            [("SE2", "runtime_pid_dead")],
+            "усечённый session id: мёртвый pid детектирован в верном пути")
+        _measure("MEASURE (FU5b) длинный session id (>64) + мёртвый pid → "
+                 "смерть детектирована (без ложного runtime_no_pid)")
+
+
+class TestFollowUpDedupSemantics(SupTemp):
+    """(follow-up 7) дедуп: ключ (name, front/id) + непогашенность + класс."""
+
+    def test_front_in_dedup_key(self):
+        self.assertTrue(orchlib.emit_supervision_dead_chip(
+            "F-A", "DD7", cause="death_exit_4", role=ROLE_PROS,
+            state=self.state))
+        # тот же id на ДРУГОМ фронте — отдельное событие, чип пишется
+        self.assertTrue(orchlib.emit_supervision_dead_chip(
+            "F-B", "DD7", cause="death_exit_4", role=ROLE_PROS,
+            state=self.state))
+        # тот же (front, id) — дедуп
+        self.assertFalse(orchlib.emit_supervision_dead_chip(
+            "F-A", "DD7", cause="death_exit_4", role=ROLE_PROS,
+            state=self.state))
+        chips = [c for c in _sup_chips(self.state)
+                 if c.get("id") == "DD7"]
+        self.assertEqual(len(chips), 2)
+        _measure("MEASURE (FU7a) дедуп-ключ включает front: чужой фронт — "
+                 "второй легитимный чип")
+
+    def test_event_class_split(self):
+        # нестарт и смерть — разные события: оба чипа живут
+        self.assertTrue(orchlib.emit_supervision_dead_chip(
+            FRONT, "DD8", cause="nonstart_exit_11", role=ROLE_PROS,
+            state=self.state))
+        self.assertTrue(orchlib.emit_supervision_dead_chip(
+            FRONT, "DD8", cause="runtime_pid_dead", role=ROLE_PROS,
+            state=self.state))
+        self.assertEqual(
+            len([c for c in _sup_chips(self.state)
+                 if c.get("id") == "DD8"]), 2)
+        # но второй чип того же класса — дедуп (сторож vs скан одной смерти)
+        self.assertFalse(orchlib.emit_supervision_dead_chip(
+            FRONT, "DD8", cause="death_exit_4", role=ROLE_PROS,
+            state=self.state))
+        _measure("MEASURE (FU7b) класс события в ключе: nonstart ≠ death; "
+                 "внутри класса — один чип на событие")
+
+    def test_cleared_chip_may_be_rewritten(self):
+        now = time.time()
+        # смерть без end → чип
+        with open(os.path.join(self.state, "cursor-run-DD9.pid"), "w",
+                  encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        _seed_journal(self.state, [{
+            "ts": now - 300, "kind": "start", "id": "DD9",
+            "engine": "local", "front": FRONT, "role": ROLE_PROS,
+        }])
+        orchlib.supervision_dead_scan(state=self.state)
+        self.assertEqual(
+            len([c for c in _sup_chips(self.state)
+                 if c.get("id") == "DD9"]), 1)
+        # возрождение: end 0 того же класса со start новее чипа
+        time.sleep(0.05)
+        t2 = time.time()
+        _seed_journal(self.state, [
+            {"ts": t2, "kind": "start", "id": "DD9R",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": t2 + 0.1, "kind": "end", "id": "DD9R", "exit": 0},
+        ])
+        self.assertNotIn("DD9", orchlib.supervision_dead_ids(
+            state=self.state))
+        # снятый (погашенный) чип не глушит новую смерть того же id
+        time.sleep(0.05)
+        with open(os.path.join(self.state, "cursor-run-DD9.pid"), "w",
+                  encoding="utf-8") as f:
+            f.write("%d\n" % _dead_pid())
+        _seed_journal(self.state, [{
+            "ts": time.time(), "kind": "start", "id": "DD9",
+            "engine": "local", "front": FRONT, "role": ROLE_PROS,
+        }])
+        # у DD9 две инкарнации: старая (открытая) — единственный кандидат;
+        # её смерть всё ещё событие: чип переписывается заново (новый ts)
+        before = [c.get("ts") for c in _sup_chips(self.state)
+                  if c.get("id") == "DD9"]
+        wrote = orchlib.emit_supervision_dead_chip(
+            FRONT, "DD9", cause="runtime_pid_dead", role=ROLE_PROS,
+            state=self.state)
+        self.assertTrue(wrote, "погашенный чип не бессрочный — пишется заново")
+        after = [c.get("ts") for c in _sup_chips(self.state)
+                 if c.get("id") == "DD9"]
+        self.assertEqual(len(after), len(before) + 1)
+        self.assertIn("DD9", orchlib.supervision_dead_ids(state=self.state))
+        _measure("MEASURE (FU7c) снятый чип (end 0 новее) не глушит новую "
+                 "смерть того же id — чип пишется заново")
+
+    def test_concurrent_emit_single_chip(self):
+        wrote = []
+        barrier = threading.Barrier(8)
+
+        def _emit():
+            barrier.wait()
+            wrote.append(orchlib.emit_supervision_dead_chip(
+                FRONT, "DD10", cause="death_exit_4", role=ROLE_PROS,
+                state=self.state))
+
+        threads = [threading.Thread(target=_emit) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        self.assertEqual(wrote.count(True), 1,
+                         "атомарный дедуп: ровно один писатель успевает")
+        self.assertEqual(
+            len([c for c in _sup_chips(self.state)
+                 if c.get("id") == "DD10"]), 1)
+        _measure("MEASURE (FU7d) гонка 8 эмиттеров → один чип (flock)")
+
+
+class TestFollowUpReadonlyPair(SupTemp):
+    """(follow-up 8) readonly-флаг в нестарт-паре надзора."""
+
+    def test_readonly_flag_in_nonstart_pair(self):
+        missing = os.path.join(self.state, "nope.md")
+        r = self._run_wrapper(
+            ["--id", "RO1", "--front", FRONT, "--role", ROLE_PROS,
+             "--prompt-file", missing, "--readonly"])
+        self.assertEqual(r.returncode, 2)
+        starts = [e for e in _read_journal(self.state)
+                  if e.get("kind") == "start" and e.get("id") == "RO1"]
+        self.assertEqual(len(starts), 1)
+        self.assertIs(starts[0].get("readonly"), True,
+                      "readonly-маркер в нестарт-паре (как journal_gate_refuse)")
+        _measure("MEASURE (FU8) нестарт-пара надзора несёт readonly: true")
 
 
 if __name__ == "__main__":

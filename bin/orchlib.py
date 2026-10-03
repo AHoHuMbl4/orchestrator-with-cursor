@@ -6191,10 +6191,29 @@ def _run_pid_alive_at(pid_path):
     return str(current) == str(recorded)
 
 
+def _supervision_session_root(state, session):
+    """sessions/<sid> с той же кодировкой, что session_dir (без mkdir).
+
+    percent-кодирование _safe_encode + усечение SESSION_ID_MAX + алиас
+    sessions/<orig>: экзотичные/длинные session id не должны давать скану
+    ложный runtime_no_pid по несуществующему пути.
+    """
+    orig = str(session or "default")
+    raw = _safe_encode(orig) or "default"
+    base = os.path.join(state, "sessions")
+    for cand in (os.path.join(base, raw),
+                 os.path.join(base, raw[:SESSION_ID_MAX]),
+                 os.path.join(base, orig)):
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(base, raw[:SESSION_ID_MAX])
+
+
 def _supervision_run_paths(state, run_id, session=None):
     """(log, pid) рана: state/cursor-run-<id>.* или sessions/<sid>/runs/<id>/."""
     if session:
-        run_dir = os.path.join(state, "sessions", session, "runs", run_id)
+        run_dir = os.path.join(_supervision_session_root(state, session),
+                               "runs", run_id)
         return (os.path.join(run_dir, "run.log"),
                 os.path.join(run_dir, "run.pid"))
     return (os.path.join(state, "cursor-run-%s.log" % run_id),
@@ -6219,13 +6238,97 @@ def _log_last_marker_tail(log_path, tail_bytes=65536):
     return marker
 
 
+def supervision_silence_window(state, run_id, session=None, log_path=None,
+                               now=None):
+    """Окно тишины «смерть ещё обрабатывается»: True, пока обработки ≤60 с.
+
+    Маркер RETRY=/EXIT= — не бессрочная индульгенция: глушит смерть только
+    пока свеж (mtime лога ≤60 с — retry/end в полёте); замороженный лог
+    (гибель обёртки в retry-фазе или в зазоре EXIT=→journal_end) по
+    истечении окна даёт чип. Свежий TOMBSTONE (--kill в обработке, watcher
+    вот-вот допишет end) — тот же класс тишины.
+    """
+    now = time.time() if now is None else float(now)
+    if log_path:
+        marker = _log_last_marker_tail(log_path)
+        if marker is not None and marker.startswith(("RETRY=", "EXIT=")):
+            try:
+                if (now - os.path.getmtime(log_path)) < SUPERVISION_GRACE_S:
+                    return True
+            except OSError:
+                pass
+    # TOMBSTONE: state-level cursor-run-<id>.TOMBSTONE и session runs/<id>/
+    run_dir = os.path.dirname(
+        _supervision_run_paths(state, run_id, session)[0])
+    for ts_path in (
+            os.path.join(run_dir, "TOMBSTONE"),
+            os.path.join(state, "cursor-run-%s.TOMBSTONE" % run_id)):
+        try:
+            if (now - os.path.getmtime(ts_path)) < SUPERVISION_GRACE_S:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _supervision_event_class(cause):
+    """Класс события чипа: nonstart (нестарт) | death (смерть рана)."""
+    return "nonstart" if str(cause or "").startswith("nonstart") else "death"
+
+
+def _supervision_walk(entries):
+    """Инкарнации ранов по хронологии journal: [(start, end|None)].
+
+    start кладётся в очередь своего id; end снимает ПОСЛЕДНЮЮ открытую
+    инкарнацию того же id (дубль-id не гасит чужую смерть — матч инкарнаций
+    по хронологии пары, не «последняя start»). killed не снимает: после
+    --kill смерть без end — тоже сигнал (runtime-ветвь/скан).
+    """
+    open_by_id = {}
+    order = []
+    for e in entries:
+        rid = e.get("id")
+        if not isinstance(rid, str) or not rid:
+            continue
+        kind = e.get("kind")
+        if kind == "start":
+            node = [e, None]
+            open_by_id.setdefault(rid, []).append(node)
+            order.append(node)
+        elif kind == "end":
+            q = open_by_id.get(rid)
+            if q:
+                q[-1][1] = e
+                q.pop()
+    return order
+
+
+def _supervision_ok_ends(entries):
+    """[(start_ts, class)] успешных надзоров: end 0 у инкарнации надзора."""
+    out = []
+    for st, en in _supervision_walk(entries):
+        if en is None or str(en.get("exit")) != "0":
+            continue
+        cls = _supervision_role_class(st.get("role"))
+        if cls is None:
+            continue
+        try:
+            out.append((float(st.get("ts") or 0), cls))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def supervision_dead_events(state=None, now=None, entries=None):
     """Предикт событий смерти/нестарта надзора (полный журнал, не окно 5000).
 
     Дизъюнкция приказа (а): (start∖end ∧ мёртвый pid) ∪ (end ∈ death-set
     {1,3,4,124,125}) ∪ (нестарт-пара 2/3/10/11/12); только role_is_oversight,
-    runtime-ветвь — engine==local. Ложные окна — тишина: живой pid,
-    retry в полёте / EXIT-маркер, «нет pid + свежий start ≤60 с».
+    runtime-ветвь — engine==local. Инкарнации по _supervision_walk: дубль-id
+    (нестарт-пара exit 11) не гасит смерть живой инкарнации того же id;
+    runtime — только новейшая открытая инкарнация id (pid-файл один на id).
+    Ложные окна — тишина: живой pid, СВЕЖИЙ (≤60 с) RETRY/EXIT-маркер или
+    TOMBSTONE (замороженный маркер — чип), «нет pid + свежий start ≤60 с».
     Возвращает [{"id","front","role","ts","cause"}] — по одному на ран.
     """
     try:
@@ -6234,105 +6337,164 @@ def supervision_dead_events(state=None, now=None, entries=None):
         now = time.time() if now is None else float(now)
         if entries is None:
             entries = _journal_entries_at(state)
-        starts_by_id = _journal_start_index(entries)
-        end_by_id = {}
-        for e in entries:
-            if e.get("kind") == "end" and e.get("id"):
-                end_by_id[e["id"]] = e
         out = []
-        for e in entries:
-            if e.get("kind") != "start" or not e.get("id"):
-                continue
-            rid = e["id"]
-            if starts_by_id.get(rid) is not e:
-                continue  # инкарнация superseded более поздним start того же id
-            role = normalize_journal_role(e.get("role"))
-            if not role_is_oversight(role):
-                continue
-            try:
-                start_ts = float(e.get("ts") or 0)
-            except (TypeError, ValueError):
-                start_ts = 0.0
-            end = end_by_id.get(rid)
-            if end is not None:
-                try:
-                    end_ts = float(end.get("ts") or 0)
-                except (TypeError, ValueError):
-                    end_ts = 0.0
-                if end_ts < start_ts:
-                    end = None  # end до последнего start — чужая инкарнация
-            if end is not None:
-                exit_s = str(end.get("exit"))
+        open_latest = {}  # id → (start, role) — новейшая открытая инкарнация
+        for st, en in _supervision_walk(entries):
+            rid = st.get("id")
+            role = normalize_journal_role(st.get("role"))
+            if en is not None:
+                if not role_is_oversight(role):
+                    continue
+                exit_s = str(en.get("exit"))
                 if exit_s in SUPERVISION_NONSTART_EXITS:
                     cause = "nonstart_exit_%s" % exit_s
                 elif exit_s in SUPERVISION_DEATH_EXITS:
                     cause = "death_exit_%s" % exit_s
                 else:
                     continue  # end 0 / легитимные гейт-отказы 5–9,13 — тишина
-                out.append({"id": rid, "front": e.get("front"), "role": role,
-                            "ts": end_ts, "cause": cause})
+                try:
+                    ev_ts = float(en.get("ts") or 0)
+                except (TypeError, ValueError):
+                    ev_ts = 0.0
+                out.append({"id": rid, "front": st.get("front"),
+                            "role": role, "ts": ev_ts, "cause": cause})
                 continue
-            # start∖end — runtime-ветвь; матчит только engine==local с pid
-            if (e.get("engine") or "local") != "local":
+            if role_is_oversight(role):
+                open_latest[rid] = (st, role)
+        for rid, (st, role) in open_latest.items():
+            if (st.get("engine") or "local") != "local":
                 continue
-            log_path, pid_path = _supervision_run_paths(
-                state, rid, e.get("session"))
+            session = st.get("session")
+            log_path, pid_path = _supervision_run_paths(state, rid, session)
             if os.path.isfile(pid_path):
                 if _run_pid_alive_at(pid_path):
                     continue
-                marker = _log_last_marker_tail(log_path)
-                if marker is not None and marker.startswith(
-                        ("RETRY=", "EXIT=")):
-                    continue  # retry в полёте / end имминентен — тишина
-                out.append({"id": rid, "front": e.get("front"), "role": role,
-                            "ts": now, "cause": "runtime_pid_dead"})
+                if supervision_silence_window(
+                        state, rid, session=session, log_path=log_path,
+                        now=now):
+                    continue
+                out.append({"id": rid, "front": st.get("front"),
+                            "role": role, "ts": now,
+                            "cause": "runtime_pid_dead"})
                 continue
+            try:
+                start_ts = float(st.get("ts") or 0)
+            except (TypeError, ValueError):
+                start_ts = 0.0
             if (now - start_ts) < SUPERVISION_GRACE_S:
                 continue  # нет pid + свежий start ≤60 с = жив
-            marker = _log_last_marker_tail(log_path)
-            if marker is not None and marker.startswith(("RETRY=", "EXIT=")):
+            if supervision_silence_window(
+                    state, rid, session=session, log_path=log_path, now=now):
                 continue
-            out.append({"id": rid, "front": e.get("front"), "role": role,
+            out.append({"id": rid, "front": st.get("front"), "role": role,
                         "ts": now, "cause": "runtime_no_pid"})
         return out
     except Exception:
         return []
 
 
+def _supervision_chip_outstanding(entries, front, run_id, cause):
+    """True, если есть НЕпогашенный чип с тем же (name, front, id, класс).
+
+    Погашение — успешный end 0 надзора ТОГО ЖЕ класса со start новее чипа
+    (зеркало снятия в health): погашенный чип не глушит новую смерть того
+    же id (снятый чип может писаться заново).
+    """
+    want_cls = _supervision_event_class(cause)
+    ok_ends = _supervision_ok_ends(entries)
+    outstanding = False
+    for e in entries:
+        if (e.get("kind") != "chip"
+                or e.get("name") != SUPERVISION_DEAD_CHIP
+                or e.get("id") != run_id):
+            continue
+        if (e.get("front") or None) != (front or None):
+            continue
+        if _supervision_event_class(e.get("cause")) != want_cls:
+            continue
+        try:
+            cts = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            cts = 0.0
+        cls = _supervision_role_class(e.get("role"))
+        cleared = cls is not None and any(
+            ocls == cls and sts > cts for sts, ocls in ok_ends)
+        if not cleared:
+            outstanding = True
+    return outstanding
+
+
 def emit_supervision_dead_chip(front, run_id, cause=None, role=None,
                                state=None):
     """journal-чип supervision_dead с ДЕДУПОМ писателей (один чип на событие).
 
-    Перед записью перечитывает полный журнал: чип с тем же (name, id) уже
-    есть → не писать (обёртка/сторож/скан не дублируют друг друга).
+    Дедуп-ключ — (name, front, id) + класс события (nonstart|death); чип
+    погашен успешным end 0 того же класса новее — тогда не глушит новую
+    запись. Проверка и запись — под одним flock journal.jsonl (атомарность
+    гонки сторож/скан; деградация без fcntl — как journal_append).
     Возвращает True, если чип записан.
     """
+    if not run_id:
+        return False
+    if state is None:
+        state = find_state_dir()
+    path = os.path.join(state, "journal.jsonl")
+    entry = {
+        "ts": time.time(),
+        "kind": "chip",
+        "name": SUPERVISION_DEAD_CHIP,
+        "id": run_id,
+    }
+    if front:
+        entry["front"] = front
+    if cause:
+        entry["cause"] = cause
+    if role:
+        entry["role"] = normalize_journal_role(role)
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    f = None
+    locked = False
     try:
-        if not run_id:
+        try:
+            os.makedirs(state, exist_ok=True)
+        except Exception:
+            pass
+        f = open(path, "a+", encoding="utf-8")
+        if fcntl is not None:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            locked = True
+        f.seek(0)
+        entries = []
+        for raw in f.read().splitlines():
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+        if _supervision_chip_outstanding(entries, front, run_id, cause):
             return False
-        if state is None:
-            state = find_state_dir()
-        for e in _journal_entries_at(state):
-            if (e.get("kind") == "chip"
-                    and e.get("name") == SUPERVISION_DEAD_CHIP
-                    and e.get("id") == run_id):
-                return False
-        entry = {
-            "ts": time.time(),
-            "kind": "chip",
-            "name": SUPERVISION_DEAD_CHIP,
-            "id": run_id,
-        }
-        if front:
-            entry["front"] = front
-        if cause:
-            entry["cause"] = cause
-        if role:
-            entry["role"] = normalize_journal_role(role)
-        journal_append(entry)
+        f.seek(0, os.SEEK_END)
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
         return True
     except Exception:
         return False
+    finally:
+        if f is not None:
+            if locked:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+            try:
+                f.close()
+            except Exception:
+                pass
 
 
 def supervision_dead_scan(state=None):
@@ -6367,7 +6529,6 @@ def supervision_dead_ids(state=None):
         if state is None:
             state = find_state_dir()
         entries = _journal_entries_at(state)
-        starts_by_id = _journal_start_index(entries)
         dead_ts = {}
         dead_cls = {}
         order = []
@@ -6376,14 +6537,21 @@ def supervision_dead_ids(state=None):
                     or e.get("name") != SUPERVISION_DEAD_CHIP):
                 continue
             rid = e.get("id") or e.get("front")
-            if not rid or rid in dead_ts:
+            if not rid:
                 continue
             try:
-                dead_ts[rid] = float(e.get("ts") or 0)
+                cts = float(e.get("ts") or 0)
             except (TypeError, ValueError):
-                dead_ts[rid] = 0.0
-            dead_cls[rid] = _supervision_role_class(e.get("role"))
-            order.append(rid)
+                cts = 0.0
+            if rid not in dead_ts:
+                order.append(rid)
+                dead_ts[rid] = cts
+                dead_cls[rid] = _supervision_role_class(e.get("role"))
+            elif cts > dead_ts[rid]:
+                # несколько чипов id (нестарт + смерть / переписан после
+                # погашения) — снятие сверяем с НОВЕЙШИМ
+                dead_ts[rid] = cts
+                dead_cls[rid] = _supervision_role_class(e.get("role"))
         for ev in supervision_dead_events(state=state, entries=entries):
             rid = ev.get("id")
             if not rid or rid in dead_ts:
@@ -6394,24 +6562,7 @@ def supervision_dead_ids(state=None):
                 dead_ts[rid] = 0.0
             dead_cls[rid] = _supervision_role_class(ev.get("role"))
             order.append(rid)
-        ok_ends = []  # (start_ts, class) успешных надзоров
-        for e in entries:
-            if e.get("kind") != "end" or str(e.get("exit")) != "0":
-                continue
-            st = starts_by_id.get(e.get("id"))
-            if not st:
-                continue
-            cls = _supervision_role_class(st.get("role"))
-            if cls is None:
-                continue
-            try:
-                sts = float(st.get("ts") or 0)
-                ets = float(e.get("ts") or 0)
-            except (TypeError, ValueError):
-                continue
-            if ets < sts:
-                continue
-            ok_ends.append((sts, cls))
+        ok_ends = _supervision_ok_ends(entries)
         out = []
         for rid in order:
             cls = dead_cls.get(rid)
