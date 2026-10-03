@@ -196,21 +196,30 @@ def setUpModule():
 
 
 def _live_housekeeping(rel):
-    """Housekeeping-маркеры живой сессии — не писатели волны.
+    """Housekeeping живой сессии + квитанционного харнесса — не волна.
 
     counters/: всё, кроме front-runs-* (их пишет run-exec волн — утечка
-    обязана краснеть); sessions/**: pending_*.json, null_series.json,
-    enabled.json, last-seen (хуки/нуджи живой сессии). Волновые писатели
-    (journal-чипы, пары, pid/log ранов) сюда не попадают.
+    обязана краснеть; lock-каталоги проходят по basename owner).
+    sessions/**: pending_*.json, null_series.json, enabled.json, last-seen
+    (хуки/нуджи живой сессии) + sessions/*/runs/** — квитанционный
+    харнесс §3: run.log, prompt*, probe-receipt.md там штатно пишет
+    writer и обёртка проб/ранов живой сессии. Корень state: cursor-run-*
+    (log/pid/TOMBSTONE) — та же обёртка для ранов без --session
+    (auto-prosecutor харнесса; зуб на запуск ранов живьём держит
+    counters/front-runs-*). Зубы: fronts.json, fronts/** (compass,
+    prosecutor/, colonels/), params.json и прочие пути — красные.
     """
     parts = rel.split(os.sep)
     if parts and parts[0] == "counters":
         return not os.path.basename(rel).startswith("front-runs-")
     if parts and parts[0] == "sessions":
+        if len(parts) >= 3 and parts[2] == "runs":
+            return True
         name = os.path.basename(rel)
         return (name == "last-seen" or name == "null_series.json"
                 or name == "enabled.json" or name.startswith("pending_"))
-    return False
+    name = os.path.basename(rel)
+    return name.startswith("cursor-run-")
 
 
 def tearDownModule():

@@ -196,27 +196,51 @@ def setUpModule():
 
 
 def _live_housekeeping(rel):
-    """Housekeeping-маркеры живой сессии — не писатели волны (K1-паттерн).
+    """Housekeeping живой сессии + квитанционного харнесса — не волна.
 
-    counters/: всё, кроме front-runs-* (их пишут run-exec волн — утечка
-    обязана краснеть); sessions/**: pending_*.json, null_series.json,
-    enabled.json, last-seen (хуки/нуджи живой сессии). Волновые писатели
-    (journal-чипы, пары, pid/log ранов) сюда не попадают.
+    counters/: всё, кроме front-runs-* (их пишет run-exec волн — утечка
+    обязана краснеть; lock-каталоги проходят по basename owner).
+    sessions/**: pending_*.json, null_series.json, enabled.json, last-seen
+    (хуки/нуджи живой сессии) + sessions/*/runs/** — квитанционный
+    харнесс §3: run.log, prompt*, probe-receipt.md там штатно пишет
+    writer и обёртка проб/ранов живой сессии. Корень state: cursor-run-*
+    (log/pid/TOMBSTONE) — та же обёртка для ранов без --session
+    (auto-prosecutor харнесса; зуб на запуск ранов живьём держит
+    counters/front-runs-*). Зубы: fronts.json, fronts/** (compass,
+    prosecutor/, colonels/), params.json и прочие пути — красные.
     """
     parts = rel.split(os.sep)
     if parts and parts[0] == "counters":
         return not os.path.basename(rel).startswith("front-runs-")
     if parts and parts[0] == "sessions":
+        if len(parts) >= 3 and parts[2] == "runs":
+            return True
         name = os.path.basename(rel)
         return (name == "last-seen" or name == "null_series.json"
                 or name == "enabled.json" or name.startswith("pending_"))
-    return False
+    name = os.path.basename(rel)
+    return name.startswith("cursor-run-")
+
+
+def _live_journal_growth_violation(grown):
+    """Строка чипа invariants_not_run в приросте живого journal или None.
+
+    Прирост чужими записями живой сессии (start/end/end-пары пробы и её
+    харнесса, ноты) — штатно: K2 — computed-детектор, journal-писателя у
+    волны нет.
+    """
+    for line in grown.splitlines():
+        if b"invariants_not_run" in line and b'"chip"' in line:
+            return line
+    return None
 
 
 def tearDownModule():
     # K2 — computed-детектор без journal-писателя: живой state не пишем
-    # вовсе; journal живой сессии может прирастать чужими записями, но
-    # БЕЗ чипов invariants_not_run (writer-квита у волны отсутствует).
+    # вовсе; journal живой сессии может прирастать чужими записями (раны
+    # квитанционного харнесса/пробы), но БЕЗ чипов invariants_not_run
+    # (writer-квита у волны отсутствует); runs-артефакты харнесса —
+    # housekeeping (см. _live_housekeeping), зубы — на месте.
     after = _live_snapshot()
     for rel in after:
         assert rel in _LIVE_SNAPSHOT or _live_housekeeping(rel), (
@@ -229,14 +253,14 @@ def tearDownModule():
             with open(os.path.join(LIVE_STATE, rel), "rb") as f:
                 f.seek(before[1])
                 grown = f.read()
-            for line in grown.splitlines():
-                if b"invariants_not_run" in line and b'"chip"' in line:
-                    raise AssertionError(
-                        "live journal получил чип invariants_not_run: %r"
-                        % line[:200])
+            bad = _live_journal_growth_violation(grown)
+            if bad is not None:
+                raise AssertionError(
+                    "live journal получил чип invariants_not_run: %r"
+                    % bad[:200])
             continue
         if _live_housekeeping(rel):
-            continue  # маркеры живости живой сессии — не запись волны
+            continue  # маркеры живости/харнесса живой сессии — не волна
         assert now_stat == before, "live state touched: %s" % rel
 
 
@@ -687,6 +711,81 @@ class TestCmdWithArrow(InvTemp):
         self.assertEqual(orchlib.invariants_not_run(state=self.state), [])
         _measure("MEASURE (FU-KR1-3) cmd с «→» режется по последней "
                  "стрелке и гасится квитанцией (липкого красного нет)")
+
+
+# ---------------------------------------------------------------------------
+# FOLLOW-UP 2 (квитанционная проба F-C5-K2-REG): территория квитанционного
+# харнесса в housekeeping-оракуле живого state; зубы не ослаблены
+# ---------------------------------------------------------------------------
+
+
+class TestLiveOracleReceiptHarness(unittest.TestCase):
+    """Оракульные решения по путям харнесса — без записей в живой state.
+
+    Проба приёмки (--probe, живая сессия) и её окружение пишут в
+    /root/.orchestration ВО ВРЕМЯ pytest: sessions/*/runs/** (run.log,
+    prompt*, probe-receipt.md — writer §3 и обёртка), cursor-run-* в
+    корне (раны без --session, напр. auto-prosecutor харнесса),
+    прирост journal.jsonl без чипов. Всё это — тишина оракула.
+    """
+
+    def test_harness_writes_are_housekeeping(self):
+        for rel in (
+            # симуляция записи в sessions/<x>/runs/** во время окна
+            "sessions/s1/runs/test-artifact.md",
+            "sessions/s1/runs/F-C5-K2-REG/run.log",
+            "sessions/s1/runs/F-C5-K2-REG/probe-receipt.md",
+            "sessions/s1/runs/F-C5-K2-REG/prompt.run.md",
+            # обёртка ранов без --session (флейк F-C5-K2-REG:
+            # cursor-run-prosecutor-auto-F-C5-6.log рос в окне оракула)
+            "cursor-run-prosecutor-auto-F-C5-6.log",
+            "cursor-run-F-C5-K2-INV2.pid",
+            "cursor-run-X.TOMBSTONE",
+        ):
+            self.assertTrue(_live_housekeeping(rel),
+                            "тишина оракула: %s" % rel)
+        # прежние housekeeping-маркеры живой сессии остаются
+        for rel in ("sessions/s1/last-seen", "sessions/s1/pending_x.json",
+                    "sessions/s1/null_series.json",
+                    "sessions/s1/enabled.json", "counters/nudge.json",
+                    "counters/front-runs-F-C5.json.lock/owner"):
+            self.assertTrue(_live_housekeeping(rel), rel)
+
+    def test_oracle_teeth_stay_red(self):
+        for rel in (
+            "counters/front-runs-TEST.json",
+            "fronts.json",
+            "fronts/F-C5/compass.md",
+            "fronts/F-C5/prosecutor/note.md",
+            "fronts/F-C5/colonels/C5-K2/order.md",
+            "params.json",
+            "agent-SYN1.json",
+            "sessions/s1/fronts-dirty.json",
+        ):
+            self.assertFalse(_live_housekeeping(rel),
+                             "зуб оракула: %s обязан краснеть" % rel)
+
+    def test_journal_growth_probe_records_ok_chip_red(self):
+        start = json.dumps({
+            "ts": 1, "kind": "start", "id": "F-C5-K2-REG",
+            "front": "F-C5", "role": "code/coder.md",
+        }, ensure_ascii=False).encode("utf-8")
+        end = json.dumps({
+            "ts": 2, "kind": "end", "id": "F-C5-K2-REG", "exit": 0,
+        }, ensure_ascii=False).encode("utf-8")
+        self.assertIsNone(
+            _live_journal_growth_violation(start + b"\n" + end))
+        chip = json.dumps({
+            "ts": 3, "kind": "chip", "name": "invariants_not_run",
+            "id": "F-C5",
+        }, ensure_ascii=False).encode("utf-8")
+        self.assertIsNotNone(
+            _live_journal_growth_violation(start + b"\n" + chip + b"\n"),
+            "чип invariants_not_run в приросте — красный")
+        _measure("MEASURE (FU2) харнесс-записи (sessions/*/runs/**, "
+                 "cursor-run-*, journal-прирост без чипов) — тишина; "
+                 "front-runs-*, fronts.json/compass/prosecutor, чип — "
+                 "красные")
 
 
 if __name__ == "__main__":
