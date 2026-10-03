@@ -303,6 +303,23 @@ def normalize_journal_role(role):
     return role
 
 
+_OVERSIGHT_ROLE_TAILS = (
+    "meta/front-prosecutor.md",
+    "meta/front-observer.md",
+)
+
+
+def role_is_oversight(role):
+    """Прокурор/наблюдатель: не dual-writer; не путать с --mode plan."""
+    r = normalize_journal_role(role)
+    if not isinstance(r, str) or not r:
+        return False
+    for tail in _OVERSIGHT_ROLE_TAILS:
+        if r == tail or r.endswith(tail):
+            return True
+    return False
+
+
 def resolve_journal_parent(run_id):
     """parent из ORCH_RUN_ID; не наследуется → null; не сам свой id."""
     parent = os.environ.get("ORCH_RUN_ID") or None

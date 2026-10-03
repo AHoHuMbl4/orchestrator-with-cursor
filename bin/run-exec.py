@@ -375,6 +375,8 @@ def _journal_open_writers(front_id, entries=None):
         else:
             if e.get("readonly") is True:
                 continue
+            if orchlib.role_is_oversight(e.get("role")):
+                continue
         if rid in ended:
             # later start after end — reopen
             ended.discard(rid)
@@ -436,13 +438,15 @@ def find_live_dual_writer(front_id, self_id, state, session=None):
 
 
 def check_dual_writer_guard(front_id, self_id, state, session=None,
-                            readonly=False, toctou=False):
+                            readonly=False, toctou=False, role=None):
     """До journal_start: другой пишущий → (13, other_id); тот же id жив → не сюда.
 
     toctou=True (после journal_start): отказывать self только если
     other.ts <= self.ts (младший/равный само-отказ; старший идёт дальше).
+    readonly=True или role_is_oversight(role) — не берём write-lock
+    (надзор без --mode plan).
     """
-    if not front_id or readonly:
+    if not front_id or readonly or orchlib.role_is_oversight(role):
         return None, None
     other = find_live_dual_writer(front_id, self_id, state, session=session)
     if other is None:
@@ -1616,6 +1620,17 @@ def main():
             a.id, prompt_file, None, role, log_path,
             orchlib.FRONT_REQUIRED_EXIT, readonly=readonly, session=a.session)
         return orchlib.FRONT_REQUIRED_EXIT
+    # Надзор: --no-front не exemption; нужен --front (FRONT_REQUIRED не ослабляем).
+    if orchlib.role_is_oversight(role) and not front_out:
+        front_refuse = (
+            "FRONT_REQUIRED: укажите --front <id> "
+            "(надзор не освобождается через --no-front)")
+        append_log(log_path, front_refuse)
+        sys.stderr.write(front_refuse + "\n")
+        journal_gate_refuse(
+            a.id, prompt_file, None, role, log_path,
+            orchlib.FRONT_REQUIRED_EXIT, readonly=readonly, session=a.session)
+        return orchlib.FRONT_REQUIRED_EXIT
     a.front = front_out
 
     sec_rc, _sec_lines = apply_secret_gate(prompt, prompt_file, log_path)
@@ -1639,7 +1654,8 @@ def main():
 
     # Dual-writer ДО journal_start (отказ — journal_gate_refuse-пара)
     dual_rc, dual_msg = check_dual_writer_guard(
-        a.front, a.id, state, session=a.session, readonly=readonly)
+        a.front, a.id, state, session=a.session, readonly=readonly,
+        role=role)
     if dual_rc is not None:
         append_log(log_path, dual_msg)
         sys.stderr.write(dual_msg + "\n")
@@ -1668,7 +1684,7 @@ def main():
     # TOCTOU: сразу после journal_start до Popen — младший само-отказ
     dual_rc2, dual_msg2 = check_dual_writer_guard(
         a.front, a.id, state, session=a.session, readonly=readonly,
-        toctou=True)
+        toctou=True, role=role)
     if dual_rc2 is not None:
         append_log(log_path, dual_msg2)
         sys.stderr.write(dual_msg2 + "\n")
