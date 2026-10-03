@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-03T02:10:25Z",
+  "generated_at": "2026-10-03T07:35:55Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -15,8 +15,8 @@
   "consensus_counters": {
     "3/3": 92,
     "2/3": 61,
-    "1/3_verified": 78,
-    "total": 231
+    "1/3_verified": 80,
+    "total": 233
   },
   "imperatives": [
     {
@@ -1876,7 +1876,7 @@
     {
       "id": "MM-207",
       "to": "all",
-      "text": "Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 18 по routing/jev-table.json, вкл. must-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы)",
+      "text": "Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 19 по routing/jev-table.json, вкл. must-check и advisor-need-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы)",
       "check": "Jev cannot close gates/HITL",
       "status": "prompt",
       "mechanism": null,
@@ -2097,6 +2097,24 @@
       "status": "mechanism",
       "mechanism": "tests/adversarial suite (scenarios.json + report.md)",
       "source": "skills/orchestration/references/planning.md:291"
+    },
+    {
+      "id": "MM-232",
+      "to": "commander",
+      "text": "Серая зона без советников — fail-safe suspect; тихое OK запрещено",
+      "check": "mechanical→молчание; fork неуверенный (mid/high и band=low)/defer/сбой канала→suspect; тихое OK только явный mechanical; шум — allowlist+expires_on",
+      "status": "mechanism",
+      "mechanism": "orders_suspect+advisor-need-check+tests/test_orders_allowlist*",
+      "source": "skills/orchestration/SKILL.md:487"
+    },
+    {
+      "id": "MM-233",
+      "to": "general",
+      "text": "Серая зона без советников — fail-safe suspect; тихое OK запрещено",
+      "check": "mechanical→молчание; fork неуверенный (mid/high и band=low)/defer/сбой канала→suspect; тихое OK только явный mechanical; шум — allowlist+expires_on",
+      "status": "mechanism",
+      "mechanism": "orders_suspect+advisor-need-check+tests/test_orders_allowlist*",
+      "source": "skills/orchestration/SKILL.md:487"
     }
   ]
 }

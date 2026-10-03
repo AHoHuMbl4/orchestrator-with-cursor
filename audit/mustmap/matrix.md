@@ -1,12 +1,12 @@
 # MUSTMAP matrix (MM-C1)
 
-Сгенерировано: `2026-10-03T02:10:25Z`
+Сгенерировано: `2026-10-03T07:35:55Z`
 
-**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 78; всего = 231
+**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 80; всего = 233
 
-status: mechanism=72; prompt=150; human=9
+status: mechanism=74; prompt=150; human=9
 
-## commander (105)
+## commander (106)
 
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
@@ -115,8 +115,9 @@ status: mechanism=72; prompt=150; human=9
 | MM-103 | commander | Анти-паттерн: резать до фиксации цели/критерия | premature decomposition → запрещено | prompt | — | `skills/orchestration/references/planning.md:445` |
 | MM-104 | commander | Наблюдатель запускается командующим на КТ; запуск обычный НЕ --readonly (нужен Write метки) | observer not --readonly | prompt | — | `skills/orchestration/references/roles/meta/front-observer.md:4` |
 | MM-230 | commander | Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/** | закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт | mechanism | tests/adversarial suite (scenarios.json + report.md) | `skills/orchestration/references/planning.md:291` |
+| MM-232 | commander | Серая зона без советников — fail-safe suspect; тихое OK запрещено | mechanical→молчание; fork неуверенный (mid/high и band=low)/defer/сбой канала→suspect; тихое OK только явный mechanical; шум — allowlist+expires_on | mechanism | orders_suspect+advisor-need-check+tests/test_orders_allowlist* | `skills/orchestration/SKILL.md:487` |
 
-## general (26)
+## general (27)
 
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
@@ -146,6 +147,7 @@ status: mechanism=72; prompt=150; human=9
 | MM-128 | general | Возобновление: сверь journal start/end; не дублируй бегущее; память прошлого окна не предполагай | resume from journal not memory | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:34` |
 | MM-129 | general | НИКОГДА подглядывание к параллельным линиям; самовольная остановка по чужим результатам | координация/стоп по чужому → анти-паттерн | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:55` |
 | MM-231 | general | Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/** | закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт | mechanism | tests/adversarial suite (scenarios.json + report.md) | `skills/orchestration/references/planning.md:291` |
+| MM-233 | general | Серая зона без советников — fail-safe suspect; тихое OK запрещено | mechanical→молчание; fork неуверенный (mid/high и band=low)/defer/сбой канала→suspect; тихое OK только явный mechanical; шум — allowlist+expires_on | mechanism | orders_suspect+advisor-need-check+tests/test_orders_allowlist* | `skills/orchestration/SKILL.md:487` |
 
 ## colonel (9)
 
@@ -253,7 +255,7 @@ status: mechanism=72; prompt=150; human=9
 | MM-204 | all | Compass фронта ≤4000 символов (замер len/wc -m) | compass>4000 → PROBLEMS | mechanism | write-compass.py | `skills/orchestration/SKILL.md:463` |
 | MM-205 | all | kill --id точным run-id; дубль --id живой → exit 11; второй пишущий ран фронта → exit 13 + multi_write_front | второй writer → exit 13 | mechanism | multi_write_front | `skills/orchestration/SKILL.md:474` |
 | MM-206 | all | Второй пишущий ран фронта → exit 13 + чип multi_write_front | два live-писателя одного фронта → отказ dual-writer | mechanism | multi_write_front | `skills/orchestration/SKILL.md:476` |
-| MM-207 | all | Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 18 по routing/jev-table.json, вкл. must-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы) | Jev cannot close gates/HITL | prompt | — | `skills/orchestration/SKILL.md:485` |
+| MM-207 | all | Jev advisory; не решает за командира; запрещены critic-prefilter/kt-prefilter; не снимает probes_missing; разрешённые id — ровно 19 по routing/jev-table.json, вкл. must-check и advisor-need-check (advisory сверка волны против MUST; не разрешает старт/критиков/чипы) | Jev cannot close gates/HITL | prompt | — | `skills/orchestration/SKILL.md:485` |
 | MM-208 | all | ЗАПРЕТЫ Jev: critic-prefilter, kt-prefilter; закрытие волн/probes_missing силой Jev; авто-Approve HITL | запрещённый jev-id → не вызывать | prompt | — | `skills/orchestration/SKILL.md:485` |
 | MM-209 | all | План через критиков на каждом уровне; граф/фронт безусловно; задачи — если нетривиально | plan critic wave before start | prompt | — | `skills/orchestration/SKILL.md:517` |
 | MM-210 | all | Эскалация: 2 неудачных круга любого уровня → доклад уровнем выше | 2 фейла → эскалация вверх, не третий круг | prompt | — | `skills/orchestration/SKILL.md:524` |
