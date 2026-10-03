@@ -1388,5 +1388,67 @@ class TestGarbageTsSkipped(CloseTemp):
                  "нечитаемый журнал целиком → close_scan_error")
 
 
+class TestUnreadableJournalFailClosed(CloseTemp):
+    """(FU2-KR1, эмпирика фикс-ревью) нечитаемый журнал — отказ, не «пусто».
+
+    journal.jsonl, заменённый каталогом — тот же класс отказа open()
+    (IsADirectoryError ⊂ OSError), что EACCES/EIO: до фикса читатель
+    глотал ошибку → [] → гейт молча пропускал done. Отсутствие файла —
+    легитимная тишина нового state (контроль).
+    """
+
+    def test_journal_replaced_by_directory_refuses_close(self):
+        jpath = os.path.join(self.state, "journal.jsonl")
+        os.remove(jpath)
+        os.makedirs(jpath)
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertEqual(len(blockers), 1, blockers)
+        self.assertTrue(blockers[0].startswith("close_scan_error:"),
+                        blockers)
+        with self.assertRaises(ValueError) as ctx:
+            _close_via_save(self.state, FRONT)
+        text = "; ".join(str(x) for x in ctx.exception.args[0])
+        self.assertIn("close_scan_error", text,
+                      "нечитаемый журнал = отказ, НЕ «пусто = чисто»")
+        self.assertEqual(_disk_status(self.state, FRONT), "active")
+        # пост-чип/зеркало событие не утверждают
+        self.assertEqual(
+            orchlib.front_closed_red_ids(state=self.state), [])
+        _measure("MEASURE (FU2-KR1) journal.jsonl заменён каталогом → "
+                 "close_scan_error: гейт отказывает (диск active), "
+                 "зеркало тихо")
+
+    @unittest.skipUnless(
+        hasattr(os, "geteuid") and os.geteuid() != 0,
+        "root обходит DAC-режимы: EACCES не воспроизводится chmod")
+    def test_eacces_journal_refuses_close(self):
+        jpath = os.path.join(self.state, "journal.jsonl")
+        _seed_chip(self.state, "multi_write_front", FRONT, self.now)
+        os.chmod(jpath, 0o000)
+        try:
+            blockers = orchlib.close_blockers(
+                FRONT, state=self.state, use_cache=False)
+            self.assertEqual(len(blockers), 1, blockers)
+            self.assertTrue(
+                blockers[0].startswith("close_scan_error:"), blockers)
+        finally:
+            os.chmod(jpath, 0o644)
+
+    def test_missing_journal_legitimate_silence(self):
+        # контроль: отсутствующий файл = новый state — прежнее поведение
+        os.remove(os.path.join(self.state, "journal.jsonl"))
+        self.assertEqual(
+            orchlib.close_blockers(FRONT, state=self.state,
+                                   use_cache=False), [])
+        _close_via_save(self.state, FRONT)
+        self.assertEqual(_disk_status(self.state, FRONT), "done",
+                         "легитимная тишина: гейт пропускает done")
+        self.assertEqual(
+            orchlib.front_closed_red_scan(state=self.state), [])
+        _measure("MEASURE (FU2-KR1 контроль) отсутствующий journal.jsonl "
+                 "→ блокеров нет, close проходит (новый state)")
+
+
 if __name__ == "__main__":
     unittest.main()

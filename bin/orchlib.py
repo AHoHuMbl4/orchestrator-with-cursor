@@ -2754,14 +2754,16 @@ def _journal_entries_at(state):
     Чтение bytes + decode("utf-8", "replace") — оборванный мультибайтный
     хвост писателя не глушит читателя в пустоту (K1-паттерн сторожа,
     приказ K3 п.8): битые строки пропускаются, остальные читаются.
+    Отсутствие файла — легитимная тишина ([]); прочие ошибки чтения
+    (EACCES/EIO/каталог на месте journal.jsonl) ПРОКИДЫВАЮТСЯ вверх —
+    close-гейт обязан отказать (fail-closed, close_scan_error), а не
+    слепнуть до «пусто» (KR1 fix-ревью).
     """
     path = os.path.join(state, "journal.jsonl")
     try:
         with open(path, "rb") as f:
             raw = f.read()
     except FileNotFoundError:
-        return []
-    except Exception:
         return []
     out = []
     for raw_line in raw.decode("utf-8", "replace").splitlines():
@@ -6881,9 +6883,11 @@ CLOSE_GATE_ALLOWLIST = (
 # возрождением — асимметрия с health, решение круга 1).
 _CLOSE_GATE_JOURNAL_CHIP_CLASSES = frozenset((
     "supervision_dead", "multi_write_front"))
-# Кэш close_blockers: (state, cutoff, fids) → (mtime-ключ, {fid: блокеры}).
-# Ключ = stat(mtime_ns, size) journal+fronts+order.md каждого fid —
-# прецедент _health_mtime_key панели; любая запись инвалидирует.
+# Кэш close_blockers: (state, cutoff, fids[, kit_dir]) → (mtime-ключ,
+# {fid: блокеры}). Ключ = stat(mtime_ns, size) journal+fronts+order.md
+# каждого fid + kit-файлы (panel/index.html — label chip_silenced;
+# tests/adversarial/legacy-waivers.json — прецедент _health_mtime_key
+# панели); любая запись инвалидирует.
 _CLOSE_BLOCKERS_CACHE = {}
 
 
@@ -7133,8 +7137,10 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
             try:
                 with open(jpath, "rb") as f:
                     jraw = f.read()
-            except OSError:
+            except FileNotFoundError:
                 jraw = b""
+            # прочие OSError (EACCES/EIO/каталог) не глушатся: пусть
+            # поднимутся до fail-closed-ветки close_scan_error (KR1)
             if jraw.strip():
                 raise RuntimeError(
                     "journal_unparseable:%d bytes" % len(jraw))
@@ -7256,7 +7262,11 @@ def close_blockers(fid, state=None, kit_dir=None, cutoff_ts=None,
 
     Полный журнал; скоуп-независимое вычисление (active-фильтр не
     применяется); grandfathering по CLOSE_GATE_SHIP_TS (тесты — параметром
-    cutoff_ts); кэш по mtime journal+fronts+order.md. Тихие ошибки → [].
+    cutoff_ts). Кэш по mtime journal+fronts+order.md(fid)+kit-файлов
+    (panel/index.html — label chip_silenced; legacy-waivers.json).
+    FAIL-CLOSED: ошибка/нечитаемость скана — блокер close_scan_error
+    (отказ закрытия); отсутствие файла журнала — легитимная тишина
+    нового state.
     """
     if not isinstance(fid, str) or not fid:
         return []
