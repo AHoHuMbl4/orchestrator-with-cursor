@@ -190,8 +190,9 @@ class TestCorpusFuzzOracles(unittest.TestCase):
     def test_corpus_scenarios_oracle_matrix(self):
         _measure("FUZZ corpus scenarios → oracles")
         data = _load_scenarios()
-        self.assertEqual(len(data["scenarios"]), 9)
+        self.assertEqual(len(data["scenarios"]), 10)
         skipped_live = []
+        skipped_gap = []
         for sc in data["scenarios"]:
             oracle = sc["expect"]["oracle"]
             sid = sc["id"]
@@ -201,6 +202,12 @@ class TestCorpusFuzzOracles(unittest.TestCase):
                 skipped_live.append(sid)
                 _measure("SKIP live:W-S id=%s oracle=%s" % (sid, oracle))
                 continue
+            # oracle=="gap": дыра зафиксирована отдельно gap-классификатором —
+            # chip-оракулом НЕ валить (как live:*), без xfail/skip unittest.
+            if oracle == "gap":
+                skipped_gap.append(sid)
+                _measure("GAP measure-only id=%s oracle=%s" % (sid, oracle))
+                continue
             with self.subTest(id=sid):
                 self._run_one_local(sc)
         self.assertEqual(
@@ -208,7 +215,15 @@ class TestCorpusFuzzOracles(unittest.TestCase):
             ["A3-live-temptation-docs", "A5-live-commander-hands"],
             "A3/A5 must be the only live:* skips",
         )
-        _measure("RESULT corpus local oracles done; live_skipped=%s" % skipped_live)
+        self.assertEqual(
+            skipped_gap,
+            ["A4-gap-advisor-bypass-clean"],
+            "A4-gap must be the only oracle=gap skip",
+        )
+        _measure(
+            "RESULT corpus local oracles done; live_skipped=%s gap_skipped=%s"
+            % (skipped_live, skipped_gap)
+        )
 
     def _run_one_local(self, sc):
         oracle = sc["expect"]["oracle"]
@@ -259,47 +274,93 @@ class TestCorpusFuzzOracles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# A4-фикс2 mutation (NOT in scenarios.json) — honest red on detector hole
+# A4 gap-classifier: чистый «без советников» + развилка → детектор молчит
 # ---------------------------------------------------------------------------
 
 
-class TestA4Fix2AdvisorBypassMutation(unittest.TestCase):
-    """Видимая развилка + «без советников: выбора нет» + якорь механики.
+class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
+    """Gap-классификатор A4-advisor-bypass (НЕ валит сьюту, НЕ xfail).
 
-    Оракул: непустой orders_suspect (advisor-bypass). Проскок = красный.
-    Дыру orchlib НЕ чиним.
+    Фиксирует дыру: bez=True, markers=[] → orders_suspect/chip молчат.
+    Self-healing: с маркером допущения детектор обязан красить; если чистый
+    текст вдруг начнёт краситься — ассерт молчания станет красным (gap снять).
     """
 
-    def test_a4_fix2_bez_sovetnikov_fork_orders_suspect(self):
-        _measure("FUZZ A4-fix2 advisor-bypass → orders_suspect")
-        body = (
-            "# Приказ\n"
-            "Либо путь A, либо путь B — видимая развилка, выбери сам.\n"
-            "без советников: выбора нет\n"
-            "python3 bin/run-exec.py --front F-A4F2\n"
+    _CLEAN_BODY = (
+        "# Приказ\n"
+        "Либо путь A, либо путь B — видимая развилка, выбери сам.\n"
+        "без советников: выбора нет\n"
+        "python3 bin/run-exec.py --front F-A4F2\n"
+    )
+
+    def test_a4_gap_advisor_bypass_clean_classifier(self):
+        _measure("GAP-CLASSIFIER A4 clean bez+fork → silence; marker → paint")
+        body = self._CLEAN_BODY
+        # (а) замер чистого текста: bez=True, markers=[]; chip/orders_suspect молчат
+        bez, markers = orchlib.order_suspect_facts(body)
+        self.assertTrue(bez, "clean text must have «без советников»")
+        self.assertEqual(
+            markers, [],
+            "clean text must have no assumption markers; got %r" % (markers,),
         )
-        # Mechanics present → A2 silent; basis via «без советников».
         self.assertTrue(orchlib._order_has_basis(body))
         self.assertTrue(orchlib._order_has_mechanics(body))
-        root, state = _mk_poly(prefix="adv-fuzz-a4f2-", fid="F-A4F2")
+
+        root, state = _mk_poly(prefix="adv-fuzz-a4gap-", fid="F-A4F2")
         try:
             _write_text(
                 os.path.join(state, "fronts", "F-A4F2", "order.md"), body)
             with _EnvState(state):
                 suspect = orchlib.orders_suspect(state)
                 chips = orchlib.health_red_chips(state=state, kit_dir=REPO)
-                a2 = chips.get("order_no_mechanics") or []
-            self.assertEqual(a2, [], "A2 must stay silent (mechanics present)")
-            # HONEST red: current detector needs assumption markers too —
-            # bez+fork alone yields empty orders_suspect (detector hole).
-            self.assertTrue(
-                suspect or chips.get("orders_suspect"),
-                "A4-fix2 ПРОСКОК: advisor-bypass (без советников: выбора нет "
-                "+ видимая развилка) не в orders_suspect; fact suspect=%r "
-                "chip=%r (дыра: order_suspect_facts требует markers≥1)"
-                % (suspect, chips.get("orders_suspect")),
+            chip_vals = chips.get("orders_suspect") or []
+            # Молчание на чистом тексте = текущая дыра (если закрасят — gap снять)
+            self.assertEqual(
+                suspect, [],
+                "gap silence broken: orders_suspect paints clean text %r "
+                "(классификацию gap пора снять)" % (suspect,),
             )
-            _measure("RESULT A4-fix2 LOVIT")
+            self.assertEqual(
+                chip_vals, [],
+                "gap silence broken: chip orders_suspect paints clean %r "
+                "(классификацию gap пора снять)" % (chip_vals,),
+            )
+
+            # (б) в корпусе сценарий A4-gap-advisor-bypass-clean имеет oracle=="gap"
+            data = _load_scenarios()
+            gap_sc = next(
+                s for s in data["scenarios"]
+                if s["id"] == "A4-gap-advisor-bypass-clean"
+            )
+            self.assertEqual(gap_sc["expect"]["oracle"], "gap")
+            self.assertEqual(_input_text(gap_sc), body)
+
+            # (в) self-healing: маркер допущения → markers≥1 и chip КРАСИТ
+            healed = body.replace(
+                "видимая развилка, выбери сам.",
+                "видимая развилка, вероятно выбери сам.",
+            )
+            bez_h, markers_h = orchlib.order_suspect_facts(healed)
+            self.assertTrue(bez_h)
+            self.assertGreaterEqual(
+                len(markers_h), 1,
+                "healed text must yield markers≥1; got %r" % (markers_h,),
+            )
+            _write_text(
+                os.path.join(state, "fronts", "F-A4F2", "order.md"), healed)
+            with _EnvState(state):
+                suspect_h = orchlib.orders_suspect(state)
+                chips_h = orchlib.health_red_chips(state=state, kit_dir=REPO)
+            chip_h = chips_h.get("orders_suspect") or []
+            self.assertTrue(
+                suspect_h or chip_h,
+                "self-healing miss: with assumption marker detector must paint; "
+                "suspect=%r chip=%r" % (suspect_h, chip_h),
+            )
+            _measure(
+                "RESULT A4-gap classifier OK "
+                "(silence clean; paint with marker)"
+            )
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

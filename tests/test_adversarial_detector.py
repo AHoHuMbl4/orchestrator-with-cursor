@@ -143,6 +143,7 @@ class TestScenariosSchema(unittest.TestCase):
             oracle = exp["oracle"]
             self.assertTrue(
                 oracle == "silence"
+                or oracle == "gap"
                 or oracle.startswith("chip:")
                 or oracle.startswith("exit:")
                 or oracle.startswith("live:"),
@@ -404,7 +405,11 @@ class TestCorpusLocalOracles(unittest.TestCase):
         data = _load_scenarios()
         for sc in data["scenarios"]:
             oracle = sc["expect"]["oracle"]
-            if oracle.startswith("live:") or oracle.startswith("exit:"):
+            if (
+                oracle.startswith("live:")
+                or oracle.startswith("exit:")
+                or oracle == "gap"
+            ):
                 continue
             text = _input_text(sc)
             if "order_md" not in (sc.get("input") or {}):
