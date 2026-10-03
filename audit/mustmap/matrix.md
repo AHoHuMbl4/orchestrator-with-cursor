@@ -1,12 +1,12 @@
 # MUSTMAP matrix (MM-C1)
 
-Сгенерировано: `2026-10-01T23:08:30Z`
+Сгенерировано: `2026-10-03T02:10:25Z`
 
-**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 76; всего = 229
+**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 78; всего = 231
 
-status: mechanism=70; prompt=150; human=9
+status: mechanism=72; prompt=150; human=9
 
-## commander (104)
+## commander (105)
 
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
@@ -114,8 +114,9 @@ status: mechanism=70; prompt=150; human=9
 | MM-102 | commander | Анти-паттерн: premature decomposition / мелкая нарезка / гигант / нет сверки compass / каскад / полный restart /↑timeout | decomposition anti-patterns avoided | prompt | — | `skills/orchestration/references/planning.md:443` |
 | MM-103 | commander | Анти-паттерн: резать до фиксации цели/критерия | premature decomposition → запрещено | prompt | — | `skills/orchestration/references/planning.md:445` |
 | MM-104 | commander | Наблюдатель запускается командующим на КТ; запуск обычный НЕ --readonly (нужен Write метки) | observer not --readonly | prompt | — | `skills/orchestration/references/roles/meta/front-observer.md:4` |
+| MM-230 | commander | Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/** | закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт | mechanism | tests/adversarial suite (scenarios.json + report.md) | `skills/orchestration/references/planning.md:291` |
 
-## general (25)
+## general (26)
 
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
@@ -144,6 +145,7 @@ status: mechanism=70; prompt=150; human=9
 | MM-127 | general | Перед order полковнику: jev need-advisor; выбор → advisor+scout; строка подход: или без советников обязательна | order без строки подхода → НЕ писать | mechanism | orders_without_basis | `skills/orchestration/references/roles/meta/front-general.md:20` |
 | MM-128 | general | Возобновление: сверь journal start/end; не дублируй бегущее; память прошлого окна не предполагай | resume from journal not memory | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:34` |
 | MM-129 | general | НИКОГДА подглядывание к параллельным линиям; самовольная остановка по чужим результатам | координация/стоп по чужому → анти-паттерн | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:55` |
+| MM-231 | general | Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/** | закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт | mechanism | tests/adversarial suite (scenarios.json + report.md) | `skills/orchestration/references/planning.md:291` |
 
 ## colonel (9)
 

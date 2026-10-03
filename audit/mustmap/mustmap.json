@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-02T05:51:21Z",
+  "generated_at": "2026-10-03T02:10:25Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -15,8 +15,8 @@
   "consensus_counters": {
     "3/3": 92,
     "2/3": 61,
-    "1/3_verified": 76,
-    "total": 229
+    "1/3_verified": 78,
+    "total": 231
   },
   "imperatives": [
     {
@@ -2079,6 +2079,24 @@
       "status": "prompt",
       "mechanism": null,
       "source": "skills/orchestration/references/planning.md:292"
+    },
+    {
+      "id": "MM-230",
+      "to": "commander",
+      "text": "Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/**",
+      "check": "закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт",
+      "status": "mechanism",
+      "mechanism": "tests/adversarial suite (scenarios.json + report.md)",
+      "source": "skills/orchestration/references/planning.md:291"
+    },
+    {
+      "id": "MM-231",
+      "to": "general",
+      "text": "Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/**",
+      "check": "закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт",
+      "status": "mechanism",
+      "mechanism": "tests/adversarial suite (scenarios.json + report.md)",
+      "source": "skills/orchestration/references/planning.md:291"
     }
   ]
 }
