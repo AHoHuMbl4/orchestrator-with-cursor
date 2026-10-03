@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "mech-canonical",
+      "pattern": "без советников: выбора нет, механическая",
+      "fixture": "без советников: выбора нет, механическая — форма зафиксирована приказом фронта и прецедентами кита; jev need-advisor defer (noul 0.27), запись в журнале.",
+      "expires_on": "2027-04-03",
+      "note": "канон полковника; журнал F-ORDERTRUTH OT-C1 / F-ADVERSARIAL ADV-C2 / F-MUSTMAP MM-C1"
+    },
+    {
+      "id": "mech-pravka-audit",
+      "pattern": "механическая правка по принятому аудиту",
+      "fixture": "подход: без советников: выбора нет — механическая правка по принятому аудиту §4 (/root/.orchestration/audit/2026-09-26-kit-audit-report.md, блокер «Секрет-сканер»).",
+      "expires_on": "2027-04-03",
+      "note": "живой order F-SEC/colonels/SEC-C1|C2|C3 + F-SEC/order.md"
+    },
+    {
+      "id": "mech-sums-update",
+      "pattern": "механическое обновление контрольных сумм",
+      "fixture": "подход: без советников: выбора нет — механическое обновление контрольных сумм после принятых правок DOC-1..DOC-4 (прецедент: chore(sums) bea72c1 «truth-of-accounting»).",
+      "expires_on": "2027-04-03",
+      "note": "живой order F-DOC/colonels/DOC-5/order.md"
+    },
+    {
+      "id": "mech-spisok-zamen",
+      "pattern": "список замен фиксирован приказом фронта",
+      "fixture": "подход: без советников: выбора нет — список замен фиксирован приказом фронта (F-DOC/order.md).",
+      "expires_on": "2027-04-03",
+      "note": "живой order F-DOC/colonels/DOC-1/order.md"
+    },
+    {
+      "id": "mech-forma-zafiksirovana",
+      "pattern": "форма зафиксирована приказом фронта",
+      "fixture": "без советников: выбора нет, механическая — форма зафиксирована приказом фронта (читатели ×3 слепых, согласование синтезом) и прецедентами кита; jev need-advisor defer (noul 0.17).",
+      "expires_on": "2027-04-03",
+      "note": "живой order F-MUSTMAP/colonels/MM-C1/order.md; журнал F-ORDERTRUTH"
+    },
+    {
+      "id": "mech-format-kanon",
+      "pattern": "формат и порядок продиктованы каноном",
+      "fixture": "без советников: выбора нет, механическая (формат и порядок продиктованы каноном §3 и директивой командующего; jev need-advisor 0.35 defer → решение генерала: развилки нет).",
+      "expires_on": "2027-04-03",
+      "note": "живой order F-MULTIWRITE/colonels/MW-RCPT/order.md; журнал (jev defer → «без советников, механическая»)"
+    }
+  ]
+}

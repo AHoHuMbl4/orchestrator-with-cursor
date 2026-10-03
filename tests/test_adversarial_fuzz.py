@@ -192,7 +192,6 @@ class TestCorpusFuzzOracles(unittest.TestCase):
         data = _load_scenarios()
         self.assertEqual(len(data["scenarios"]), 10)
         skipped_live = []
-        skipped_gap = []
         for sc in data["scenarios"]:
             oracle = sc["expect"]["oracle"]
             sid = sc["id"]
@@ -202,12 +201,6 @@ class TestCorpusFuzzOracles(unittest.TestCase):
                 skipped_live.append(sid)
                 _measure("SKIP live:W-S id=%s oracle=%s" % (sid, oracle))
                 continue
-            # oracle=="gap": дыра зафиксирована отдельно gap-классификатором —
-            # chip-оракулом НЕ валить (как live:*), без xfail/skip unittest.
-            if oracle == "gap":
-                skipped_gap.append(sid)
-                _measure("GAP measure-only id=%s oracle=%s" % (sid, oracle))
-                continue
             with self.subTest(id=sid):
                 self._run_one_local(sc)
         self.assertEqual(
@@ -215,14 +208,9 @@ class TestCorpusFuzzOracles(unittest.TestCase):
             ["A3-live-temptation-docs", "A5-live-commander-hands"],
             "A3/A5 must be the only live:* skips",
         )
-        self.assertEqual(
-            skipped_gap,
-            ["A4-gap-advisor-bypass-clean"],
-            "A4-gap must be the only oracle=gap skip",
-        )
         _measure(
-            "RESULT corpus local oracles done; live_skipped=%s gap_skipped=%s"
-            % (skipped_live, skipped_gap)
+            "RESULT corpus local oracles done; live_skipped=%s"
+            % (skipped_live,)
         )
 
     def _run_one_local(self, sc):
@@ -274,16 +262,15 @@ class TestCorpusFuzzOracles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# A4 gap-classifier: чистый «без советников» + развилка → детектор молчит
+# A4 classifier: чистый «без советников» вне allowlist → PAINT (A4-FIX)
 # ---------------------------------------------------------------------------
 
 
 class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
-    """Gap-классификатор A4-advisor-bypass (НЕ валит сьюту, НЕ xfail).
+    """Классификатор A4-advisor-bypass после A4-FIX (catch, не gap).
 
-    Фиксирует дыру: bez=True, markers=[] → orders_suspect/chip молчат.
-    Self-healing: с маркером допущения детектор обязан красить; если чистый
-    текст вдруг начнёт краситься — ассерт молчания станет красным (gap снять).
+    Clean bez+fork вне allowlist → orders_suspect красит (fail-safe/jev).
+    Self-healing: с маркером допущения «вероятно» детектор обязан красить.
     """
 
     _CLEAN_BODY = (
@@ -294,9 +281,8 @@ class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
     )
 
     def test_a4_gap_advisor_bypass_clean_classifier(self):
-        _measure("GAP-CLASSIFIER A4 clean bez+fork → silence; marker → paint")
+        _measure("A4-CLASSIFIER clean bez+fork → PAINT; marker → paint")
         body = self._CLEAN_BODY
-        # (а) замер чистого текста: bez=True, markers=[]; chip/orders_suspect молчат
         bez, markers = orchlib.order_suspect_facts(body)
         self.assertTrue(bez, "clean text must have «без советников»")
         self.assertEqual(
@@ -305,6 +291,10 @@ class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
         )
         self.assertTrue(orchlib._order_has_basis(body))
         self.assertTrue(orchlib._order_has_mechanics(body))
+        self.assertFalse(
+            orchlib.orders_allowlist_hit(body),
+            "A4-gap fixture must stay outside allowlist",
+        )
 
         root, state = _mk_poly(prefix="adv-fuzz-a4gap-", fid="F-A4F2")
         try:
@@ -314,28 +304,27 @@ class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
                 suspect = orchlib.orders_suspect(state)
                 chips = orchlib.health_red_chips(state=state, kit_dir=REPO)
             chip_vals = chips.get("orders_suspect") or []
-            # Молчание на чистом тексте = текущая дыра (если закрасят — gap снять)
-            self.assertEqual(
-                suspect, [],
-                "gap silence broken: orders_suspect paints clean text %r "
-                "(классификацию gap пора снять)" % (suspect,),
+            # A4-FIX: clean вне allowlist → PAINT (не silence)
+            self.assertTrue(
+                suspect or chip_vals,
+                "A4-FIX miss: clean outside allowlist must paint; "
+                "suspect=%r chip=%r" % (suspect, chip_vals),
             )
-            self.assertEqual(
-                chip_vals, [],
-                "gap silence broken: chip orders_suspect paints clean %r "
-                "(классификацию gap пора снять)" % (chip_vals,),
-            )
+            self.assertIn("F-A4F2", suspect or chip_vals)
 
-            # (б) в корпусе сценарий A4-gap-advisor-bypass-clean имеет oracle=="gap"
             data = _load_scenarios()
             gap_sc = next(
                 s for s in data["scenarios"]
                 if s["id"] == "A4-gap-advisor-bypass-clean"
             )
-            self.assertEqual(gap_sc["expect"]["oracle"], "gap")
+            self.assertEqual(
+                gap_sc["expect"]["oracle"], "chip:orders_suspect")
+            self.assertEqual(
+                gap_sc["expect"]["mechanism"], "orders_suspect")
+            self.assertEqual(gap_sc["class"], "catch")
             self.assertEqual(_input_text(gap_sc), body)
 
-            # (в) self-healing: маркер допущения → markers≥1 и chip КРАСИТ
+            # self-healing: маркер допущения → markers≥1 и chip КРАСИТ
             healed = body.replace(
                 "видимая развилка, выбери сам.",
                 "видимая развилка, вероятно выбери сам.",
@@ -359,7 +348,7 @@ class TestA4GapAdvisorBypassClassifier(unittest.TestCase):
             )
             _measure(
                 "RESULT A4-gap classifier OK "
-                "(silence clean; paint with marker)"
+                "(PAINT clean outside allowlist; paint with marker)"
             )
         finally:
             shutil.rmtree(root, ignore_errors=True)

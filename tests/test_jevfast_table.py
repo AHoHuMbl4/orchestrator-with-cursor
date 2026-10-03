@@ -146,7 +146,7 @@ class TestJevfastTable(unittest.TestCase):
     def test_schema_valid(self):
         self.assertEqual(self.data["schemaVersion"], 1)
         self.assertIsInstance(self.points, list)
-        self.assertEqual(len(self.points), 18)
+        self.assertEqual(len(self.points), 19)
 
     def test_new_points_once_with_thresholds(self):
         for pid in NEW_IDS:

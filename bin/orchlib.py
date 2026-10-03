@@ -2259,6 +2259,11 @@ _ORDERS_SUSPECT_LIVE = frozenset((
     "active", "stalled", "proposed",
     "running", "planned", "blocked",
 ))
+# A4-FIX: причины серой зоны отдельно от значений чипа (чип = список id).
+_ORDERS_SUSPECT_REASONS = {}
+# Малый таймаут: health-скан не должен висеть на jev.
+ORDERS_ADVISOR_NEED_TIMEOUT_S = 3.0
+_ORDERS_ALLOWLIST_CACHE = None  # (mtime|path, entries)
 
 
 def order_suspect_facts(text):
@@ -2310,15 +2315,159 @@ def _role_is_opportunity_advisor(role):
             or role.endswith("opportunity-advisor.md"))
 
 
+def orders_suspect_reasons():
+    """Side-map причин последнего orders_suspect: {front_id: reason}."""
+    return dict(_ORDERS_SUSPECT_REASONS)
+
+
+def _orders_allowlist_path(kit_dir=None):
+    override = (os.environ.get("ORCH_ORDERS_ALLOWLIST") or "").strip()
+    if override:
+        return override
+    return os.path.join(
+        kit_dir or KIT_DIR, "tests", "adversarial", "allowlist.json")
+
+
+def _orders_allowlist_entries(kit_dir=None):
+    """Загрузить entries allowlist; fail-open → []."""
+    global _ORDERS_ALLOWLIST_CACHE
+    path = _orders_allowlist_path(kit_dir)
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        _ORDERS_ALLOWLIST_CACHE = None
+        return []
+    if (
+        _ORDERS_ALLOWLIST_CACHE is not None
+        and _ORDERS_ALLOWLIST_CACHE[0] == (path, mtime)
+    ):
+        return _ORDERS_ALLOWLIST_CACHE[1]
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        entries = data.get("entries") if isinstance(data, dict) else data
+        if not isinstance(entries, list):
+            entries = []
+        out = [e for e in entries if isinstance(e, dict)]
+        _ORDERS_ALLOWLIST_CACHE = ((path, mtime), out)
+        return out
+    except Exception:
+        _ORDERS_ALLOWLIST_CACHE = None
+        return []
+
+
+def _orders_allowlist_pattern_hit(pattern, text):
+    """pattern: точная подстрока ИЛИ regex (префикс re:/regex:)."""
+    if not isinstance(pattern, str) or not pattern or not isinstance(text, str):
+        return False
+    if pattern.startswith("re:") or pattern.startswith("regex:"):
+        body = pattern.split(":", 1)[1]
+        try:
+            return bool(re.search(body, text, re.IGNORECASE | re.UNICODE))
+        except Exception:
+            return False
+    return pattern in text
+
+
+def _orders_allowlist_entry_active(entry, today=None):
+    """True, если expires_on ещё не просрочен (дата включительно)."""
+    exp = entry.get("expires_on")
+    if not isinstance(exp, str) or not exp.strip():
+        return False
+    try:
+        y, m, d = [int(x) for x in exp.strip().split("-", 2)]
+        from datetime import date as _date
+        exp_d = _date(y, m, d)
+        if today is None:
+            today = _date.today()
+        elif not isinstance(today, _date):
+            today = _date.today()
+        return today <= exp_d
+    except Exception:
+        return False
+
+
+def orders_allowlist_hit(text, kit_dir=None, today=None):
+    """True, если текст бьёт неистёкший pattern allowlist (без jev)."""
+    if not isinstance(text, str) or not text:
+        return False
+    for entry in _orders_allowlist_entries(kit_dir):
+        if not _orders_allowlist_entry_active(entry, today=today):
+            continue
+        if _orders_allowlist_pattern_hit(entry.get("pattern"), text):
+            return True
+    return False
+
+
+def _orders_grey_zone_decision(fid, text):
+    """Серая зона bez без маркеров вне allowlist → (flagged, reason).
+
+    fork mid/high → suspect; mechanical или band=low → молчание;
+    defer/absent/API-fail → suspect jev=unavailable (fail-safe).
+    """
+    questions = {
+        "advisor-need-check": {
+            "type": "choice",
+            "instructions": (
+                "чистый «без советников» без маркеров допущения: "
+                "легитимная механика или развилка (fork)?"
+            ),
+            "criteria": {
+                "mechanical": "легитимная механика, выбора нет",
+                "fork": "есть развилка/выбор — нужен advisor",
+            },
+        }
+    }
+    data, err = _rules_run_jev_advise(
+        "advisor-need-check",
+        fid or "orders_suspect",
+        (text or "")[:2000],
+        questions,
+        timeout_s=ORDERS_ADVISOR_NEED_TIMEOUT_S,
+    )
+    if err or not data:
+        return True, "jev=unavailable"
+    advice = (data.get("advice") or {}).get("advisor-need-check")
+    if not isinstance(advice, dict):
+        # stdout мог быть primary advice без обёртки advice{}
+        if isinstance(data.get("choice"), (str, list)) or data.get("band"):
+            advice = data
+        else:
+            return True, "jev=unavailable"
+    choice = advice.get("choice")
+    if isinstance(choice, list):
+        choice = choice[0] if choice else None
+    if isinstance(choice, str):
+        choice = choice.strip().lower()
+    else:
+        choice = ""
+    band = advice.get("band")
+    band = band.strip().lower() if isinstance(band, str) else ""
+    # low / mechanical → молчание (band=low раньше action=defer у Choice)
+    if choice == "mechanical" or band == "low":
+        return False, None
+    if choice == "fork" and band in ("mid", "high"):
+        return True, "advisor-need-check: fork %s" % band
+    # defer / absent / неизвестная форма → fail-safe suspect
+    if advice.get("action") == "defer" or band in ("absent", ""):
+        return True, "jev=unavailable"
+    return True, "jev=unavailable"
+
+
 def orders_suspect(state=None):
-    """id фронтов с «без советников» + маркерами допущения в order.md.
+    """id фронтов с подозрительным «без советников» в order.md.
 
     Скан fronts/<id>/order.md и fronts/<id>/colonels/*/order.md.
     Статусы: active/stalled/proposed (+legacy running/planned/blocked);
-    cancelled/rejected/done вне. Флаг: без_советников И markers≥1.
-    Снятие: нет маркеров / advisor journal (front==id) /
-    «допущение проверено замером:» со ссылкой. Dedup; fail-open → [].
+    cancelled/rejected/done вне.
+    Флаг: (а) bez И markers≥1; ИЛИ (б) bez без маркеров вне allowlist
+    и jev advisor-need-check = fork mid/high / jev=unavailable.
+    Снятие: нет маркеров+allowlist/mechanical-low / advisor journal /
+    «допущение проверено замером:». Dedup; fail-open → [].
+    Причины — orders_suspect_reasons() (не в чипе).
     """
+    global _ORDERS_SUSPECT_REASONS
+    _ORDERS_SUSPECT_REASONS = {}
     try:
         if state is None:
             state = find_state_dir()
@@ -2354,6 +2503,7 @@ def orders_suspect(state=None):
                 except Exception:
                     pass
             flagged = False
+            reason = None
             for path in paths:
                 try:
                     with open(path, "r", encoding="utf-8-sig") as f:
@@ -2365,12 +2515,23 @@ def orders_suspect(state=None):
                 if _order_assumption_verified(text):
                     continue
                 bez, markers = order_suspect_facts(text)
-                if bez and markers:
+                if not bez:
+                    continue
+                if markers:
                     flagged = True
+                    reason = "markers"
+                    break
+                # серая зона: bez без маркеров
+                if orders_allowlist_hit(text):
+                    continue  # молчание (детерминированно)
+                flagged, reason = _orders_grey_zone_decision(fid, text)
+                if flagged:
                     break
             if flagged and fid not in seen:
                 seen.add(fid)
                 out.append(fid)
+                if reason:
+                    _ORDERS_SUSPECT_REASONS[fid] = reason
         return out
     except Exception:
         return []

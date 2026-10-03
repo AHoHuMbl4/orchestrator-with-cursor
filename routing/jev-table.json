@@ -212,6 +212,19 @@
         "3 — отсутствует или противоречит"
       ],
       "fallback": "без подсветки, полный конвейер"
+    },
+    {
+      "id": "advisor-need-check",
+      "type": "Choice",
+      "defer_below": 0.5,
+      "confirm_below": 0.75,
+      "advisory": true,
+      "instructions": "чистый «без советников» без маркеров допущения: легитимная механика или развилка (fork)?",
+      "criteria": {
+        "mechanical": "легитимная механика, выбора нет",
+        "fork": "есть развилка/выбор — нужен advisor"
+      },
+      "fallback": "сомнение → suspect (fail-safe)"
     }
   ]
 }
