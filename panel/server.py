@@ -142,6 +142,8 @@ def _health_payload():
     скан-писатель чипа живёт в orchlib, здесь только метки/прокси).
     invariants_not_run — пасс-тру из health_red_chips (computed-детектор
     orchlib; ids «<fid>:<N>» / «<fid>:parse:…», writer-квитанций не трогаем).
+    front_closed_red — пост-чип закрытия с красными (F-C5 K3): писатель —
+    скан orchlib (journal-чип с дедупом), здесь только пасс-тру меток.
     Логика детекторов — только в orchlib; здесь метки/прокси.
     """
     state = orchlib.find_state_dir()
@@ -1210,7 +1212,12 @@ class Handler(BaseHTTPRequestHandler):
                         text = "; ".join(str(x) for x in msg)
                     else:
                         text = str(e)
-                    if "пересечение" in text:
+                    # F-C5 K3: close-отказ гейта → HTTP 400 с перечнем, НЕ
+                    # bypass (ветка знает status == "done"); «пересечение» —
+                    # прежняя текстовая развилка. _persist_fronts_data
+                    # остаётся ТОЛЬКО для легаси-кейса «новые статусы,
+                    # orchlib отстаёт» (не done).
+                    if "пересечение" in text or status == "done":
                         self.send_json({"error": text}, 400)
                         return
                     _persist_fronts_data(data)

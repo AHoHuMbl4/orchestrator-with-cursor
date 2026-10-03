@@ -1562,70 +1562,99 @@ def save_fronts(f, timeout_s=5.0):
     при busy — RuntimeError (не ValueError: панель ловит ValueError и пишет
     в обход замка).
     Гейт активации (owns) — ДО persist; отказ → ValueError.
+    F-C5 K3 close-гейт: переход *→done при непустых close_blockers →
+    ValueError с перечнем «класс:элемент». Блокеры считаются ДО захвата
+    замка (кэш по mtime journal+fronts); под замком — только сверка ключа
+    (mtime изменился → отпустить замок и пересчитать вне замка; никакой
+    тяжёлой работы под замком). После persist — скан-писатель чипа
+    front_closed_red (vim-обходы/гонки мимо гейта краснеют чипом).
     """
     global _fronts_base
     pf = fronts_path()
     d = os.path.dirname(pf)
     os.makedirs(d, exist_ok=True)
     lock_dir = pf + ".lock"
-    held = _dir_lock_acquire(lock_dir, timeout_s=timeout_s)
-    if not held:
-        raise RuntimeError("fronts lock busy: %s" % lock_dir)
-    try:
-        # re-read current under lock for 3-way merge
-        raw_status_by_id = {}
-        if os.path.exists(pf):
-            try:
-                with open(pf, "r", encoding="utf-8-sig") as fh:
-                    cur_data = json.load(fh)
-            except Exception:
-                cur_data = {"goal": "", "fronts": [], "notes": ""}
-            if not isinstance(cur_data, dict):
-                cur_data = {"goal": "", "fronts": [], "notes": ""}
-            cur_fronts = cur_data.get("fronts") if isinstance(cur_data.get("fronts"), list) else []
-            # сырые статусы ДО migrate — для гейта (running ≠ active)
-            for fr in cur_fronts:
-                if isinstance(fr, dict) and fr.get("id"):
-                    raw_status_by_id[fr["id"]] = fr.get("status")
-            _migrate_fronts_list(cur_fronts)
-            current = {
-                "goal": cur_data.get("goal", "") if isinstance(cur_data.get("goal"), str) else "",
-                "fronts": cur_fronts,
-                "notes": cur_data.get("notes", "") if isinstance(cur_data.get("notes"), str) else "",
-            }
-        else:
-            current = {"goal": "", "fronts": [], "notes": ""}
-        ours = f if isinstance(f, dict) else {"fronts": []}
-        ours_fronts = ours.get("fronts") if isinstance(ours.get("fronts"), list) else []
-        # новые фронты (нет в raw_status_by_id) → prev=None → гейт при status=active
-        _migrate_fronts_list(ours_fronts)
-        ours = {
-            "goal": ours.get("goal", "") if isinstance(ours.get("goal"), str) else "",
-            "fronts": ours_fronts,
-            "notes": ours.get("notes", "") if isinstance(ours.get("notes"), str) else "",
-        }
-        base = _fronts_base if _fronts_base is not None else copy.deepcopy(current)
-        out = _three_way_fronts_merge(base, ours, current)
-        _migrate_fronts_list(out.get("fronts") or [])
-        errs = validate_fronts(out)
-        if errs:
-            raise ValueError(errs)
-        _gate_activations_before_persist(out, raw_status_by_id)
-        fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+    state = d
+    retries = 0
+    while True:
+        # close-гейт: тяжёлый скан ДО замка (lock-гигиена K3)
+        gate_key, gate_blockers, gate_fids = _close_gate_preflight(
+            f, pf, state=state)
+        held = _dir_lock_acquire(lock_dir, timeout_s=timeout_s)
+        if not held:
+            raise RuntimeError("fronts lock busy: %s" % lock_dir)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(out, fh, ensure_ascii=False, indent=2)
-                fh.write("\n")
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, pf)
-        except Exception:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
-        _fronts_base = copy.deepcopy(out)
-    finally:
-        _dir_lock_release(lock_dir)
+            if (gate_key is not None and retries < 3
+                    and _close_gate_key(state, pf, gate_fids) != gate_key):
+                # journal/fronts изменились после preflight → пересчёт
+                # ВНЕ замка (finally отпустит замок перед новой попыткой)
+                retries += 1
+                continue
+            # re-read current under lock for 3-way merge
+            raw_status_by_id = {}
+            if os.path.exists(pf):
+                try:
+                    with open(pf, "r", encoding="utf-8-sig") as fh:
+                        cur_data = json.load(fh)
+                except Exception:
+                    cur_data = {"goal": "", "fronts": [], "notes": ""}
+                if not isinstance(cur_data, dict):
+                    cur_data = {"goal": "", "fronts": [], "notes": ""}
+                cur_fronts = cur_data.get("fronts") if isinstance(cur_data.get("fronts"), list) else []
+                # сырые статусы ДО migrate — для гейта (running ≠ active)
+                for fr in cur_fronts:
+                    if isinstance(fr, dict) and fr.get("id"):
+                        raw_status_by_id[fr["id"]] = fr.get("status")
+                _migrate_fronts_list(cur_fronts)
+                current = {
+                    "goal": cur_data.get("goal", "") if isinstance(cur_data.get("goal"), str) else "",
+                    "fronts": cur_fronts,
+                    "notes": cur_data.get("notes", "") if isinstance(cur_data.get("notes"), str) else "",
+                }
+            else:
+                current = {"goal": "", "fronts": [], "notes": ""}
+            ours = f if isinstance(f, dict) else {"fronts": []}
+            ours_fronts = ours.get("fronts") if isinstance(ours.get("fronts"), list) else []
+            # новые фронты (нет в raw_status_by_id) → prev=None → гейт при status=active
+            _migrate_fronts_list(ours_fronts)
+            ours = {
+                "goal": ours.get("goal", "") if isinstance(ours.get("goal"), str) else "",
+                "fronts": ours_fronts,
+                "notes": ours.get("notes", "") if isinstance(ours.get("notes"), str) else "",
+            }
+            base = _fronts_base if _fronts_base is not None else copy.deepcopy(current)
+            out = _three_way_fronts_merge(base, ours, current)
+            _migrate_fronts_list(out.get("fronts") or [])
+            errs = validate_fronts(out)
+            if errs:
+                raise ValueError(errs)
+            _gate_activations_before_persist(out, raw_status_by_id)
+            # F-C5 K3: close-гейт (переход *→done при красных) — под замком
+            # только сверка блокеров, посчитанных ДО замка (см. preflight)
+            _gate_close_before_persist(
+                out, raw_status_by_id, gate_blockers, state=state)
+            fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(out, fh, ensure_ascii=False, indent=2)
+                    fh.write("\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, pf)
+            except Exception:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+                raise
+            _fronts_base = copy.deepcopy(out)
+        finally:
+            _dir_lock_release(lock_dir)
+        break
+    # F-C5 K3: пост-чип — скан done-фронтов ВНЕ замка (vim-обходы/гонки
+    # мимо гейта получают journal-чип front_closed_red; дедуп в emit)
+    try:
+        front_closed_red_scan(state=state)
+    except Exception:
+        pass
 
 
 def front_waves(f):
@@ -5322,13 +5351,15 @@ def receipt_handmade(state=None, scan_limit=None):
 # ADDITIVE MARKER: RCPT-A receipt_handmade end
 
 
-def probes_missing(state=None, scan_limit=None):
+def probes_missing(state=None, scan_limit=None, front_ids=None):
     """id волн кода/фикса active-фронтов без валидной квитанции §3.
 
     Скоп: только active-фронты (DON'T all-chips-green — чужие фронты не
     критерий приёмки текущего). Снятие только валидной квитанцией §3
     (probe-ран run-exec --probe может не иметь artifact.md/§1-блока).
-    Тихие ошибки → [].
+    front_ids — синтетический скоуп (K3 close-гейт: список из одного fid
+    независимо от статуса; K2-паттерн invariants_not_run). Тихие
+    ошибки → [].
     """
     try:
         if state is None:
@@ -5358,15 +5389,19 @@ def probes_missing(state=None, scan_limit=None):
                 entries.append(obj)
         starts_by_id = _journal_start_index(entries)
         data = _load_fronts_at(state)
-        active_fids = set()
-        for fr in data.get("fronts") or []:
-            if not isinstance(fr, dict):
-                continue
-            if fr.get("status") != "active":
-                continue
-            fid = fr.get("id")
-            if isinstance(fid, str) and fid:
-                active_fids.add(fid)
+        if front_ids is None:
+            active_fids = set()
+            for fr in data.get("fronts") or []:
+                if not isinstance(fr, dict):
+                    continue
+                if fr.get("status") != "active":
+                    continue
+                fid = fr.get("id")
+                if isinstance(fid, str) and fid:
+                    active_fids.add(fid)
+        else:
+            active_fids = set(
+                f for f in front_ids if isinstance(f, str) and f)
         out = []
         seen = set()
         for e in entries:
@@ -5410,18 +5445,20 @@ def _panel_has_chip_label(chip_id, kit_dir=None):
     return ("%s:" % chip_id) in txt or ("%s :" % chip_id) in txt
 
 
-def chip_silenced_ids(state=None, kit_dir=None, reported_probes=None):
+def chip_silenced_ids(state=None, kit_dir=None, reported_probes=None,
+                      front_ids=None):
     """id волн, где probes_missing погашен фильтром/UI без устранения причины.
 
     Срабатывает если сырой probes_missing непуст, а (a) ключ не в reported,
     или reported пуст при непустом raw, или (b) panel UI не объявляет чип.
+    front_ids — синтетический скоуп (K3 close-гейт; K2-паттерн).
     """
     try:
         if state is None:
             state = find_state_dir()
         if kit_dir is None:
             kit_dir = KIT_DIR
-        raw = probes_missing(state=state)
+        raw = probes_missing(state=state, front_ids=front_ids)
         if not raw:
             return []
         silenced = False
@@ -6779,6 +6816,604 @@ def invariants_not_run(state=None, front_ids=None):
         return []
 
 
+# --- F-C5 K3: front-close гейт (отказ done при красных чипах волн, И3) -----
+
+# Пост-чип закрытия с красными (писатель — orchlib: health-скан/сохранение).
+FRONT_CLOSED_RED_CHIP = "front_closed_red"
+# ts корабля гейта (grandfathering): блокеры — только события ПОСЛЕ cutoff;
+# 25 существующих done-фронтов легаси (события до cutoff) — тишина.
+# Тесты передают cutoff параметром close_blockers(cutoff_ts=…), константу
+# не патчат.
+CLOSE_GATE_SHIP_TS = 1791065778.0
+# Решение командующего (план v5, раздел (в)): allowlist v1 = РОВНО 8;
+# commit_no_verify исключён (шумный текст-матчер — нет пути разбора).
+CLOSE_GATE_ALLOWLIST = (
+    "probes_missing",
+    "chip_silenced",
+    "invariants_not_run",
+    "supervision_dead",
+    "multi_write_front",
+    "fronts_no_prosecutor",
+    "waves_no_critic",
+    "code_waves_no_gitwarden",
+)
+# Источник (i): journal kind=chip с front==fid (элементы этих классов
+# живут в самом журнале; supervision_dead НЕ гасится позднейшим
+# возрождением — асимметрия с health, решение круга 1).
+_CLOSE_GATE_JOURNAL_CHIP_CLASSES = frozenset((
+    "supervision_dead", "multi_write_front"))
+# Кэш close_blockers: (state, cutoff, fids) → (mtime-ключ, {fid: блокеры}).
+# Ключ = stat(mtime_ns, size) journal+fronts+order.md каждого fid —
+# прецедент _health_mtime_key панели; любая запись инвалидирует.
+_CLOSE_BLOCKERS_CACHE = {}
+
+
+def _meta_end_ts(x):
+    """ts end-записи из ends_with_meta-элемента (0.0 при мусоре)."""
+    try:
+        return float(x["entry"].get("ts") or 0)
+    except (TypeError, ValueError, KeyError):
+        return 0.0
+
+
+def _front_scope_chips(data, entries, front_ids=None):
+    """fid-классы красных чипов для скоупа (K3: ядро с параметром скоупа).
+
+    front_ids=None — health-режим: все фронты, прежние условия статусов
+    (fronts_no_prosecutor/waves_no_critic — только active;
+    code_waves_no_gitwarden — любой статус, как в health до K3).
+    front_ids=[fid…] — close-режим: синтетический скоуп, active-фильтр НЕ
+    применяется (после done computed-блокеры не пустеют — иначе vim-обход
+    опустошал бы пост-чип).
+
+    Возвращает (chips, anchors): chips = {класс: [fid]}, anchors[fid] =
+    ts события нарушения (grandfathering-якорь close-гейта).
+    """
+    close_mode = front_ids is not None
+    scope = set(
+        f for f in front_ids if isinstance(f, str) and f) if close_mode else None
+    starts_by_id = _journal_start_index(entries)
+    ends_with_meta = []
+    for e in entries:
+        if e.get("kind") != "end":
+            continue
+        rid = e.get("id")
+        st = starts_by_id.get(rid) if rid else None
+        if not st:
+            continue
+        ends_with_meta.append({
+            "id": rid,
+            "front": st.get("front"),
+            "role": normalize_journal_role(st.get("role")),
+            "gates": e.get("gates") or [],
+            "exit": e.get("exit"),
+            "readonly": bool(st.get("readonly")),
+            "start_ts": st.get("ts"),
+            "entry": e,
+        })
+    chips = {
+        "fronts_no_prosecutor": [],
+        "waves_no_critic": [],
+        "code_waves_no_gitwarden": [],
+    }
+    anchors = {}
+    for fr in data.get("fronts") or []:
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not isinstance(fid, str) or not fid:
+            continue
+        if close_mode and fid not in scope:
+            continue
+        status = fr.get("status")
+        f_ends = [x for x in ends_with_meta if x.get("front") == fid]
+        started = {}
+        for e in entries:
+            if e.get("kind") == "start" and e.get("front") == fid:
+                if e.get("id"):
+                    started[e["id"]] = True
+            elif e.get("kind") == "end" and e.get("id") in started:
+                started[e["id"]] = False
+        idle = not [rid for rid, alive in started.items() if alive]
+
+        wave_ends = [x for x in f_ends if _role_is_wave_work(x.get("role"))]
+        # Работа, которой нужен критик: не сами критики и не git-warden
+        # (ревизия после волны — доктрина, не «волна без критика»).
+        # W0 аддитивно: readonly / gate-refuse тоже не «волна без критиков».
+        needs_critic = [
+            x for x in wave_ends
+            if not _role_is_critic(x.get("role"))
+            and not _role_is_gitwarden(x.get("role"))
+            and not x.get("readonly")
+            and not _end_is_gate_refuse(x.get("exit"), x.get("gates"))
+        ]
+        pros_ends = [x for x in f_ends if _role_is_prosecutor(x.get("role"))]
+        if wave_ends and not pros_ends and (close_mode or status == "active"):
+            chips["fronts_no_prosecutor"].append(fid)
+            anchors[fid] = max(anchors.get(fid, 0.0),
+                               max(_meta_end_ts(x) for x in wave_ends))
+
+        if idle and wave_ends:
+            # Критик того же front (role fact-checker/code-reviewer).
+            # Сравниваем start_ts исполнителя с end_ts последнего критика:
+            # длинный colonel, стартовавший до критиков, не ложный плюс.
+            if close_mode or status == "active":
+                last_critic_ts = None
+                for x in f_ends:
+                    if _role_is_critic(x.get("role")):
+                        last_critic_ts = x["entry"].get("ts")
+                after_critic = [
+                    x for x in needs_critic
+                    if last_critic_ts is None
+                    or (x.get("start_ts") or 0) > last_critic_ts
+                ]
+                if after_critic:
+                    chips["waves_no_critic"].append(fid)
+                    anchors[fid] = max(
+                        anchors.get(fid, 0.0),
+                        max(_meta_end_ts(x) for x in after_critic))
+
+            last_gw_ts = None
+            for x in f_ends:
+                if _role_is_gitwarden(x.get("role")):
+                    last_gw_ts = x["entry"].get("ts")
+            coder_after = [
+                x for x in f_ends
+                if _role_is_coder(x.get("role"))
+                and (last_gw_ts is None
+                     or (x["entry"].get("ts") or 0) > last_gw_ts)
+            ]
+            if coder_after:
+                chips["code_waves_no_gitwarden"].append(fid)
+                anchors[fid] = max(anchors.get(fid, 0.0),
+                                   max(_meta_end_ts(x) for x in coder_after))
+    return chips, anchors
+
+
+def _close_gate_stat(path):
+    """(mtime_ns, size) файла; нет файла → (0, -1) (появление меняет ключ)."""
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (0, -1)
+
+
+def _close_gate_key(state, pf, fids=()):
+    """Ключ кэша/сверки: stat journal+fronts (+order.md каждого fid)."""
+    key = _close_gate_stat(os.path.join(state, "journal.jsonl"))
+    key += _close_gate_stat(pf)
+    for fid in fids:
+        key += _close_gate_stat(front_order_path(fid, state=state))
+    return key
+
+
+def _run_event_ts(entries, rid, starts_by_id=None):
+    """ts события волны rid: последний end («волна закончилась»), иначе start."""
+    if not rid:
+        return None
+    start_ts = None
+    end_ts = None
+    if starts_by_id:
+        st = starts_by_id.get(rid)
+        if st is not None and st.get("ts") is not None:
+            start_ts = st.get("ts")
+    for e in entries or []:
+        if e.get("id") != rid:
+            continue
+        kind = e.get("kind")
+        ts = e.get("ts")
+        if ts is None:
+            continue
+        if kind == "start" and start_ts is None:
+            start_ts = ts
+        elif kind == "end":
+            end_ts = ts
+    v = end_ts if end_ts is not None else start_ts
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _front_activity_ts(entries, fid):
+    """Новый ts journal-записи с front==fid (якорь invariants-блокеров)."""
+    out = 0.0
+    for e in entries or []:
+        if e.get("front") != fid:
+            continue
+        try:
+            ts = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ts > out:
+            out = ts
+    return out
+
+
+def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
+    """Блокеры закрытия для списка fids одним проходом (общие чтения).
+
+    Два источника (решение командующего, план v5 (в)):
+    (i) journal kind=chip с front==fid: supervision_dead, multi_write_front
+        (полный журнал _journal_entries_at, не окно 5000; supervision_dead
+        НЕ гасится позднейшим возрождением — асимметрия с health);
+    (ii) computed-детекторы со скоупом fids (независимо от статуса фронта):
+        (ii-1) run_id-классы (probes_missing/chip_silenced/invariants_not_run)
+        — элемент резолвится на start.front==fid по полному журналу;
+        (ii-2) fid-классы (fronts_no_prosecutor/waves_no_critic/
+        code_waves_no_gitwarden) — прямое сравнение, БЕЗ резолва.
+    Grandfathering: блокеры только из событий с ts > cutoff;
+    legacy-waivers уважаются (_apply_legacy_waivers). Тихие ошибки → {}.
+    Возвращает {fid: ["класс:элемент", …]} в порядке CLOSE_GATE_ALLOWLIST.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if kit_dir is None:
+            kit_dir = KIT_DIR
+        cutoff = _close_gate_cutoff(cutoff_ts)
+        fids = [f for f in fids if isinstance(f, str) and f]
+        if not fids:
+            return {}
+        fid_set = set(fids)
+        entries = _journal_entries_at(state)
+        starts_by_id = _journal_start_index(entries)
+        data = _load_fronts_at(state)
+        per_fid = {fid: {name: [] for name in CLOSE_GATE_ALLOWLIST}
+                   for fid in fids}
+
+        def _add(fid, name, el):
+            red = per_fid[fid][name]
+            if el not in red:
+                red.append(el)
+
+        # (i) journal kind=chip, front==fid
+        for e in entries:
+            if e.get("kind") != "chip":
+                continue
+            name = e.get("name")
+            if name not in _CLOSE_GATE_JOURNAL_CHIP_CLASSES:
+                continue
+            fid = e.get("front")
+            if fid not in fid_set:
+                continue
+            try:
+                cts = float(e.get("ts") or 0)
+            except (TypeError, ValueError):
+                cts = 0.0
+            if not cts > cutoff:
+                continue
+            if name == "multi_write_front":
+                el = e.get("front") or e.get("id") or e.get("run_id") or name
+            else:
+                el = e.get("id") or fid
+            _add(fid, name, el)
+
+        # (ii-1) run_id-классы: скоуп-параметр детекторов + резолв rid→front
+        for name, els in (
+            ("probes_missing",
+             probes_missing(state=state, front_ids=list(fids))),
+            ("chip_silenced",
+             chip_silenced_ids(state=state, kit_dir=kit_dir,
+                               front_ids=list(fids))),
+        ):
+            for el in els:
+                st = starts_by_id.get(el)
+                fid = st.get("front") if st else None
+                if fid not in fid_set:
+                    continue
+                ts = _run_event_ts(entries, el, starts_by_id=starts_by_id)
+                if ts is None or not ts > cutoff:
+                    continue
+                _add(fid, name, el)
+
+        # invariants_not_run: элементы «<fid>:<N>» / «<fid>:parse:…» —
+        # якорь = последняя активность фронта в журнале
+        for el in invariants_not_run(state=state, front_ids=list(fids)):
+            fid = el.split(":", 1)[0]
+            if fid not in fid_set:
+                continue
+            if _front_activity_ts(entries, fid) > cutoff:
+                _add(fid, "invariants_not_run", el)
+
+        # (ii-2) fid-классы: прямое сравнение, БЕЗ резолва run_id
+        scope_chips, anchors = _front_scope_chips(
+            data, entries, front_ids=list(fids))
+        for name in ("fronts_no_prosecutor", "waves_no_critic",
+                     "code_waves_no_gitwarden"):
+            for fid in scope_chips.get(name) or []:
+                if fid not in fid_set:
+                    continue
+                if (anchors.get(fid) or 0.0) > cutoff:
+                    _add(fid, name, fid)
+
+        out = {}
+        for fid in fids:
+            chips = per_fid[fid]
+            _apply_legacy_waivers(
+                chips, entries, kit_dir, starts_by_id=starts_by_id)
+            out[fid] = [
+                "%s:%s" % (name, el)
+                for name in CLOSE_GATE_ALLOWLIST
+                for el in chips.get(name) or []
+            ]
+        return out
+    except Exception:
+        return {fid: [] for fid in fids}
+
+
+def _close_gate_cutoff(cutoff_ts=None):
+    """cutoff close-гейта: явный параметр, иначе константа корабля."""
+    try:
+        if cutoff_ts is None:
+            return float(CLOSE_GATE_SHIP_TS)
+        return float(cutoff_ts)
+    except (TypeError, ValueError):
+        return float(CLOSE_GATE_SHIP_TS)
+
+
+def close_blockers(fid, state=None, kit_dir=None, cutoff_ts=None,
+                   use_cache=True):
+    """Блокеры закрытия фронта fid — список «класс:элемент» (allowlist 8).
+
+    Полный журнал; скоуп-независимое вычисление (active-фильтр не
+    применяется); grandfathering по CLOSE_GATE_SHIP_TS (тесты — параметром
+    cutoff_ts); кэш по mtime journal+fronts+order.md. Тихие ошибки → [].
+    """
+    if not isinstance(fid, str) or not fid:
+        return []
+    if state is None:
+        state = find_state_dir()
+    ck = None
+    if use_cache:
+        pf = os.path.join(state, "fronts.json")
+        ck = (state, _close_gate_cutoff(cutoff_ts), fid)
+        cached = _CLOSE_BLOCKERS_CACHE.get(ck)
+        key = _close_gate_key(state, pf, (fid,))
+        if cached is not None and cached[0] == key:
+            return list(cached[1][fid])
+    out = _close_blockers_core((fid,), state, kit_dir, cutoff_ts)
+    blockers = list(out.get(fid) or [])
+    if use_cache and ck is not None:
+        _CLOSE_BLOCKERS_CACHE[ck] = (key, {fid: blockers})
+        while len(_CLOSE_BLOCKERS_CACHE) > 256:
+            _CLOSE_BLOCKERS_CACHE.pop(next(iter(_CLOSE_BLOCKERS_CACHE)))
+    return blockers
+
+
+def _close_gate_preflight(f, pf, state=None, kit_dir=None, cutoff_ts=None):
+    """Кандидаты *→done и их блокеры ДО захвата fronts.json.lock (K3).
+
+    Тяжёлый скан — здесь, ВНЕ замка (lock-гигиена: никакого тяжёлого под
+    замком). Возвращает (ключ, {fid: блокеры}, [fid…]) или (None, {}, [])
+    при отсутствии переходов в done.
+    """
+    if state is None:
+        state = os.path.dirname(os.path.abspath(pf))
+    prev = {}
+    try:
+        with open(pf, "r", encoding="utf-8-sig") as fh:
+            cur = json.load(fh)
+        if isinstance(cur, dict):
+            for fr in cur.get("fronts") or []:
+                if isinstance(fr, dict) and fr.get("id"):
+                    prev[fr["id"]] = fr.get("status")
+    except Exception:
+        pass
+    fronts = f.get("fronts") if isinstance(f, dict) else None
+    candidates = []
+    if isinstance(fronts, list):
+        for fr in fronts:
+            if not isinstance(fr, dict):
+                continue
+            fid = fr.get("id")
+            if not fid or fr.get("status") != "done":
+                continue
+            if prev.get(fid) == "done":
+                continue
+            candidates.append(fid)
+    if not candidates:
+        return None, {}, []
+    blockers = _close_blockers_core(
+        candidates, state, kit_dir, cutoff_ts)
+    blockers = {fid: list(blockers.get(fid) or []) for fid in candidates}
+    key = _close_gate_key(state, pf, candidates)
+    return key, blockers, candidates
+
+
+def _gate_close_before_persist(out, raw_status_by_id, preflight_blockers,
+                               state=None):
+    """ДО persist: переход *→done при непустых close_blockers → ValueError.
+
+    Прецедент _gate_activations_before_persist (отказ с перечнем). Блокеры
+    посчитаны ДО замка (preflight); fid без preflight-записи (state сменился
+    мимо сверки mtime) — пересчёт здесь: патологический путь, корректность
+    важнее гигиены замка.
+    """
+    fronts = out.get("fronts") if isinstance(out, dict) else []
+    if not isinstance(fronts, list):
+        return
+    for fr in fronts:
+        if not isinstance(fr, dict):
+            continue
+        fid = fr.get("id")
+        if not fid or fr.get("status") != "done":
+            continue
+        if raw_status_by_id.get(fid) == "done":
+            continue
+        blockers = preflight_blockers.get(fid)
+        if blockers is None:
+            blockers = close_blockers(fid, state=state)
+        if blockers:
+            raise ValueError([
+                "close-гейт: фронт %s не закрывается при красных чипах "
+                "волн: %s" % (fid, ", ".join(blockers))])
+
+
+def _front_closed_red_chip_exists(entries, fid):
+    """True, если в журнале уже есть чип front_closed_red с front==fid."""
+    for e in entries:
+        if (e.get("kind") == "chip"
+                and e.get("name") == FRONT_CLOSED_RED_CHIP
+                and e.get("front") == fid):
+            return True
+    return False
+
+
+def emit_front_closed_red_chip(fid, state=None):
+    """journal-чип front_closed_red с ДЕДУПОМ писателей (паттерн K1 emit).
+
+    Вызывается ТОЛЬКО для done-фронта с непустыми блокерами: существующий
+    чип с front==fid считается непогашенным — «один чип на событие»
+    (повторный скан/сохранение дубль не пишет). Событие живёт до
+    исправления и пере-закрытия чистым (тогда скан не пишет, health-зеркало
+    гаснет). Проверка и запись — под одним flock journal.jsonl.
+    Возвращает True, если чип записан.
+    """
+    if not fid:
+        return False
+    if state is None:
+        state = find_state_dir()
+    path = os.path.join(state, "journal.jsonl")
+    entry = {
+        "ts": time.time(),
+        "kind": "chip",
+        "name": FRONT_CLOSED_RED_CHIP,
+        "front": fid,
+    }
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    f = None
+    locked = False
+    try:
+        try:
+            os.makedirs(state, exist_ok=True)
+        except Exception:
+            pass
+        f = open(path, "a+", encoding="utf-8")
+        if fcntl is not None:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            locked = True
+        f.seek(0)
+        entries = []
+        for raw in f.read().splitlines():
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+        if _front_closed_red_chip_exists(entries, fid):
+            return False
+        f.seek(0, os.SEEK_END)
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+        return True
+    except Exception:
+        return False
+    finally:
+        if f is not None:
+            if locked:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+            try:
+                f.close()
+            except Exception:
+                pass
+
+
+def front_closed_red_scan(state=None, kit_dir=None, cutoff_ts=None):
+    """Скан-писатель чипа front_closed_red (писатель — orchlib, K3).
+
+    Для каждого done-фронта с непустыми close_blockers — journal-чип
+    (дедуп в emit). Вызывается из health_red_chips и после persist в
+    save_fronts: прямая правка fronts.json (vim) мимо save_fronts краснеет
+    при первом же скане/сохранении (TOCTOU-гонки мимо гейта — тоже).
+    Блокеры считаются одним проходом по всем done-фронтам (кэш mtime).
+    Возвращает [(fid, blockers)] по факту обнаружения.
+    """
+    if state is None:
+        state = find_state_dir()
+    data = _load_fronts_at(state)
+    done_fids = []
+    for fr in data.get("fronts") or []:
+        if not isinstance(fr, dict) or fr.get("status") != "done":
+            continue
+        fid = fr.get("id")
+        if isinstance(fid, str) and fid:
+            done_fids.append(fid)
+    if not done_fids:
+        return []
+    pf = os.path.join(state, "fronts.json")
+    cutoff = _close_gate_cutoff(cutoff_ts)
+    ck = (state, cutoff, tuple(done_fids))
+    key = _close_gate_key(state, pf, done_fids)
+    cached = _CLOSE_BLOCKERS_CACHE.get(ck)
+    if cached is not None and cached[0] == key:
+        blockers_by_fid = cached[1]
+    else:
+        blockers_by_fid = _close_blockers_core(
+            done_fids, state, kit_dir, cutoff_ts)
+        blockers_by_fid = {fid: list(blockers_by_fid.get(fid) or [])
+                           for fid in done_fids}
+        _CLOSE_BLOCKERS_CACHE[ck] = (key, blockers_by_fid)
+        while len(_CLOSE_BLOCKERS_CACHE) > 256:
+            _CLOSE_BLOCKERS_CACHE.pop(next(iter(_CLOSE_BLOCKERS_CACHE)))
+    found = []
+    for fid in done_fids:
+        blockers = blockers_by_fid.get(fid) or []
+        if blockers:
+            found.append((fid, list(blockers)))
+            emit_front_closed_red_chip(fid, state=state)
+    return found
+
+
+def front_closed_red_ids(state=None, kit_dir=None, cutoff_ts=None):
+    """ids для health-чипа front_closed_red: чип ∩ «событие живо».
+
+    Событие погашено, только если фронт СЕЙЧАС done И close_blockers пусты
+    (пере-закрыт чистым); ре-открытие чип НЕ гасит — живёт до исправления.
+    Тихие ошибки → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        entries = _journal_entries_at(state)
+        fids = []
+        for e in entries:
+            if (e.get("kind") == "chip"
+                    and e.get("name") == FRONT_CLOSED_RED_CHIP
+                    and isinstance(e.get("front"), str) and e.get("front")
+                    and e.get("front") not in fids):
+                fids.append(e.get("front"))
+        if not fids:
+            return []
+        data = _load_fronts_at(state)
+        status = {}
+        for fr in data.get("fronts") or []:
+            if isinstance(fr, dict) and fr.get("id"):
+                status[fr["id"]] = fr.get("status")
+        out = []
+        for fid in fids:
+            if (status.get(fid) == "done"
+                    and not close_blockers(
+                        fid, state=state, kit_dir=kit_dir,
+                        cutoff_ts=cutoff_ts)):
+                continue
+            out.append(fid)
+        return out
+    except Exception:
+        return []
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
@@ -6804,6 +7439,12 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
 
     general_resume_chain: красный по agents-wire (>1 фронт генерала на агента).
     general_resume_chain_warn: WARN-журнал-эвристика только если wire недоступен.
+
+    front_closed_red (F-C5 K3): пост-чип закрытия с красными — писатель
+    скан orchlib (journal-чип, дедуп), health-зеркало гаснет только при
+    пере-закрытии чистым. fid-классы (fronts_no_prosecutor/waves_no_critic/
+    code_waves_no_gitwarden) — ядро _front_scope_chips (K3, параметр скоупа;
+    здесь health-режим без изменения поведения).
     """
     empty = {
         "runs_no_front": [],
@@ -6833,6 +7474,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "supervision_dead": [],
         # ADDITIVE MARKER: F-C5 K2 мёртвые инварианты приказа (invariants_not_run)
         "invariants_not_run": [],
+        # ADDITIVE MARKER: F-C5 K3 front-close гейт (front_closed_red)
+        "front_closed_red": [],
         # ADDITIVE MARKER: RCPT-A receipt_handmade
         "receipt_handmade": [],
         # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
@@ -6915,9 +7558,13 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         order_no_mechanics_ids = orders_without_mechanics(state)
         orders_suspect_ids = orders_suspect(state)
         data = _load_fronts_at(state)
-        fronts_no_prosecutor = []
-        waves_no_critic = []
-        code_waves_no_gitwarden = []
+        # F-C5 K3: fid-классы вынесены в ядро с параметром скоупа
+        # (_front_scope_chips, health-режим: прежние условия статусов —
+        # поведение активных детекторов/панели НЕ меняется)
+        _fid_scope, _fid_anchors = _front_scope_chips(data, entries)
+        fronts_no_prosecutor = _fid_scope["fronts_no_prosecutor"]
+        waves_no_critic = _fid_scope["waves_no_critic"]
+        code_waves_no_gitwarden = _fid_scope["code_waves_no_gitwarden"]
         budget_warn = []
         advisors_without_scouts = []
         commander_no_children = []
@@ -7037,61 +7684,6 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 continue
             status = fr.get("status")
             f_ends = [x for x in ends_with_meta if x.get("front") == fid]
-            started = {}
-            for e in entries:
-                if e.get("kind") == "start" and e.get("front") == fid:
-                    if e.get("id"):
-                        started[e["id"]] = True
-                elif e.get("kind") == "end" and e.get("id") in started:
-                    started[e["id"]] = False
-            live = [rid for rid, alive in started.items() if alive]
-            idle = not live
-
-            wave_ends = [x for x in f_ends if _role_is_wave_work(x.get("role"))]
-            # Работа, которой нужен критик: не сами критики и не git-warden
-            # (ревизия после волны — доктрина, не «волна без критика»).
-            # W0 аддитивно: readonly / gate-refuse тоже не «волна без критиков».
-            needs_critic = [
-                x for x in wave_ends
-                if not _role_is_critic(x.get("role"))
-                and not _role_is_gitwarden(x.get("role"))
-                and not x.get("readonly")
-                and not _end_is_gate_refuse(x.get("exit"), x.get("gates"))
-            ]
-            pros_ends = [x for x in f_ends if _role_is_prosecutor(x.get("role"))]
-            if status == "active" and wave_ends and not pros_ends:
-                fronts_no_prosecutor.append(fid)
-
-            if idle and wave_ends:
-                # Критик того же front (role fact-checker/code-reviewer).
-                # Сравниваем start_ts исполнителя с end_ts последнего критика:
-                # длинный colonel, стартовавший до критиков, не ложный плюс.
-                # Только active: done/закрытые — не красный чип «волна сейчас».
-                if status == "active":
-                    last_critic_ts = None
-                    for x in f_ends:
-                        if _role_is_critic(x.get("role")):
-                            last_critic_ts = x["entry"].get("ts")
-                    after_critic = [
-                        x for x in needs_critic
-                        if last_critic_ts is None
-                        or (x.get("start_ts") or 0) > last_critic_ts
-                    ]
-                    if after_critic:
-                        waves_no_critic.append(fid)
-
-                last_gw_ts = None
-                for x in f_ends:
-                    if _role_is_gitwarden(x.get("role")):
-                        last_gw_ts = x["entry"].get("ts")
-                coder_after = [
-                    x for x in f_ends
-                    if _role_is_coder(x.get("role"))
-                    and (last_gw_ts is None
-                         or (x["entry"].get("ts") or 0) > last_gw_ts)
-                ]
-                if coder_after:
-                    code_waves_no_gitwarden.append(fid)
 
             # budget_warn: только active (канон после normalize/миграции).
             if normalize_front_status(status) == "active":
@@ -7230,6 +7822,18 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             inv_not_run = []
 
+        # F-C5 K3: скан-писатель front_closed_red (vim-обходы и TOCTOU-гонки
+        # мимо гейта краснеют journal-чипом) + health-зеркало
+        try:
+            front_closed_red_scan(state=state, kit_dir=kit_dir)
+        except Exception:
+            pass
+        try:
+            front_closed_red = front_closed_red_ids(
+                state=state, kit_dir=kit_dir)
+        except Exception:
+            front_closed_red = []
+
         # undelivered/dead после прочих чипов — (iii) chip-red без самозавода
         other_chips = {
             "runs_no_front": runs_no_front,
@@ -7303,6 +7907,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "supervision_dead": supervision_dead,
             # ADDITIVE MARKER: F-C5 K2 мёртвые инварианты (invariants_not_run)
             "invariants_not_run": inv_not_run,
+            # ADDITIVE MARKER: F-C5 K3 front-close гейт (front_closed_red)
+            "front_closed_red": front_closed_red,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
             # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
@@ -8010,3 +8616,32 @@ def orch_lint_violations(kit_dir=None, state=None, deep=False,
         except Exception as e:
             viols.append("born_at: check error (%s)" % e)
     return viols
+
+
+# --- F-C5 K3: CLI-точка --check-close (гейт И3; owns.py не трогаем) --------
+
+def _cli_check_close(fid):
+    """exit 0 — блокеров нет; ненулевой + перечень в stderr — есть."""
+    blockers = close_blockers(fid)
+    if blockers:
+        sys.stderr.write(
+            "close-гейт: фронт %s не закрывается при красных чипах волн:\n"
+            % fid)
+        for b in blockers:
+            sys.stderr.write("  - %s\n" % b)
+        return 1
+    sys.stdout.write("close OK: блокеров у %s нет\n" % fid)
+    return 0
+
+
+def main(argv=None):
+    """CLI: python3 bin/orchlib.py --check-close <front-id>."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) == 2 and argv[0] == "--check-close" and argv[1].strip():
+        return _cli_check_close(argv[1].strip())
+    sys.stderr.write("использование: orchlib.py --check-close <front-id>\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
