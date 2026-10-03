@@ -369,6 +369,8 @@ const HEALTH_CHIP_LABELS = {
   mustmap_stale: "mustmap устарел",
   // ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
   order_no_mechanics: "приказ без механики",
+  // ADDITIVE MARKER: ADV-TC3 legacy (warn, visible, not silent)
+  legacy: "legacy",
 };
 let _healthIds = {};
 let _healthOpen = null;
@@ -384,7 +386,7 @@ async function loadHealthChips(){
       const n = counts[k] || 0;
       const sp = document.createElement("span");
       // receipt_handmade — WARN по id (приказ RCPT-C: суффикс _warn не добавлять)
-      const isWarn = k.endsWith("_warn") || k === "receipt_handmade";
+      const isWarn = k.endsWith("_warn") || k === "receipt_handmade" || k === "legacy";
       sp.className = "chip " + (isWarn ? "chip-warn" : "chip-red")
         + (n ? "" : " zero");
       sp.textContent = HEALTH_CHIP_LABELS[k] + ": " + n;

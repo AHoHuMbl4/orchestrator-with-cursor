@@ -1,0 +1,14 @@
+{
+  "canon_ts_epoch": 1790993555,
+  "canon_commit": "3598da0a8635954b0f894f5b6639ae8d0951166e",
+  "_comment": "ПРАВИЛА ВНЕСЕНИЯ: только git-правка реестра; только ts прогона < canon_ts_epoch; запрет новых; поля run_id,chip,reason=pre-canon-v1,ts_epoch=ts прогона,added_by=TAIL-CHIPS п.3; несоответствие пары/ts≥canon → игнор; не chip_silenced",
+  "waivers": [
+    {
+      "run_id": "fixture-not-a-live-run",
+      "chip": "commit_no_verify",
+      "reason": "pre-canon-v1",
+      "ts_epoch": 1000000000,
+      "added_by": "TAIL-CHIPS п.3"
+    }
+  ]
+}

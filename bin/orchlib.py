@@ -5918,6 +5918,95 @@ def general_resume_chain_warn(state=None, entries=None):
         return []
 
 
+def _run_ts_from_journal_entries(entries, run_id, starts_by_id=None):
+    """ts прогона: start этого id, иначе end; нет записи → None."""
+    if not run_id:
+        return None
+    if starts_by_id:
+        st = starts_by_id.get(run_id)
+        if st and st.get("ts") is not None:
+            return st.get("ts")
+    start_ts = None
+    end_ts = None
+    for e in entries or []:
+        if e.get("id") != run_id:
+            continue
+        ts = e.get("ts")
+        if ts is None:
+            continue
+        kind = e.get("kind")
+        if kind == "start":
+            start_ts = ts
+        elif kind == "end":
+            end_ts = ts
+    if start_ts is not None:
+        return start_ts
+    return end_ts
+
+
+def _apply_legacy_waivers(chips, entries, kit_dir, starts_by_id=None):
+    """Вычеркнуть pre-canon пары из красных списков; видимость → chips['legacy'].
+
+    Реестр kit_dir/tests/adversarial/legacy-waivers.json; нет файла → no-op.
+    Не трогает chip_silenced (не гашение детектора).
+    """
+    if not isinstance(chips, dict):
+        return chips
+    if "legacy" not in chips or not isinstance(chips.get("legacy"), list):
+        chips["legacy"] = []
+    if not kit_dir:
+        return chips
+    path = os.path.join(kit_dir, "tests", "adversarial", "legacy-waivers.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            reg = json.load(f)
+    except FileNotFoundError:
+        return chips
+    except Exception:
+        return chips
+    if not isinstance(reg, dict):
+        return chips
+    try:
+        canon_f = float(reg.get("canon_ts_epoch"))
+    except (TypeError, ValueError):
+        return chips
+    waivers = reg.get("waivers") or []
+    if not isinstance(waivers, list):
+        return chips
+    skip_chips = frozenset(("chip_silenced", "legacy"))
+    for w in waivers:
+        if not isinstance(w, dict):
+            continue
+        if w.get("reason") != "pre-canon-v1":
+            continue
+        rid = w.get("run_id")
+        chip = w.get("chip")
+        if not isinstance(rid, str) or not rid:
+            continue
+        if not isinstance(chip, str) or not chip:
+            continue
+        if chip in skip_chips:
+            continue
+        red = chips.get(chip)
+        if not isinstance(red, list) or rid not in red:
+            continue
+        rts = _run_ts_from_journal_entries(
+            entries, rid, starts_by_id=starts_by_id)
+        if rts is None:
+            continue
+        try:
+            rts_f = float(rts)
+        except (TypeError, ValueError):
+            continue
+        if rts_f >= canon_f:
+            continue
+        chips[chip] = [x for x in red if x != rid]
+        token = "%s:%s" % (rid, chip)
+        if token not in chips["legacy"]:
+            chips["legacy"].append(token)
+    return chips
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
@@ -5971,6 +6060,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "mustmap_stale": [],
         # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
         "order_no_mechanics": [],
+        # ADDITIVE MARKER: ADV-TC3 legacy waivers (visible, not chip_silenced)
+        "legacy": [],
     }
     try:
         if state is None:
@@ -6375,7 +6466,7 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             else:
                 os.environ["ORCH_RULES_NO_MIGRATE"] = _prev_no_mig2
 
-        return {
+        chips = {
             "runs_no_front": runs_no_front,
             "orders_without_basis": orders,
             "orders_suspect": orders_suspect_ids,
@@ -6405,7 +6496,12 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "mustmap_stale": mustmap_stale_ids,
             # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
             "order_no_mechanics": order_no_mechanics_ids,
+            # ADDITIVE MARKER: ADV-TC3 legacy waivers (visible, not chip_silenced)
+            "legacy": [],
         }
+        _apply_legacy_waivers(
+            chips, entries, kit_dir, starts_by_id=starts_by_id)
+        return chips
     except Exception:
         return empty
 

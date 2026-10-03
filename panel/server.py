@@ -107,11 +107,12 @@ def _health_mtime_key(state):
 
 def _health_payload():
     """Красные чипы health (вкл. lint_failures, probes_missing, chip_silenced,
-    general_resume_chain) + WARN: general_resume_chain_warn, receipt_handmade.
+    general_resume_chain) + WARN: general_resume_chain_warn, receipt_handmade,
+    legacy.
 
     Кэш по mtime journal+fronts и kit HEAD. Чипы из orchlib.health_red_chips;
     probes_missing/chip_silenced — канон приёмки v1 (F-ACCEPT); не фильтровать.
-    receipt_handmade — soft WARN (id без _warn); UI красит в panel/index.html.
+    receipt_handmade / legacy — soft WARN (id без _warn); UI в panel/index.html.
     Логика детекторов — только в orchlib; здесь метки/прокси.
     """
     state = orchlib.find_state_dir()
