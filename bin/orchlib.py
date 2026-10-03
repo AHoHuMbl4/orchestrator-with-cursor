@@ -6580,6 +6580,187 @@ def supervision_dead_ids(state=None):
         return []
 
 
+# --- F-C5 K2: мёртвые инварианты приказа (чип invariants_not_run, И2) ------
+
+INVARIANTS_NOT_RUN_CHIP = "invariants_not_run"
+# Заголовок машинной секции инвариантов приказа фронта («## Инварианты
+# (машиночитаемые…»); прочие «## Инварианты» — проза, вне скопа детектора.
+_INVARIANTS_SECTION_RE = re.compile(r"^#{1,6}\s*Инварианты\s*\(машиночитаемые")
+# Строгий формат строки секции: «- Инвариант N: <cmd> → <оракул>»; cmd
+# хешируется байт-в-байт (без нормализации пробелов).
+_INVARIANT_ROW_RE = re.compile(r"^- Инвариант (\d+): (.+?) → (.+)$")
+# tool-only генератор квитанций §3 (рукописная квитанция не гасит)
+_RECEIPT_TOOL_GENERATOR = "orch-probe-receipt/"
+
+
+def front_order_path(fid, state=None):
+    """Путь приказа фронта: <state>/fronts/<safe_id>/order.md (паттерн front_compass_path)."""
+    if state is None:
+        state = find_state_dir()
+    return os.path.join(state, "fronts", safe_name(fid), "order.md")
+
+
+def parse_front_invariants(text):
+    """Строгий парсер машинной секции инвариантов → (invariants, parse_error).
+
+    Скоуп — ТОЛЬКО секция «## Инварианты (машиночитаемые…» до следующего
+    заголовка приказа фронта; колонельские приказы сюда не попадают в
+    принципе (парсится только fronts/<fid>/order.md). Нет секции →
+    (None, None): инвариантов нет, чип не краснеет; проза вне секции —
+    тишина. Внутри секции каждая строка-список обязана совпадать с
+    «- Инвариант N: <cmd> → <оракул>» (cmd байт-в-байт), номера — ровно
+    1..K без пропусков/дублей. Отклонение формата/нумерации → parse_error
+    с номером строки (не fail-open); заголовок без строк формата →
+    parse_error no_rows. invariants = [{"num", "cmd", "oracle"}].
+    """
+    if not text or not isinstance(text, str):
+        return None, None
+    lines = text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if _INVARIANTS_SECTION_RE.match(ln):
+            start = i
+            break
+    if start is None:
+        return None, None
+    out = []
+    for j in range(start + 1, len(lines)):
+        ln = lines[j]
+        if ln.startswith("#"):
+            break  # следующий заголовок — конец секции
+        s = ln.strip()
+        if not s or not s.startswith("-"):
+            continue  # проза/пустые строки — не строки формата
+        m = _INVARIANT_ROW_RE.match(ln)
+        if not m:
+            return None, "parse:line=%d:format" % (j + 1)
+        num = int(m.group(1))
+        if num != len(out) + 1:
+            return None, "parse:line=%d:numbering" % (j + 1)
+        out.append({"num": num, "cmd": m.group(2), "oracle": m.group(3)})
+    if not out:
+        return None, "parse:no_rows"
+    return out, None
+
+
+def front_invariants_state(fid, state=None):
+    """(invariants, parse_error) машинной секции приказа фронта fid."""
+    if state is None:
+        state = find_state_dir()
+    return parse_front_invariants(
+        _read_text_silent(front_order_path(fid, state=state)))
+
+
+def _iter_probe_receipt_paths(state):
+    """Все probe-receipt.md полигона: runs/*/ и sessions/*/runs/*/."""
+    out = []
+    try:
+        root = os.path.join(state, "runs")
+        if os.path.isdir(root):
+            for name in sorted(os.listdir(root)):
+                p = os.path.join(root, name, "probe-receipt.md")
+                if os.path.isfile(p):
+                    out.append(p)
+    except Exception:
+        pass
+    try:
+        sess = os.path.join(state, "sessions")
+        if os.path.isdir(sess):
+            for sid in sorted(os.listdir(sess)):
+                runs = os.path.join(sess, sid, "runs")
+                if not os.path.isdir(runs):
+                    continue
+                for rid in sorted(os.listdir(runs)):
+                    p = os.path.join(runs, rid, "probe-receipt.md")
+                    if os.path.isfile(p):
+                        out.append(p)
+    except Exception:
+        pass
+    return out
+
+
+def _invariant_receipt_fronts(state=None, entries=None):
+    """cmd_sha256 → множество front_id валидных tool-only квитанций §3.
+
+    Резолв фронта — journal-ран квитанции (start.front; --probe пишет
+    start с front) по ПОЛНОМУ журналу (_journal_entries_at, не окно
+    HEALTH_JOURNAL_SCAN_LIMIT). Гасит только generator=orch-probe-receipt/*
+    (tool-only канон §3: рукописная квитанция с подсчитанным sha не гасит).
+    """
+    if state is None:
+        state = find_state_dir()
+    if entries is None:
+        entries = _journal_entries_at(state)
+    starts_by_id = _journal_start_index(entries)
+    covered = {}
+    for path in _iter_probe_receipt_paths(state):
+        rid = os.path.basename(os.path.dirname(path))
+        st = starts_by_id.get(rid)
+        front = st.get("front") if st else None
+        if not isinstance(front, str) or not front:
+            continue  # ран без front не резолвится — не гасит ничей инвариант
+        text = _read_text_silent(path)
+        if not text:
+            continue
+        ok, _reason = parse_probe_receipt(
+            text, artifact_path=wave_probe_artifact_path(rid, state=state),
+            run_id=rid)
+        if not ok:
+            continue
+        for rec in _parse_receipt_records(text):
+            gen = str(rec.get("generator") or "").strip()
+            if not gen.startswith(_RECEIPT_TOOL_GENERATOR):
+                continue
+            sha = str(rec.get("cmd_sha256") or "").strip().lower()
+            if sha:
+                covered.setdefault(sha, set()).add(front)
+    return covered
+
+
+def invariants_not_run(state=None, front_ids=None):
+    """ids чипа invariants_not_run: непогашенные инварианты приказов фронтов.
+
+    id = «<fid>:<N>» для каждого инварианта N без валидной квитанции §3
+    (cmd_sha256 == sha256(cmd) байт-в-байт + front-резолв по полному
+    журналу + generator tool-only); при parse-отказе машинной секции —
+    «<fid>:parse:<причина>» (с номером строки). Скоуп по умолчанию —
+    active-фронты (как probes_missing); front_ids — синтетический список
+    для K3 (один fid независимо от статуса фронта). Нет секции → тишина.
+    Тихие ошибки → [].
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        if front_ids is None:
+            front_ids = [
+                fr.get("id")
+                for fr in (_load_fronts_at(state).get("fronts") or [])
+                if isinstance(fr, dict)
+                and fr.get("status") == "active"
+                and isinstance(fr.get("id"), str) and fr.get("id")
+            ]
+        else:
+            front_ids = [f for f in front_ids if isinstance(f, str) and f]
+        if not front_ids:
+            return []
+        covered = _invariant_receipt_fronts(state=state)
+        out = []
+        for fid in front_ids:
+            invariants, parse_error = front_invariants_state(fid, state=state)
+            if parse_error:
+                out.append("%s:%s" % (fid, parse_error))
+                continue
+            if not invariants:
+                continue  # нет секции — инвариантов нет, тишина
+            for inv in invariants:
+                sha = hashlib.sha256(inv["cmd"].encode("utf-8")).hexdigest()
+                if fid not in covered.get(sha, ()):
+                    out.append("%s:%d" % (fid, inv["num"]))
+        return out
+    except Exception:
+        return []
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
@@ -6632,6 +6813,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "commit_no_verify": [],
         # ADDITIVE MARKER: F-C5 K1 живой надзор (supervision_dead)
         "supervision_dead": [],
+        # ADDITIVE MARKER: F-C5 K2 мёртвые инварианты приказа (invariants_not_run)
+        "invariants_not_run": [],
         # ADDITIVE MARKER: RCPT-A receipt_handmade
         "receipt_handmade": [],
         # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
@@ -7021,6 +7204,14 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         except Exception:
             supervision_dead = []
 
+        # F-C5 K2: computed-детектор непогашенных инвариантов приказа
+        # (active-скоуп; квитанции резолвятся по ПОЛНОМУ журналу — внутри
+        # детектора; journal-писатель для K2 не нужен)
+        try:
+            inv_not_run = invariants_not_run(state=state)
+        except Exception:
+            inv_not_run = []
+
         # undelivered/dead после прочих чипов — (iii) chip-red без самозавода
         other_chips = {
             "runs_no_front": runs_no_front,
@@ -7044,6 +7235,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "commit_no_verify": commit_no_verify,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
+            # ADDITIVE MARKER: F-C5 K2 мёртвые инварианты (invariants_not_run)
+            "invariants_not_run": inv_not_run,
             # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
             "handoff_oversize": handoff_over,
             "project_md_missing": project_missing,
@@ -7090,6 +7283,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "commit_no_verify": commit_no_verify,
             # ADDITIVE MARKER: F-C5 K1 живой надзор (supervision_dead)
             "supervision_dead": supervision_dead,
+            # ADDITIVE MARKER: F-C5 K2 мёртвые инварианты (invariants_not_run)
+            "invariants_not_run": inv_not_run,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
             # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips

@@ -140,6 +140,8 @@ def _health_payload():
     receipt_handmade / legacy — soft WARN (id без _warn); UI в panel/index.html.
     supervision_dead — пасс-тру из health_red_chips (counts/ids как у соседей;
     скан-писатель чипа живёт в orchlib, здесь только метки/прокси).
+    invariants_not_run — пасс-тру из health_red_chips (computed-детектор
+    orchlib; ids «<fid>:<N>» / «<fid>:parse:…», writer-квитанций не трогаем).
     Логика детекторов — только в orchlib; здесь метки/прокси.
     """
     state = orchlib.find_state_dir()
