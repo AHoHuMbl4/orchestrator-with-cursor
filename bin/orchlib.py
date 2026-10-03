@@ -3417,9 +3417,10 @@ def _parse_kit_dirty_porcelain(stdout):
 
 
 def _code_wave_fixpoint_open(entries):
-    """Открытый start код-волны / writable --front (не mtime, не commander_hands).
+    """Открытый start код-волны (роли KIT_DIRTY_OUTSIDE_WAVE_ROLES).
 
     Закрытый end (в т.ч. git-warden) не гасит: после конца волны dirty снова красный.
+    writable+front без роли из списка не гасит.
     """
     open_starts = {}
     for e in entries or []:
@@ -3434,9 +3435,6 @@ def _code_wave_fixpoint_open(entries):
     for st in open_starts.values():
         role = normalize_journal_role(st.get("role"))
         if role in KIT_DIRTY_OUTSIDE_WAVE_ROLES:
-            return True
-        front = st.get("front")
-        if st.get("writable") and front not in (None, ""):
             return True
     return False
 
@@ -6138,8 +6136,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     список с %h mask-коммита. kit_dir=None → KIT_DIR (хук для /tmp-синтетики).
 
     kit_dirty_outside_wave: tracked porcelain по маске wave_no_docs+README.md
-    при отсутствии открытого journal start код-волны (роли coder/git-warden/
-    docs-keeper/simplicity-warden или writable+непустой front). Не mtime;
+    при отсутствии открытого journal start код-волны (роли KIT_DIRTY_OUTSIDE_WAVE_ROLES).
+    writable+front чужой роли не гасит. Не mtime;
     не путать с commander_hands_active. Закрытый git-warden end не гасит.
 
     rules_no_retro / rules_dead / manifest_category_oversize — база rules/

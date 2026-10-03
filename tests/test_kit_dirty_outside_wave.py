@@ -195,6 +195,51 @@ class TestKitDirtyOutsideWave(unittest.TestCase):
         self.assertIsInstance(chips["kit_dirty_outside_wave"], list)
         _measure("RESULT E OK")
 
+    def test_f_writable_foreign_role_does_not_mute(self):
+        _measure(
+            "F dirty README + open writable start role not in "
+            "KIT_DIRTY_OUTSIDE_WAVE_ROLES → chip RED"
+        )
+        st_root, state = _mk_state()
+        kit = _mk_kit_repo()
+        self._track(st_root, kit)
+        with open(os.path.join(kit, "README.md"), "a", encoding="utf-8") as f:
+            f.write("echo-hands\n")
+        _append_journal(state, [{
+            "kind": "start", "id": "wave-colonel-open", "ts": 1,
+            "role": "meta/front-colonel.md", "engine": "local",
+            "writable": True, "front": "F-KDOW",
+        }])
+        chips = self._chips(state, kit)
+        paths = chips.get("kit_dirty_outside_wave") or []
+        self.assertIn("README.md", paths)
+        _measure("RESULT F OK")
+
+    def test_g_health_cache_key_sees_readme_mtime(self):
+        _measure("G _health_mtime_key changes after echo README (same HEAD)")
+        panel_dir = os.path.join(REPO, "panel")
+        if panel_dir not in sys.path:
+            sys.path.insert(0, panel_dir)
+        import server as panel_server  # noqa: E402
+        st_root, state = _mk_state()
+        kit = _mk_kit_repo()
+        self._track(st_root, kit)
+        os.makedirs(os.path.join(kit, "bin"), exist_ok=True)
+        os.makedirs(os.path.join(kit, "panel"), exist_ok=True)
+        _write_text(os.path.join(kit, "bin", "x.py"), "x=1\n")
+        _write_text(os.path.join(kit, "panel", "server.py"), "# stub\n")
+        prev_kit = orchlib.KIT_DIR
+        try:
+            orchlib.KIT_DIR = kit
+            k1 = panel_server._health_mtime_key(state)
+            with open(os.path.join(kit, "README.md"), "a", encoding="utf-8") as f:
+                f.write("echo-cache\n")
+            k2 = panel_server._health_mtime_key(state)
+        finally:
+            orchlib.KIT_DIR = prev_kit
+        self.assertNotEqual(k1, k2)
+        _measure("RESULT G OK key1=%r key2=%r" % (k1, k2))
+
 
 if __name__ == "__main__":
     unittest.main()

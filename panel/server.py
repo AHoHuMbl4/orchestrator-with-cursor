@@ -42,7 +42,7 @@ CURSOR_ME_URL = "https://api.cursor.com/v1/me"
 _guard_lock = threading.Lock()
 _guard_snapshot = {"overflows": [], "poll_s": 2}
 
-# Кэш /api/health: ключ = (mtime journal, fronts, rules/manifest, HEAD)
+# Кэш /api/health: ключ = (mtime journal+fronts+HEAD+mask worktree)
 _health_lock = threading.Lock()
 _health_cache = {"key": None, "payload": None, "computed_at": 0.0}
 
@@ -72,7 +72,7 @@ def _kit_head_hash():
 
 
 def _health_mtime_key(state):
-    """Ключ кэша: mtime journal+fronts+rules/manifest + kit HEAD."""
+    """Ключ кэша: mtime journal+fronts+rules/manifest + kit HEAD + mask worktree."""
     kit = getattr(orchlib, "KIT_DIR", None) or PANEL_DIR
     paths = [
         os.path.join(state, "journal.jsonl"),
@@ -102,6 +102,31 @@ def _health_mtime_key(state):
         pass
     mt.append(max_inner)
     # HEAD: mask-коммиты меняют wave_no_docs без сдвига mtime journal/fronts
+    # mask worktree: dirty README/index/bin при том же HEAD обязан сменить ключ
+    for p in (
+        os.path.join(kit, ".git", "index"),
+        os.path.join(kit, "README.md"),
+        os.path.join(kit, "panel", "server.py"),
+    ):
+        try:
+            mt.append(os.path.getmtime(p))
+        except Exception:
+            mt.append(0.0)
+    bin_max = 0.0
+    try:
+        bin_dir = os.path.join(kit, "bin")
+        for name in os.listdir(bin_dir):
+            if not name.endswith(".py"):
+                continue
+            try:
+                bin_max = max(
+                    bin_max,
+                    os.path.getmtime(os.path.join(bin_dir, name)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    mt.append(bin_max)
     return (tuple(mt), _kit_head_hash())
 
 
@@ -110,7 +135,7 @@ def _health_payload():
     general_resume_chain) + WARN: general_resume_chain_warn, receipt_handmade,
     legacy.
 
-    Кэш по mtime journal+fronts и kit HEAD. Чипы из orchlib.health_red_chips;
+    Кэш по mtime journal+fronts+HEAD+mask worktree. Чипы из orchlib.health_red_chips;
     probes_missing/chip_silenced — канон приёмки v1 (F-ACCEPT); не фильтровать.
     receipt_handmade / legacy — soft WARN (id без _warn); UI в panel/index.html.
     Логика детекторов — только в orchlib; здесь метки/прокси.
