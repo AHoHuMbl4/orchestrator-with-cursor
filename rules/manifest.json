@@ -747,6 +747,39 @@
    "created": 1791044048.5855474,
    "run_ref": "W-S2 A5-live",
    "born_at": 1791044048.5855474
+  },
+  {
+   "id": "dont-zapusk-nadzora-bez-verifikacii",
+   "type": "DON'T",
+   "кому": "commander",
+   "когда": "wave-start",
+   "категория": "запуск",
+   "hit": 0,
+   "created": 1791045031.1958954,
+   "run_ref": "owner-03-10-case",
+   "born_at": 1791045031.1958954
+  },
+  {
+   "id": "dont-invariant-na-bumage",
+   "type": "DON'T",
+   "кому": "commander",
+   "когда": "acceptance",
+   "категория": "приёмка",
+   "hit": 0,
+   "created": 1791045031.1958954,
+   "run_ref": "owner-03-10-case",
+   "born_at": 1791045031.1958954
+  },
+  {
+   "id": "dont-krasnyj-chip-eto-bloker",
+   "type": "DON'T",
+   "кому": "commander",
+   "когда": "acceptance",
+   "категория": "приёмка",
+   "hit": 0,
+   "created": 1791045031.1958954,
+   "run_ref": "owner-03-10-case",
+   "born_at": 1791045031.1958954
   }
  ],
  "aliases": {}
