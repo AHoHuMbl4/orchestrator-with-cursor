@@ -5193,10 +5193,11 @@ def receipt_handmade(state=None, scan_limit=None):
 
 
 def probes_missing(state=None, scan_limit=None):
-    """id волн кода/фикса active-фронтов без блока пробы или без валидной квитанции.
+    """id волн кода/фикса active-фронтов без валидной квитанции §3.
 
     Скоп: только active-фронты (DON'T all-chips-green — чужие фронты не
-    критерий приёмки текущего). Снятие только валидной квитанцией §3.
+    критерий приёмки текущего). Снятие только валидной квитанцией §3
+    (probe-ран run-exec --probe может не иметь artifact.md/§1-блока).
     Тихие ошибки → [].
     """
     try:
@@ -5256,10 +5257,11 @@ def probes_missing(state=None, scan_limit=None):
                 continue
             if _end_is_gate_refuse(e.get("exit"), e.get("gates") or []):
                 continue
-            has_block = wave_has_probe_block(rid, state=state)
             has_receipt = wave_has_valid_probe_receipt(rid, state=state)
-            # нет блока ИЛИ нет валидной квитанции → красный
-            if not has_block or not has_receipt:
+            # нет валидной квитанции → красный. §1-блок не обязателен:
+            # run-exec --probe пишет probe-receipt.md без artifact.md
+            # (ложный probes_missing при parse=ok, кейс ADV-PROBE-A4FIX2).
+            if not has_receipt:
                 out.append(rid)
                 seen.add(rid)
         return out
