@@ -1064,7 +1064,8 @@ class TestActiveDetectorsUnchanged(CloseTemp):
 
     def test_health_front_closed_red_mirror_lifecycle(self):
         # закрыт красным → чип; ре-открыт → чип живёт (не погашен);
-        # пере-закрыт чистым → погашен
+        # пере-закрыт чистым (ЧЕРЕЗ ГЕЙТ — маркер front_closed_clean) →
+        # погашен; НОВОЕ красное закрытие → НОВЫЙ чип («на событие»)
         _seed_run(self.state, "R1", FRONT, "meta/front-colonel.md",
                   self.now - 30, self.now - 20)
         _vim_close(self.state, FRONT)
@@ -1080,14 +1081,22 @@ class TestActiveDetectorsUnchanged(CloseTemp):
         self.assertEqual(
             orchlib.front_closed_red_ids(state=self.state), [FRONT],
             "ре-открытие чип не гасит")
-        # исправление: чистое пере-закрытие (критик + прокурор + gw + чипов нет)
+        # исправление: чистое пере-закрытие ЧЕРЕЗ гейт (прокурор + критик +
+        # git-warden новее волны) — маркер front_closed_clean в journal
         _seed_run(self.state, "R2", FRONT, "meta/front-prosecutor.md",
-                  self.now - 15, self.now - 14)
+                  self.now - 19, self.now - 18)
         _seed_run(self.state, "R3", FRONT, "code/code-reviewer.md",
-                  self.now - 13, self.now - 12)
+                  self.now - 17, self.now - 12)
         _seed_run(self.state, "R4", FRONT, "code/git-warden.md",
                   self.now - 11, self.now - 10)
-        _vim_close(self.state, FRONT)
+        _close_via_save(self.state, FRONT)
+        self.assertEqual(_disk_status(self.state, FRONT), "done",
+                         "чистое пере-закрытие проходит гейт")
+        notes = [e for e in orchlib._journal_entries_at(self.state)
+                 if e.get("kind") == "note"
+                 and e.get("note") == orchlib.FRONT_CLOSED_CLEAN_NOTE]
+        self.assertEqual([n.get("front") for n in notes], [FRONT],
+                         "маркер чистого закрытия written гейтом")
         orchlib.front_closed_red_scan(state=self.state)
         self.assertEqual(
             orchlib.front_closed_red_ids(state=self.state), [],
@@ -1096,8 +1105,23 @@ class TestActiveDetectorsUnchanged(CloseTemp):
             len(_chips_in_journal(
                 self.state, orchlib.FRONT_CLOSED_RED_CHIP)), 1,
             "дубль чипа при чистом пере-закрытии не пишется")
+        # НОВОЕ красное закрытие после погашения → НОВЫЙ чип: дедуп
+        # «один чип на СОБЫТИЕ», не «на фронт» (замер ревью: было «1»)
+        _seed_run(self.state, "R5", FRONT, "meta/front-colonel.md",
+                  self.now - 2, self.now - 1)
+        _vim_close(self.state, FRONT)
+        orchlib.front_closed_red_scan(state=self.state)
+        self.assertEqual(
+            len(_chips_in_journal(
+                self.state, orchlib.FRONT_CLOSED_RED_CHIP)), 2,
+            "второе красное закрытие пишет НОВЫЙ чип (событие новое)")
+        self.assertEqual(
+            orchlib.front_closed_red_ids(state=self.state), [FRONT],
+            "зеркало краснеет по новому событию")
         _measure("MEASURE (10b) зеркало front_closed_red: закрыт красным → "
-                 "красный; ре-открыт → живёт; пере-закрыт чистым → погашен")
+                 "красный; ре-открыт → живёт; пере-закрыт чистым (маркер "
+                 "front_closed_clean через гейт) → погашен; НОВОЕ красное "
+                 "→ НОВЫЙ чип (дедуп «на событие», FU-нит 4)")
 
 
 # ---------------------------------------------------------------------------
@@ -1121,6 +1145,247 @@ class TestPanelLabelAndApiHealth(CloseTemp):
         self.assertEqual(payload["counts"]["front_closed_red"], 0)
         _measure("MEASURE (11) label front_closed_red в HEALTH_CHIP_LABELS "
                  "+ ключ в /api/health (пасс-тру из health_red_chips)")
+
+
+# ---------------------------------------------------------------------------
+# FOLLOW-UP (ремонтный круг по ревью ×3): полный журнал для run_id-классов,
+# устойчивый читатель журнала, fail-closed скана, kit в кэш-ключе,
+# мусорный ts — края зафиксированы фикстурами
+# ---------------------------------------------------------------------------
+
+
+class TestFullJournalRunIdClasses(CloseTemp):
+    """(FU-блокер 1) run_id-классы в close-пути — ПОЛНЫЙ журнал.
+
+    Каноничная волна без квитанции §3, вытесненная из окна 5000 filler-строк:
+    окно прозрачно, полный журнал видит; гейт отказывает, пост-чип пишет.
+    """
+
+    def test_buried_canonical_wave_blocks_close_and_chips(self):
+        now = self.now
+        _seed_run(self.state, "FUP1", FRONT, "meta/front-prosecutor.md",
+                  now - 40, now - 35)
+        _seed_run(self.state, "FUC1", FRONT, "code/coder.md",
+                  now - 30, now - 20)
+        _seed_run(self.state, "FUC2", FRONT, "code/code-reviewer.md",
+                  now - 15, now - 10)
+        _seed_run(self.state, "FUG1", FRONT, "code/git-warden.md",
+                  now - 9, now - 5)
+        # квитанции §3 НЕТ; волна вытесняется из окна 5000 строками шума
+        filler = []
+        for i in range(5100):
+            filler.append({"ts": now - 4 + i * 0.001, "kind": "note",
+                           "id": "fu-filler-%d" % i})
+        _seed_journal(self.state, filler)
+        # окно прозрачно (демонстрация дыры), полный журнал видит
+        self.assertEqual(
+            orchlib.probes_missing(state=self.state, front_ids=[FRONT]),
+            [], "окно 5000 не видит вытесненную волну (до фикса)")
+        self.assertEqual(
+            orchlib.probes_missing(state=self.state, front_ids=[FRONT],
+                                   scan_limit=False),
+            ["FUC1"], "полный журнал видит волну без квитанции")
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertEqual(blockers, ["probes_missing:FUC1"],
+                         "каноничное созвездие: единственный блокер — "
+                         "probes_missing, и он за окном 5000")
+        with self.assertRaises(ValueError) as ctx:
+            _close_via_save(self.state, FRONT)
+        text = "; ".join(str(x) for x in ctx.exception.args[0])
+        self.assertIn("probes_missing:FUC1", text,
+                      "гейт отказывает по вытесненной за окно волне")
+        self.assertEqual(_disk_status(self.state, FRONT), "active")
+        # пост-чип пишет (скан использует то же ядро — полный журнал)
+        _vim_close(self.state, FRONT)
+        found = orchlib.front_closed_red_scan(state=self.state)
+        self.assertEqual(found, [(FRONT, ["probes_missing:FUC1"])])
+        self.assertEqual(
+            len(_chips_in_journal(
+                self.state, orchlib.FRONT_CLOSED_RED_CHIP)), 1)
+        _measure("MEASURE (FU-1) каноничная волна без квитанции + 5100 "
+                 "filler: close_blockers НЕ пуст, save_fronts отказывает, "
+                 "пост-чип пишет (полный журнал, не окно 5000)")
+
+
+class TestResilientJournalReader(CloseTemp):
+    """(FU-блокер 2) оборванный мультибайтный хвост не слепит гейт.
+
+    bytes + decode("utf-8","replace") в _journal_entries_at (K1-паттерн
+    сторожа): до фикта текстовый читатель падал UnicodeDecodeError →
+    [] → все 8 классов слепы → беспрепятственное done.
+    """
+
+    def test_broken_multibyte_tail_does_not_blind_gate(self):
+        _seed_chip(self.state, "supervision_dead", FRONT, self.now,
+                   id="SUP9")
+        jpath = os.path.join(self.state, "journal.jsonl")
+        with open(jpath, "ab") as f:
+            f.write('{"ts": 1, "kind": "end", "id": "crash-tail", "f'.encode(
+                "utf-8") + b'\xff\xfe\x80')
+        entries = orchlib._journal_entries_at(self.state)
+        self.assertTrue(any(e.get("id") == "SUP9" for e in entries),
+                        "живой чип читается сквозь битый хвост")
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertIn("supervision_dead:SUP9", blockers,
+                      "гейт видит красный чип при битом хвосте журнала")
+        with self.assertRaises(ValueError) as ctx:
+            _close_via_save(self.state, FRONT)
+        text = "; ".join(str(x) for x in ctx.exception.args[0])
+        self.assertIn("supervision_dead:SUP9", text)
+        self.assertEqual(_disk_status(self.state, FRONT), "active")
+        _measure("MEASURE (FU-2) журнал с оборванным мультибайтным хвостом "
+                 "+ живой supervision_dead-чип → close_blockers НЕ пуст, "
+                 "save_fronts отказывает (decode replace)")
+
+
+class TestFailClosedScanError(CloseTemp):
+    """(FU-желательно 3) ошибка скана = блокер-неизвестен → отказ закрытия.
+
+    Пост-чип и health-зеркало при ошибке событие НЕ утверждают (чип не
+    пишется); отказ даёт сам гейт (close_scan_error) и CLI.
+    """
+
+    def test_scan_error_refuses_close_and_cli(self):
+        _seed_run(self.state, "COL9", FRONT, "meta/front-colonel.md",
+                  self.now - 20, self.now - 10)
+        orig = orchlib._load_fronts_at
+
+        def _boom(state):
+            raise RuntimeError("boom-poly")
+
+        orchlib._load_fronts_at = _boom  # type: ignore
+        try:
+            blockers = orchlib.close_blockers(
+                FRONT, state=self.state, use_cache=False)
+            self.assertEqual(len(blockers), 1, blockers)
+            self.assertTrue(blockers[0].startswith("close_scan_error:"),
+                            blockers)
+            self.assertIn("boom-poly", blockers[0])
+            with self.assertRaises(ValueError) as ctx:
+                _close_via_save(self.state, FRONT)
+            text = "; ".join(str(x) for x in ctx.exception.args[0])
+            self.assertIn("close_scan_error", text,
+                          "гейт fail-closed: ошибка скана = отказ")
+            self.assertEqual(_disk_status(self.state, FRONT), "active")
+        finally:
+            orchlib._load_fronts_at = orig  # type: ignore
+        # CLI fail-closed — на дисковом источнике ошибки (нечитаемый
+        # журнал), сабпроцесс не видит in-process патча: см. тест ниже
+        _measure("MEASURE (FU-3a) ошибка скана (in-process) → "
+                 "close_scan_error: гейт отказывает, диск не тронут")
+
+    def test_scan_error_no_postchip_no_mirror_claim(self):
+        _seed_run(self.state, "COL9", FRONT, "meta/front-colonel.md",
+                  self.now - 20, self.now - 10)
+        _vim_close(self.state, FRONT)
+        orig = orchlib._front_scope_chips
+
+        def _boom(data, entries, front_ids=None):
+            raise RuntimeError("boom-scope")
+
+        orchlib._front_scope_chips = _boom  # type: ignore
+        try:
+            self.assertEqual(
+                orchlib.front_closed_red_scan(state=self.state), [],
+                "ошибка скана — чип не пишется (событие не подтверждено)")
+            self.assertEqual(
+                _chips_in_journal(
+                    self.state, orchlib.FRONT_CLOSED_RED_CHIP), [])
+            self.assertEqual(
+                orchlib.front_closed_red_ids(state=self.state), [],
+                "зеркало не утверждает событие при ошибке скана")
+        finally:
+            orchlib._front_scope_chips = orig  # type: ignore
+        _measure("MEASURE (FU-3) ошибка скана → close_scan_error: гейт и "
+                 "CLI отказывают; пост-чип/зеркало событие не утверждают")
+
+    def test_wholly_unparseable_journal_fail_closed(self):
+        jpath = os.path.join(self.state, "journal.jsonl")
+        with open(jpath, "wb") as f:
+            f.write(b"\xff\xfe not json at all\n\x80\x81 garbage")
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertEqual(len(blockers), 1, blockers)
+        self.assertTrue(
+            blockers[0].startswith("close_scan_error:journal_unparseable"),
+            blockers)
+        with self.assertRaises(ValueError) as ctx:
+            _close_via_save(self.state, FRONT)
+        text = "; ".join(str(x) for x in ctx.exception.args[0])
+        self.assertIn("journal_unparseable", text,
+                      "целиком нечитаемый журнал — отказ, не тишина")
+        self.assertEqual(_disk_status(self.state, FRONT), "active")
+        # CLI fail-closed: источник ошибки на диске — сабпроцесс видит её
+        env = dict(os.environ)
+        env["ORCHESTRATION_DIR"] = self.state
+        r = subprocess.run(
+            [sys.executable, ORCHLIB_CLI, "--check-close", FRONT],
+            cwd=REPO, env=env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+            timeout=120)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("close_scan_error", r.stderr,
+                      "CLI fail-closed: ненулевой exit с причиной")
+        _measure("MEASURE (FU-3b) целиком нечитаемый журнал → "
+                 "close_scan_error:journal_unparseable → отказ закрытия "
+                 "(гейт + CLI exit 1 с причиной)")
+
+
+class TestCacheKeyIncludesKit(CloseTemp):
+    """(FU-нит 5) kit_dir в кэш-ключе блокеров (прецедент _health_mtime_key)."""
+
+    def test_kit_content_change_invalidates_cache(self):
+        _seed_run(self.state, "KITW", FRONT, "code/coder.md",
+                  self.now - 10, self.now - 5)
+        kit = os.path.join(self.root, "kit")
+        os.makedirs(os.path.join(kit, "panel"), exist_ok=True)
+        idx = os.path.join(kit, "panel", "index.html")
+        with open(idx, "w", encoding="utf-8") as f:
+            f.write("<html>no labels</html>\n")
+        b1 = orchlib.close_blockers(FRONT, state=self.state, kit_dir=kit)
+        self.assertIn("chip_silenced:KITW", b1,
+                      "панель кита без label — probes_missing заглушен")
+        # тот же kit_dir, содержимое panel изменилось (label появился):
+        # journal/fronts не менялись — кэш обязан инвалидироваться по kit
+        with open(idx, "w", encoding="utf-8") as f:
+            f.write('<html>const L = {probes_missing: "нет пробы"};</html>\n')
+        b2 = orchlib.close_blockers(FRONT, state=self.state, kit_dir=kit)
+        self.assertNotIn("chip_silenced:KITW", b2,
+                         "смена кита видна без записи в journal/fronts")
+        self.assertIn("probes_missing:KITW", b2)
+        _measure("MEASURE (FU-5) kit в кэш-ключе: смена panel/index.html "
+                 "кита (label chip_silenced) инвалидирует кэш блокеров")
+
+
+class TestGarbageTsSkipped(CloseTemp):
+    """(FU-нит 6) записи с нечисловым ts не якорят и не блокируют.
+
+    Край fail-closed — целиком нечитаемый журнал (см. TestFailClosedScanError);
+    частичный мусорный ts — пропуск записи (не «блокирует вечно»).
+    """
+
+    def test_non_numeric_ts_records_do_not_anchor_or_block(self):
+        _seed_chip(self.state, "multi_write_front", FRONT, "not-a-number")
+        _seed_journal(self.state, [
+            {"ts": "garbage", "kind": "start", "id": "GT1",
+             "engine": "local", "front": FRONT,
+             "role": "meta/front-colonel.md"},
+            {"ts": "garbage", "kind": "end", "id": "GT1", "exit": 0},
+        ])
+        self.assertEqual(
+            orchlib.close_blockers(FRONT, state=self.state,
+                                   use_cache=False), [],
+            "мусорный ts — запись пропускается (не якорит, не блокирует)")
+        _close_via_save(self.state, FRONT)
+        self.assertEqual(_disk_status(self.state, FRONT), "done")
+        self.assertEqual(
+            orchlib.front_closed_red_scan(state=self.state), [],
+            "пост-чип по мусорным ts не пишется")
+        _measure("MEASURE (FU-6) мусорный ts в chip/wave-записях → пропуск "
+                 "(блокеров нет, close проходит); край fail-closed — "
+                 "нечитаемый журнал целиком → close_scan_error")
 
 
 if __name__ == "__main__":

@@ -1563,10 +1563,13 @@ def save_fronts(f, timeout_s=5.0):
     в обход замка).
     Гейт активации (owns) — ДО persist; отказ → ValueError.
     F-C5 K3 close-гейт: переход *→done при непустых close_blockers →
-    ValueError с перечнем «класс:элемент». Блокеры считаются ДО захвата
-    замка (кэш по mtime journal+fronts); под замком — только сверка ключа
-    (mtime изменился → отпустить замок и пересчитать вне замка; никакой
-    тяжёлой работы под замком). После persist — скан-писатель чипа
+    ValueError с перечнем «класс:элемент» (ошибка скана = блокер
+    close_scan_error — fail-closed). Блокеры считаются ДО захвата
+    замка (кэш по mtime journal+fronts+order.md+kit); под замком — только
+    сверка ключа (mtime изменился → отпустить замок и пересчитать вне
+    замка; пересчёта под замком нет, после исчерпания ретраев — отказ).
+    Чистый переход *→done помечается journal-записью front_closed_clean
+    (граница «события» пост-чипа); после persist — скан-писатель чипа
     front_closed_red (vim-обходы/гонки мимо гейта краснеют чипом).
     """
     global _fronts_base
@@ -1576,6 +1579,7 @@ def save_fronts(f, timeout_s=5.0):
     lock_dir = pf + ".lock"
     state = d
     retries = 0
+    clean_closes = []
     while True:
         # close-гейт: тяжёлый скан ДО замка (lock-гигиена K3)
         gate_key, gate_blockers, gate_fids = _close_gate_preflight(
@@ -1630,9 +1634,18 @@ def save_fronts(f, timeout_s=5.0):
                 raise ValueError(errs)
             _gate_activations_before_persist(out, raw_status_by_id)
             # F-C5 K3: close-гейт (переход *→done при красных) — под замком
-            # только сверка блокеров, посчитанных ДО замка (см. preflight)
-            _gate_close_before_persist(
-                out, raw_status_by_id, gate_blockers, state=state)
+            # только сверка блокеров, посчитанных ДО замка; пересчёта ПОД
+            # замком нет: unknown → отпустить замок и пересчитать вне замка
+            unknown, clean_closes = _gate_close_before_persist(
+                out, raw_status_by_id, gate_blockers)
+            if unknown and retries < 3:
+                retries += 1
+                continue
+            if unknown:
+                raise ValueError([
+                    "close-гейт: пересчёт блокеров не сошёлся (state менялся "
+                    "под руками), повторите закрытие: %s"
+                    % ", ".join(unknown)])
             fd, tmp = tempfile.mkstemp(dir=d, prefix=".fronts-", suffix=".json")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -1649,6 +1662,16 @@ def save_fronts(f, timeout_s=5.0):
         finally:
             _dir_lock_release(lock_dir)
         break
+    # F-C5 K3: маркер чистого закрытия — граница «события» пост-чипа
+    # (чип front_closed_red погашен чистым пере-закрытием НОВЕЕ него;
+    # второе красное закрытие пишет НОВЫЙ чип — дедуп «на событие»)
+    for fid in clean_closes or ():
+        journal_append({
+            "ts": time.time(),
+            "kind": "note",
+            "note": FRONT_CLOSED_CLEAN_NOTE,
+            "front": fid,
+        })
     # F-C5 K3: пост-чип — скан done-фронтов ВНЕ замка (vim-обходы/гонки
     # мимо гейта получают journal-чип front_closed_red; дедуп в emit)
     try:
@@ -2726,18 +2749,23 @@ def _load_fronts_at(state):
 
 
 def _journal_entries_at(state):
-    """Все валидные записи journal.jsonl из state (хронологический порядок)."""
+    """Все валидные записи journal.jsonl из state (хронологический порядок).
+
+    Чтение bytes + decode("utf-8", "replace") — оборванный мультибайтный
+    хвост писателя не глушит читателя в пустоту (K1-паттерн сторожа,
+    приказ K3 п.8): битые строки пропускаются, остальные читаются.
+    """
     path = os.path.join(state, "journal.jsonl")
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        with open(path, "rb") as f:
+            raw = f.read()
     except FileNotFoundError:
         return []
     except Exception:
         return []
     out = []
-    for raw in lines:
-        s = raw.strip()
+    for raw_line in raw.decode("utf-8", "replace").splitlines():
+        s = raw_line.strip()
         if not s:
             continue
         try:
@@ -5367,13 +5395,16 @@ def probes_missing(state=None, scan_limit=None, front_ids=None):
         if scan_limit is None:
             scan_limit = HEALTH_JOURNAL_SCAN_LIMIT
         path = os.path.join(state, "journal.jsonl")
+        # bytes + decode(replace): оборванный мультибайтный хвост писателя
+        # не глушит детектор в пустоту (K3-паттерн устойчивого читателя)
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+            with open(path, "rb") as f:
+                raw = f.read()
         except FileNotFoundError:
             return []
         except Exception:
             return []
+        lines = raw.decode("utf-8", "replace").splitlines()
         if scan_limit and len(lines) > scan_limit:
             lines = lines[-int(scan_limit):]
         entries = []
@@ -5446,19 +5477,23 @@ def _panel_has_chip_label(chip_id, kit_dir=None):
 
 
 def chip_silenced_ids(state=None, kit_dir=None, reported_probes=None,
-                      front_ids=None):
+                      front_ids=None, scan_limit=None):
     """id волн, где probes_missing погашен фильтром/UI без устранения причины.
 
     Срабатывает если сырой probes_missing непуст, а (a) ключ не в reported,
     или reported пуст при непустом raw, или (b) panel UI не объявляет чип.
-    front_ids — синтетический скоуп (K3 close-гейт; K2-паттерн).
+    front_ids — синтетический скоуп (K3 close-гейт; K2-паттерн);
+    scan_limit — сквозной в probes_missing (close-путь читает ПОЛНЫЙ
+    журнал: scan_limit=False; дефолт None — окно health, поведение
+    панели не меняется).
     """
     try:
         if state is None:
             state = find_state_dir()
         if kit_dir is None:
             kit_dir = KIT_DIR
-        raw = probes_missing(state=state, front_ids=front_ids)
+        raw = probes_missing(state=state, front_ids=front_ids,
+                             scan_limit=scan_limit)
         if not raw:
             return []
         silenced = False
@@ -6820,6 +6855,10 @@ def invariants_not_run(state=None, front_ids=None):
 
 # Пост-чип закрытия с красными (писатель — orchlib: health-скан/сохранение).
 FRONT_CLOSED_RED_CHIP = "front_closed_red"
+# Journal-маркер чистого закрытия (гейт пропустил *→done с пустыми
+# блокерами): граница «события» пост-чипа — чип front_closed_red погашен
+# чистым пере-закрытием НОВЕЕ него (дедуп «один чип на событие», K3 FU).
+FRONT_CLOSED_CLEAN_NOTE = "front_closed_clean"
 # ts корабля гейта (grandfathering): блокеры — только события ПОСЛЕ cutoff;
 # 25 существующих done-фронтов легаси (события до cutoff) — тишина.
 # Тесты передают cutoff параметром close_blockers(cutoff_ts=…), константу
@@ -6979,12 +7018,22 @@ def _close_gate_stat(path):
         return (0, -1)
 
 
-def _close_gate_key(state, pf, fids=()):
-    """Ключ кэша/сверки: stat journal+fronts (+order.md каждого fid)."""
+def _close_gate_key(state, pf, fids=(), kit_dir=None):
+    """Ключ кэша/сверки: stat journal+fronts (+order.md fid) + kit-файлы.
+
+    kit в ключе — прецедент _health_mtime_key: chip_silenced зависит от
+    label panel/index.html кита, waivers — от legacy-waivers.json; смена
+    кита без изменения journal/fronts обязана инвалидировать кэш.
+    """
+    if kit_dir is None:
+        kit_dir = KIT_DIR
     key = _close_gate_stat(os.path.join(state, "journal.jsonl"))
     key += _close_gate_stat(pf)
     for fid in fids:
         key += _close_gate_stat(front_order_path(fid, state=state))
+    key += _close_gate_stat(os.path.join(kit_dir, "panel", "index.html"))
+    key += _close_gate_stat(
+        os.path.join(kit_dir, "tests", "adversarial", "legacy-waivers.json"))
     return key
 
 
@@ -7019,10 +7068,23 @@ def _run_event_ts(entries, rid, starts_by_id=None):
 
 
 def _front_activity_ts(entries, fid):
-    """Новый ts journal-записи с front==fid (якорь invariants-блокеров)."""
+    """Новый ts journal-записи с front==fid (якорь invariants-блокеров).
+
+    Бухгалтерия самого гейта НЕ якорит (иначе самозапирание): все
+    kind=note (вкл. маркер front_closed_clean) и чипы front_closed_red
+    исключены — легаси-инвариант не становится красным от факта закрытия.
+    Записи с нечисловым ts пропускаются (не якорят ничего — край
+    fail-closed отдельно: целиком нечитаемый журнал → close_scan_error).
+    """
     out = 0.0
     for e in entries or []:
         if e.get("front") != fid:
+            continue
+        kind = e.get("kind")
+        if kind == "note":
+            continue
+        if (kind == "chip"
+                and e.get("name") == FRONT_CLOSED_RED_CHIP):
             continue
         try:
             ts = float(e.get("ts") or 0)
@@ -7042,11 +7104,14 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
         НЕ гасится позднейшим возрождением — асимметрия с health);
     (ii) computed-детекторы со скоупом fids (независимо от статуса фронта):
         (ii-1) run_id-классы (probes_missing/chip_silenced/invariants_not_run)
-        — элемент резолвится на start.front==fid по полному журналу;
+        — элемент резолвится на start.front==fid по ПОЛНОМУ журналу
+        (scan_limit=False: волна за окном 5000 тоже блокирует);
         (ii-2) fid-классы (fronts_no_prosecutor/waves_no_critic/
         code_waves_no_gitwarden) — прямое сравнение, БЕЗ резолва.
-    Grandfathering: блокеры только из событий с ts > cutoff;
-    legacy-waivers уважаются (_apply_legacy_waivers). Тихие ошибки → {}.
+    Grandfathering: блокеры только из событий с ts > cutoff (записи с
+    нечисловым ts не якорят — пропуск); legacy-waivers уважаются
+    (_apply_legacy_waivers). FAIL-CLOSED: исключение скана = блокер
+    close_scan_error (отказ закрытия), целиком нечитаемый журнал — тоже.
     Возвращает {fid: ["класс:элемент", …]} в порядке CLOSE_GATE_ALLOWLIST.
     """
     try:
@@ -7060,6 +7125,19 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
             return {}
         fid_set = set(fids)
         entries = _journal_entries_at(state)
+        if not entries:
+            # край fail-closed (нит 6): файл непуст, но ни одной валидной
+            # записи — «не читается» ≠ «чисто»; пустой/отсутствующий файл —
+            # штатная тишина (новый state)
+            jpath = os.path.join(state, "journal.jsonl")
+            try:
+                with open(jpath, "rb") as f:
+                    jraw = f.read()
+            except OSError:
+                jraw = b""
+            if jraw.strip():
+                raise RuntimeError(
+                    "journal_unparseable:%d bytes" % len(jraw))
         starts_by_id = _journal_start_index(entries)
         data = _load_fronts_at(state)
         per_fid = {fid: {name: [] for name in CLOSE_GATE_ALLOWLIST}
@@ -7092,13 +7170,17 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
                 el = e.get("id") or fid
             _add(fid, name, el)
 
-        # (ii-1) run_id-классы: скоуп-параметр детекторов + резолв rid→front
+        # (ii-1) run_id-классы: скоуп-параметр детекторов + резолв rid→front.
+        # ПОЛНЫЙ журнал (scan_limit=False, не окно HEALTH_JOURNAL_SCAN_LIMIT):
+        # волна, вытесненная из окна 5000, обязана блокировать close и
+        # краснеть пост-чипом (блокер ревью ×3)
         for name, els in (
             ("probes_missing",
-             probes_missing(state=state, front_ids=list(fids))),
+             probes_missing(state=state, front_ids=list(fids),
+                            scan_limit=False)),
             ("chip_silenced",
              chip_silenced_ids(state=state, kit_dir=kit_dir,
-                               front_ids=list(fids))),
+                               front_ids=list(fids), scan_limit=False)),
         ):
             for el in els:
                 st = starts_by_id.get(el)
@@ -7141,8 +7223,21 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
                 for el in chips.get(name) or []
             ]
         return out
-    except Exception:
-        return {fid: [] for fid in fids}
+    except Exception as e:
+        # fail-closed (консервативный полный путь): ошибка скана = «блокеры
+        # неизвестны» → блокер close_scan_error → отказ закрытия с причиной
+        # (гейт/CLI); пост-чип и health-зеркало при этом событие НЕ
+        # утверждают (чип не пишется — см. front_closed_red_scan)
+        reason = "close_scan_error:%s" % str(e)[:160]
+        return {fid: [reason] for fid in fids}
+
+
+def _close_scan_error_of(blockers):
+    """Строка close_scan_error:… в списке блокеров или None (fail-closed)."""
+    for b in blockers or []:
+        if isinstance(b, str) and b.startswith("close_scan_error"):
+            return b
+    return None
 
 
 def _close_gate_cutoff(cutoff_ts=None):
@@ -7168,11 +7263,12 @@ def close_blockers(fid, state=None, kit_dir=None, cutoff_ts=None,
     if state is None:
         state = find_state_dir()
     ck = None
+    key = None
     if use_cache:
         pf = os.path.join(state, "fronts.json")
-        ck = (state, _close_gate_cutoff(cutoff_ts), fid)
+        ck = (state, _close_gate_cutoff(cutoff_ts), fid, kit_dir)
         cached = _CLOSE_BLOCKERS_CACHE.get(ck)
-        key = _close_gate_key(state, pf, (fid,))
+        key = _close_gate_key(state, pf, (fid,), kit_dir)
         if cached is not None and cached[0] == key:
             return list(cached[1][fid])
     out = _close_blockers_core((fid,), state, kit_dir, cutoff_ts)
@@ -7220,22 +7316,26 @@ def _close_gate_preflight(f, pf, state=None, kit_dir=None, cutoff_ts=None):
     blockers = _close_blockers_core(
         candidates, state, kit_dir, cutoff_ts)
     blockers = {fid: list(blockers.get(fid) or []) for fid in candidates}
-    key = _close_gate_key(state, pf, candidates)
+    key = _close_gate_key(state, pf, candidates, kit_dir)
     return key, blockers, candidates
 
 
-def _gate_close_before_persist(out, raw_status_by_id, preflight_blockers,
-                               state=None):
+def _gate_close_before_persist(out, raw_status_by_id, preflight_blockers):
     """ДО persist: переход *→done при непустых close_blockers → ValueError.
 
     Прецедент _gate_activations_before_persist (отказ с перечнем). Блокеры
-    посчитаны ДО замка (preflight); fid без preflight-записи (state сменился
-    мимо сверки mtime) — пересчёт здесь: патологический путь, корректность
-    важнее гигиены замка.
+    посчитаны ДО замка (preflight); пересчёта ПОД замком нет (нит ревью):
+    fid без preflight-записи возвращается в unknown — вызывающий отпускает
+    замок и пересчитывает вне замка; после исчерпания ретраев — отказ
+    (fail-closed). Возвращает (unknown_fids, clean_close_fids): чистые
+    переходы — для journal-маркера front_closed_clean (граница «события»
+    пост-чипа: чип front_closed_red погашен чистым пере-закрытием новее).
     """
     fronts = out.get("fronts") if isinstance(out, dict) else []
     if not isinstance(fronts, list):
-        return
+        return [], []
+    unknown = []
+    clean = []
     for fr in fronts:
         if not isinstance(fr, dict):
             continue
@@ -7246,31 +7346,61 @@ def _gate_close_before_persist(out, raw_status_by_id, preflight_blockers,
             continue
         blockers = preflight_blockers.get(fid)
         if blockers is None:
-            blockers = close_blockers(fid, state=state)
+            unknown.append(fid)
+            continue
         if blockers:
             raise ValueError([
                 "close-гейт: фронт %s не закрывается при красных чипах "
                 "волн: %s" % (fid, ", ".join(blockers))])
+        clean.append(fid)
+    return unknown, clean
 
 
-def _front_closed_red_chip_exists(entries, fid):
-    """True, если в журнале уже есть чип front_closed_red с front==fid."""
+def _front_closed_red_chip_outstanding(entries, fid):
+    """ts последнего НЕпогашенного чипа front_closed_red (front==fid) или None.
+
+    Дедуп «один чип на СОБЫТИЕ», не «на фронт» (нит ревью, K1-паттерн
+    ключа события): чип погашен чистым пере-закрытием НОВЕЕ него —
+    journal-маркер kind=note note=front_closed_clean с front==fid и
+    ts > ts чипа. Погашенный чип не глушит новое красное закрытие.
+    """
+    last_chip_ts = None
     for e in entries:
-        if (e.get("kind") == "chip"
-                and e.get("name") == FRONT_CLOSED_RED_CHIP
-                and e.get("front") == fid):
-            return True
-    return False
+        if (e.get("kind") != "chip"
+                or e.get("name") != FRONT_CLOSED_RED_CHIP
+                or e.get("front") != fid):
+            continue
+        try:
+            cts = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            cts = 0.0
+        if last_chip_ts is None or cts > last_chip_ts:
+            last_chip_ts = cts
+    if last_chip_ts is None:
+        return None
+    for e in entries:
+        if (e.get("kind") != "note"
+                or e.get("note") != FRONT_CLOSED_CLEAN_NOTE
+                or e.get("front") != fid):
+            continue
+        try:
+            nts = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if nts > last_chip_ts:
+            return None  # погашен чистым пере-закрытием новее чипа
+    return last_chip_ts
 
 
 def emit_front_closed_red_chip(fid, state=None):
     """journal-чип front_closed_red с ДЕДУПОМ писателей (паттерн K1 emit).
 
-    Вызывается ТОЛЬКО для done-фронта с непустыми блокерами: существующий
-    чип с front==fid считается непогашенным — «один чип на событие»
-    (повторный скан/сохранение дубль не пишет). Событие живёт до
-    исправления и пере-закрытия чистым (тогда скан не пишет, health-зеркало
-    гаснет). Проверка и запись — под одним flock journal.jsonl.
+    Вызывается ТОЛЬКО для done-фронта с непустыми блокерами: непогашенный
+    чип (без чистого пере-закрытия новее — см.
+    _front_closed_red_chip_outstanding) подавляет запись — «один чип на
+    СОБЫТИЕ»; погашенный — нет (второе красное закрытие пишет НОВЫЙ чип).
+    Проверка и запись — под одним flock journal.jsonl; чтение журнала
+    устойчиво к битым байтам (errors=replace).
     Возвращает True, если чип записан.
     """
     if not fid:
@@ -7292,7 +7422,7 @@ def emit_front_closed_red_chip(fid, state=None):
             os.makedirs(state, exist_ok=True)
         except Exception:
             pass
-        f = open(path, "a+", encoding="utf-8")
+        f = open(path, "a+", encoding="utf-8", errors="replace")
         if fcntl is not None:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             locked = True
@@ -7308,7 +7438,7 @@ def emit_front_closed_red_chip(fid, state=None):
                 continue
             if isinstance(obj, dict):
                 entries.append(obj)
-        if _front_closed_red_chip_exists(entries, fid):
+        if _front_closed_red_chip_outstanding(entries, fid) is not None:
             return False
         f.seek(0, os.SEEK_END)
         f.write(line)
@@ -7354,8 +7484,8 @@ def front_closed_red_scan(state=None, kit_dir=None, cutoff_ts=None):
         return []
     pf = os.path.join(state, "fronts.json")
     cutoff = _close_gate_cutoff(cutoff_ts)
-    ck = (state, cutoff, tuple(done_fids))
-    key = _close_gate_key(state, pf, done_fids)
+    ck = (state, cutoff, tuple(done_fids), kit_dir)
+    key = _close_gate_key(state, pf, done_fids, kit_dir)
     cached = _CLOSE_BLOCKERS_CACHE.get(ck)
     if cached is not None and cached[0] == key:
         blockers_by_fid = cached[1]
@@ -7370,9 +7500,15 @@ def front_closed_red_scan(state=None, kit_dir=None, cutoff_ts=None):
     found = []
     for fid in done_fids:
         blockers = blockers_by_fid.get(fid) or []
-        if blockers:
-            found.append((fid, list(blockers)))
-            emit_front_closed_red_chip(fid, state=state)
+        if not blockers:
+            continue
+        if _close_scan_error_of(blockers) is not None:
+            # fail-closed — ошибка скана: событие НЕ подтверждено, чип не
+            # пишется и не утверждается зеркалом; отказ даёт сам гейт
+            # (close_scan_error в блокерах) и CLI
+            continue
+        found.append((fid, list(blockers)))
+        emit_front_closed_red_chip(fid, state=state)
     return found
 
 
@@ -7403,11 +7539,13 @@ def front_closed_red_ids(state=None, kit_dir=None, cutoff_ts=None):
                 status[fr["id"]] = fr.get("status")
         out = []
         for fid in fids:
+            if _front_closed_red_chip_outstanding(entries, fid) is None:
+                continue  # погашен чистым пере-закрытием новее чипа
             if (status.get(fid) == "done"
                     and not close_blockers(
                         fid, state=state, kit_dir=kit_dir,
                         cutoff_ts=cutoff_ts)):
-                continue
+                continue  # сейчас done и чисто — событие погашено
             out.append(fid)
         return out
     except Exception:
