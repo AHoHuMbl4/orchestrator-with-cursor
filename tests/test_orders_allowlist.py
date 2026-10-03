@@ -184,18 +184,16 @@ class TestGreyZoneJev(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_fork_mid_suspect(self):
-        _measure("GREY fork mid → suspect")
+        _measure("GREY fork mid → suspect jev=fork")
         ids, reasons = self._run(_advice("fork", "mid"))
         self.assertEqual(ids, ["F-GZ"])
-        self.assertEqual(
-            reasons.get("F-GZ"), "advisor-need-check: fork mid")
+        self.assertIn("jev=fork", reasons.get("F-GZ") or "")
 
     def test_fork_high_suspect(self):
-        _measure("GREY fork high → suspect")
+        _measure("GREY fork high → suspect jev=fork")
         ids, reasons = self._run(_advice("fork", "high"))
         self.assertEqual(ids, ["F-GZ"])
-        self.assertEqual(
-            reasons.get("F-GZ"), "advisor-need-check: fork high")
+        self.assertIn("jev=fork", reasons.get("F-GZ") or "")
 
     def test_mechanical_silence(self):
         _measure("GREY mechanical → silence")
@@ -203,23 +201,30 @@ class TestGreyZoneJev(unittest.TestCase):
         self.assertEqual(ids, [])
         self.assertNotIn("F-GZ", reasons)
 
-    def test_low_silence(self):
-        _measure("GREY band=low → silence")
-        ids, reasons = self._run(_advice("fork", "low"))
+    def test_mechanical_low_silence(self):
+        _measure("GREY mechanical band=low → silence")
+        ids, reasons = self._run(_advice("mechanical", "low"))
         self.assertEqual(ids, [])
         self.assertNotIn("F-GZ", reasons)
+
+    def test_fork_low_suspect(self):
+        _measure("GREY fork band=low → suspect jev=low-confidence")
+        ids, reasons = self._run(_advice("fork", "low"))
+        self.assertEqual(ids, ["F-GZ"])
+        self.assertIn("jev=low-confidence", reasons.get("F-GZ") or "")
 
     def test_defer_unavailable(self):
         _measure("GREY defer → jev=unavailable")
         ids, reasons = self._run(_advice("fork", "absent", action="defer"))
         self.assertEqual(ids, ["F-GZ"])
-        self.assertEqual(reasons.get("F-GZ"), "jev=unavailable")
+        reason = reasons.get("F-GZ") or ""
+        self.assertIn("jev=unavailable", reason)
 
     def test_api_fail_unavailable(self):
         _measure("GREY API-fail → jev=unavailable")
         ids, reasons = self._run(None, err="exit 1")
         self.assertEqual(ids, ["F-GZ"])
-        self.assertEqual(reasons.get("F-GZ"), "jev=unavailable")
+        self.assertIn("jev=unavailable", reasons.get("F-GZ") or "")
 
 
 class TestMarkersRegress(unittest.TestCase):

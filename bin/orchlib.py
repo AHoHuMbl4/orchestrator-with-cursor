@@ -2402,8 +2402,8 @@ def orders_allowlist_hit(text, kit_dir=None, today=None):
 def _orders_grey_zone_decision(fid, text):
     """Серая зона bez без маркеров вне allowlist → (flagged, reason).
 
-    fork mid/high → suspect; mechanical или band=low → молчание;
-    defer/absent/API-fail → suspect jev=unavailable (fail-safe).
+    mechanical (любой band) → молчание; fork mid/high → jev=fork;
+    fork+low → jev=low-confidence; defer/absent/API-fail/unknown → jev=unavailable.
     """
     questions = {
         "advisor-need-check": {
@@ -2426,14 +2426,14 @@ def _orders_grey_zone_decision(fid, text):
         timeout_s=ORDERS_ADVISOR_NEED_TIMEOUT_S,
     )
     if err or not data:
-        return True, "jev=unavailable"
+        return True, "advisor-need-check: jev=unavailable"
     advice = (data.get("advice") or {}).get("advisor-need-check")
     if not isinstance(advice, dict):
         # stdout мог быть primary advice без обёртки advice{}
         if isinstance(data.get("choice"), (str, list)) or data.get("band"):
             advice = data
         else:
-            return True, "jev=unavailable"
+            return True, "advisor-need-check: jev=unavailable"
     choice = advice.get("choice")
     if isinstance(choice, list):
         choice = choice[0] if choice else None
@@ -2443,15 +2443,15 @@ def _orders_grey_zone_decision(fid, text):
         choice = ""
     band = advice.get("band")
     band = band.strip().lower() if isinstance(band, str) else ""
-    # low / mechanical → молчание (band=low раньше action=defer у Choice)
-    if choice == "mechanical" or band == "low":
+    # тихое OK только при явном mechanical (любой band)
+    if choice == "mechanical":
         return False, None
     if choice == "fork" and band in ("mid", "high"):
-        return True, "advisor-need-check: fork %s" % band
+        return True, "advisor-need-check: jev=fork"
+    if choice == "fork" and band == "low":
+        return True, "advisor-need-check: jev=low-confidence"
     # defer / absent / неизвестная форма → fail-safe suspect
-    if advice.get("action") == "defer" or band in ("absent", ""):
-        return True, "jev=unavailable"
-    return True, "jev=unavailable"
+    return True, "advisor-need-check: jev=unavailable"
 
 
 def orders_suspect(state=None):
