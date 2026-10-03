@@ -6120,6 +6120,315 @@ def _apply_legacy_waivers(chips, entries, kit_dir, starts_by_id=None):
     return chips
 
 
+# --- F-C5 K1: живой надзор (чип supervision_dead, Инвариант 1) -------------
+
+SUPERVISION_DEAD_CHIP = "supervision_dead"
+# Смерть СО end: итоговый exit надзорного рана (end пишется один раз после
+# retry — «без успешного retry» выполняется автоматически).
+SUPERVISION_DEATH_EXITS = frozenset(("1", "3", "4", "124", "125"))
+# Нестарт: ранние отказы обёртки до Popen (пара start+end писалась только
+# для 5–9,12,13; для надзора 2/3/10/11/12 теперь тоже пара + чип).
+SUPERVISION_NONSTART_EXITS = frozenset(("2", "3", "10", "11", "12"))
+# «нет pid + свежий start ≤60 с» = жив (семантика _writer_still_alive).
+SUPERVISION_GRACE_S = 60.0
+
+
+def _supervision_role_class(role):
+    """Класс надзора prosecutor|observer|None (снятие — только свой класс)."""
+    r = normalize_journal_role(role)
+    if not isinstance(r, str) or not r:
+        return None
+    if r == "meta/front-prosecutor.md" or r.endswith("meta/front-prosecutor.md"):
+        return "prosecutor"
+    if r == "meta/front-observer.md" or r.endswith("meta/front-observer.md"):
+        return "observer"
+    return None
+
+
+def _proc_starttime_field(pid):
+    """starttime из /proc/<pid>/stat (поле 22); нет /proc → None."""
+    try:
+        with open("/proc/%d/stat" % int(pid), "r", encoding="utf-8") as f:
+            data = f.read()
+        rparen = data.rfind(")")
+        if rparen < 0:
+            return None
+        fields = data[rparen + 2:].split()
+        if len(fields) < 20:
+            return None
+        return fields[19]
+    except Exception:
+        return None
+
+
+def _run_pid_alive_at(pid_path):
+    """Живость по pid-файлу: pid жив ∧ starttime совпадает (зеркало run-exec)."""
+    try:
+        with open(pid_path, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+        if not lines:
+            return False
+        pid = int(lines[0])
+        recorded = lines[1] if len(lines) > 1 else None
+    except Exception:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        errno = getattr(e, "errno", None)
+        if errno == 1:
+            return True
+        return False
+    if recorded is None:
+        return True
+    current = _proc_starttime_field(pid)
+    if current is None:
+        return True  # нет /proc — деградация до pid-only
+    return str(current) == str(recorded)
+
+
+def _supervision_run_paths(state, run_id, session=None):
+    """(log, pid) рана: state/cursor-run-<id>.* или sessions/<sid>/runs/<id>/."""
+    if session:
+        run_dir = os.path.join(state, "sessions", session, "runs", run_id)
+        return (os.path.join(run_dir, "run.log"),
+                os.path.join(run_dir, "run.pid"))
+    return (os.path.join(state, "cursor-run-%s.log" % run_id),
+            os.path.join(state, "cursor-run-%s.pid" % run_id))
+
+
+def _log_last_marker_tail(log_path, tail_bytes=65536):
+    """Последний маркер EXIT=/RETRY= в хвосте лога (без чтения всего файла)."""
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - tail_bytes))
+            data = f.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    marker = None
+    for line in data.splitlines():
+        s = line.strip()
+        if s.startswith("EXIT=") or s.startswith("RETRY="):
+            marker = s
+    return marker
+
+
+def supervision_dead_events(state=None, now=None, entries=None):
+    """Предикт событий смерти/нестарта надзора (полный журнал, не окно 5000).
+
+    Дизъюнкция приказа (а): (start∖end ∧ мёртвый pid) ∪ (end ∈ death-set
+    {1,3,4,124,125}) ∪ (нестарт-пара 2/3/10/11/12); только role_is_oversight,
+    runtime-ветвь — engine==local. Ложные окна — тишина: живой pid,
+    retry в полёте / EXIT-маркер, «нет pid + свежий start ≤60 с».
+    Возвращает [{"id","front","role","ts","cause"}] — по одному на ран.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        now = time.time() if now is None else float(now)
+        if entries is None:
+            entries = _journal_entries_at(state)
+        starts_by_id = _journal_start_index(entries)
+        end_by_id = {}
+        for e in entries:
+            if e.get("kind") == "end" and e.get("id"):
+                end_by_id[e["id"]] = e
+        out = []
+        for e in entries:
+            if e.get("kind") != "start" or not e.get("id"):
+                continue
+            rid = e["id"]
+            if starts_by_id.get(rid) is not e:
+                continue  # инкарнация superseded более поздним start того же id
+            role = normalize_journal_role(e.get("role"))
+            if not role_is_oversight(role):
+                continue
+            try:
+                start_ts = float(e.get("ts") or 0)
+            except (TypeError, ValueError):
+                start_ts = 0.0
+            end = end_by_id.get(rid)
+            if end is not None:
+                try:
+                    end_ts = float(end.get("ts") or 0)
+                except (TypeError, ValueError):
+                    end_ts = 0.0
+                if end_ts < start_ts:
+                    end = None  # end до последнего start — чужая инкарнация
+            if end is not None:
+                exit_s = str(end.get("exit"))
+                if exit_s in SUPERVISION_NONSTART_EXITS:
+                    cause = "nonstart_exit_%s" % exit_s
+                elif exit_s in SUPERVISION_DEATH_EXITS:
+                    cause = "death_exit_%s" % exit_s
+                else:
+                    continue  # end 0 / легитимные гейт-отказы 5–9,13 — тишина
+                out.append({"id": rid, "front": e.get("front"), "role": role,
+                            "ts": end_ts, "cause": cause})
+                continue
+            # start∖end — runtime-ветвь; матчит только engine==local с pid
+            if (e.get("engine") or "local") != "local":
+                continue
+            log_path, pid_path = _supervision_run_paths(
+                state, rid, e.get("session"))
+            if os.path.isfile(pid_path):
+                if _run_pid_alive_at(pid_path):
+                    continue
+                marker = _log_last_marker_tail(log_path)
+                if marker is not None and marker.startswith(
+                        ("RETRY=", "EXIT=")):
+                    continue  # retry в полёте / end имминентен — тишина
+                out.append({"id": rid, "front": e.get("front"), "role": role,
+                            "ts": now, "cause": "runtime_pid_dead"})
+                continue
+            if (now - start_ts) < SUPERVISION_GRACE_S:
+                continue  # нет pid + свежий start ≤60 с = жив
+            marker = _log_last_marker_tail(log_path)
+            if marker is not None and marker.startswith(("RETRY=", "EXIT=")):
+                continue
+            out.append({"id": rid, "front": e.get("front"), "role": role,
+                        "ts": now, "cause": "runtime_no_pid"})
+        return out
+    except Exception:
+        return []
+
+
+def emit_supervision_dead_chip(front, run_id, cause=None, role=None,
+                               state=None):
+    """journal-чип supervision_dead с ДЕДУПОМ писателей (один чип на событие).
+
+    Перед записью перечитывает полный журнал: чип с тем же (name, id) уже
+    есть → не писать (обёртка/сторож/скан не дублируют друг друга).
+    Возвращает True, если чип записан.
+    """
+    try:
+        if not run_id:
+            return False
+        if state is None:
+            state = find_state_dir()
+        for e in _journal_entries_at(state):
+            if (e.get("kind") == "chip"
+                    and e.get("name") == SUPERVISION_DEAD_CHIP
+                    and e.get("id") == run_id):
+                return False
+        entry = {
+            "ts": time.time(),
+            "kind": "chip",
+            "name": SUPERVISION_DEAD_CHIP,
+            "id": run_id,
+        }
+        if front:
+            entry["front"] = front
+        if cause:
+            entry["cause"] = cause
+        if role:
+            entry["role"] = normalize_journal_role(role)
+        journal_append(entry)
+        return True
+    except Exception:
+        return False
+
+
+def supervision_dead_scan(state=None):
+    """Скан-писатель чипа supervision_dead (второй писатель после сторожа).
+
+    Предикт по ПОЛНОМУ журналу (_journal_entries_at, не окно
+    HEALTH_JOURNAL_SCAN_LIMIT) и запись journal-чипа при обнаружении
+    (дедуп в emit); покрывает гибель сторожа (ребут/OOM/сбой спавна).
+    Возвращает список обнаруженных событий.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        events = supervision_dead_events(state=state)
+        for ev in events:
+            emit_supervision_dead_chip(
+                ev.get("front"), ev.get("id"), cause=ev.get("cause"),
+                role=ev.get("role"), state=state)
+        return events
+    except Exception:
+        return []
+
+
+def supervision_dead_ids(state=None):
+    """id для health-чипа supervision_dead: journal-чипы ∪ предикт − снятые.
+
+    Снятие — ТОЛЬКО health-семантика (close-гейт K3 чип не гасит):
+    успешный end 0 надзора ТОГО ЖЕ класса (prosecutor↔prosecutor,
+    observer↔observer) со start новее смерти.
+    """
+    try:
+        if state is None:
+            state = find_state_dir()
+        entries = _journal_entries_at(state)
+        starts_by_id = _journal_start_index(entries)
+        dead_ts = {}
+        dead_cls = {}
+        order = []
+        for e in entries:
+            if (e.get("kind") != "chip"
+                    or e.get("name") != SUPERVISION_DEAD_CHIP):
+                continue
+            rid = e.get("id") or e.get("front")
+            if not rid or rid in dead_ts:
+                continue
+            try:
+                dead_ts[rid] = float(e.get("ts") or 0)
+            except (TypeError, ValueError):
+                dead_ts[rid] = 0.0
+            dead_cls[rid] = _supervision_role_class(e.get("role"))
+            order.append(rid)
+        for ev in supervision_dead_events(state=state, entries=entries):
+            rid = ev.get("id")
+            if not rid or rid in dead_ts:
+                continue
+            try:
+                dead_ts[rid] = float(ev.get("ts") or 0)
+            except (TypeError, ValueError):
+                dead_ts[rid] = 0.0
+            dead_cls[rid] = _supervision_role_class(ev.get("role"))
+            order.append(rid)
+        ok_ends = []  # (start_ts, class) успешных надзоров
+        for e in entries:
+            if e.get("kind") != "end" or str(e.get("exit")) != "0":
+                continue
+            st = starts_by_id.get(e.get("id"))
+            if not st:
+                continue
+            cls = _supervision_role_class(st.get("role"))
+            if cls is None:
+                continue
+            try:
+                sts = float(st.get("ts") or 0)
+                ets = float(e.get("ts") or 0)
+            except (TypeError, ValueError):
+                continue
+            if ets < sts:
+                continue
+            ok_ends.append((sts, cls))
+        out = []
+        for rid in order:
+            cls = dead_cls.get(rid)
+            dts = dead_ts.get(rid) or 0.0
+            cleared = False
+            if cls is not None:
+                for sts, ocls in ok_ends:
+                    if ocls == cls and sts > dts:
+                        cleared = True
+                        break
+            if not cleared:
+                out.append(rid)
+        return out
+    except Exception:
+        return []
+
+
 def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     """Красные чипы панели + списки id (вкл. F-RULES: rules_*).
 
@@ -6170,6 +6479,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         # MW2-A: journal kind=chip (входы пишет MW2-B)
         "multi_write_front": [],
         "commit_no_verify": [],
+        # ADDITIVE MARKER: F-C5 K1 живой надзор (supervision_dead)
+        "supervision_dead": [],
         # ADDITIVE MARKER: RCPT-A receipt_handmade
         "receipt_handmade": [],
         # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips
@@ -6548,6 +6859,17 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 if token not in commit_no_verify:
                     commit_no_verify.append(token)
 
+        # F-C5 K1: скан-писатель supervision_dead (полный журнал, дедуп в
+        # emit) + предикт health со снятием end 0 того же класса новее смерти
+        try:
+            supervision_dead_scan(state=state)
+        except Exception:
+            pass
+        try:
+            supervision_dead = supervision_dead_ids(state=state)
+        except Exception:
+            supervision_dead = []
+
         # undelivered/dead после прочих чипов — (iii) chip-red без самозавода
         other_chips = {
             "runs_no_front": runs_no_front,
@@ -6615,6 +6937,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "general_resume_chain_warn": resume_warn,
             "multi_write_front": multi_write_front,
             "commit_no_verify": commit_no_verify,
+            # ADDITIVE MARKER: F-C5 K1 живой надзор (supervision_dead)
+            "supervision_dead": supervision_dead,
             # ADDITIVE MARKER: RCPT-A receipt_handmade
             "receipt_handmade": handmade,
             # ADDITIVE MARKER: F-MUSTMAP MM-C2 chips

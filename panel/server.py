@@ -138,6 +138,8 @@ def _health_payload():
     Кэш по mtime journal+fronts+HEAD+mask worktree. Чипы из orchlib.health_red_chips;
     probes_missing/chip_silenced — канон приёмки v1 (F-ACCEPT); не фильтровать.
     receipt_handmade / legacy — soft WARN (id без _warn); UI в panel/index.html.
+    supervision_dead — пасс-тру из health_red_chips (counts/ids как у соседей;
+    скан-писатель чипа живёт в orchlib, здесь только метки/прокси).
     Логика детекторов — только в orchlib; здесь метки/прокси.
     """
     state = orchlib.find_state_dir()

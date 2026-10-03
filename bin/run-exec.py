@@ -63,6 +63,13 @@ Kill-протокол:
   Итоговый EXIT — от последней попытки. В --detach рестарт делает watcher
   (cursor-agent — его потомок, код возврата через wait).
   При retry max_wall — ОСТАТОК от t0 первого старта (абсолютный wall_deadline).
+
+Живой надзор (F-C5 K1): для role_is_oversight (prosecutor/observer) сразу
+после journal_start стартует detached-сторож --__supervise (ДО Popen,
+переживает SIGKILL обёртки): runtime-смерть без end → чип supervision_dead
+в journal ≤60 с; нестарты 2/3/10/11/12 → end-пара + синхронный чип;
+смерть со end из {1,3,4,124,125} и дедуп чипов — скан orchlib. НЕ-надзорные
+роли — поведение обёртки без изменений.
 """
 import argparse
 import glob
@@ -89,6 +96,10 @@ RETRYABLE = frozenset(("4", "124"))  # 125 WALL — не retryable
 TOMBSTONE_TTL_S = 24 * 3600
 CLOUD_WRITER_TTL_S = 6 * 3600
 FRONT_DUAL_WRITER_EXIT = 13
+# F-C5 K1: сторож надзора — поллинг и grace («нет pid + свежий start ≤60 с»
+# = жив); чип supervision_dead ≤60 с от runtime-смерти.
+SUPERVISION_POLL_S = 2.0
+SUPERVISION_GRACE_S = 60.0
 
 # Builtin-фолбэки (A3). Переходный эффективный stall = execution.timeout_s
 # из params (compat), если нет stall_s; builtin STALL — только без обоих ключей.
@@ -957,6 +968,70 @@ def journal_gate_refuse(run_id, prompt_file, front, role, log_path, exit_code,
     orchlib.release_auto_prosecutor_lock_if_any(run_id)
 
 
+def _supervision_poll_s():
+    """Поллинг сторожа: ORCH_SUPERVISION_POLL_S (тесты) или 2.0 c."""
+    try:
+        v = float(os.environ.get("ORCH_SUPERVISION_POLL_S") or SUPERVISION_POLL_S)
+        return v if v > 0 else SUPERVISION_POLL_S
+    except Exception:
+        return SUPERVISION_POLL_S
+
+
+def _early_resolve_role(a, state):
+    """Ранний резолв роли до точек отказа 10/11/2: --role → шапка промта."""
+    if a.role:
+        return orchlib.normalize_journal_role(a.role)
+    pf = a.prompt_file
+    if not pf and a.id:
+        if a.session:
+            pf = os.path.join(state, "sessions", a.session, "runs",
+                              a.id, "prompt.md")
+        else:
+            pf = os.path.join(state, "prompt-%s.md" % a.id)
+    if not pf or not os.path.isfile(pf):
+        return None
+    try:
+        with open(pf, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return None
+    return orchlib.normalize_journal_role(orchlib.extract_prompt_role(text))
+
+
+def supervision_nonstart_refuse(a, state, exit_code):
+    """Нестарт надзора (exit 2/3/10/11): end-пара + синхронный чип (писатель — обёртка).
+
+    Только role_is_oversight (ранний резолв: --role → шапка промта, если
+    читается); front пары — из --front напрямую. НЕ-надзорные роли — без
+    изменений (2/10/11/3 остаются без journal).
+    """
+    run_id = a.id
+    if not run_id:
+        return
+    role = _early_resolve_role(a, state)
+    if not orchlib.role_is_oversight(role):
+        return
+    log_path, _pid_path = resolve_run_paths(state, run_id, a.session)
+    journal_start(run_id, None, a.front, role, session=a.session)
+    verdict, gates = orchlib.journal_log_meta(log_path)
+    entry = {
+        "ts": time.time(),
+        "kind": "end",
+        "id": run_id,
+        "exit": exit_code,
+        "verdict": verdict,
+        "gates": gates,
+    }
+    if a.session is not None:
+        entry["session"] = a.session
+    orchlib.journal_append(entry)
+    # gate-refuse-семантика: снять lock автопрокурора, спавн не триггерим
+    orchlib.release_auto_prosecutor_lock_if_any(run_id)
+    orchlib.emit_supervision_dead_chip(
+        a.front, run_id, cause="nonstart_exit_%s" % exit_code, role=role,
+        state=state)
+
+
 def start_watcher(pid, log_path, pid_path, stall_s, wall_deadline,
                   last_mtime, last_size, run_prompt_file, model,
                   session=None, state=None, run_id=None, front=None,
@@ -1106,6 +1181,98 @@ def watch(pid, log_path, pid_path, stall_s, wall_deadline, last_mtime,
         pass
     journal_end(rid, log_path, code, session=session, front=front,
                 readonly=readonly)
+
+
+def _log_last_marker_tail(log_path, tail_bytes=65536):
+    """Последний маркер EXIT=/RETRY= в хвосте лога (без чтения всего файла)."""
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - tail_bytes))
+            data = f.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    marker = None
+    for line in data.splitlines():
+        s = line.strip()
+        if s.startswith("EXIT=") or s.startswith("RETRY="):
+            marker = s
+    return marker
+
+
+def start_supervision_watchdog(state, run_id, session=None, front=None,
+                               role=None, pid_path=None, log_path=None,
+                               start_ts=None, poll_s=None):
+    """Запуск detached --__supervise (сторож надзора; прецедент start_watcher).
+
+    Отдельный процесс (start_new_session) — переживает SIGKILL обёртки;
+    стартует сразу после journal_start, ДО Popen.
+    """
+    cmd = [sys.executable, os.path.abspath(__file__), "--__supervise",
+           run_id, state or "", session or "", front or "", role or "",
+           pid_path or "", log_path or "",
+           str(float(start_ts if start_ts is not None else time.time())),
+           str(float(poll_s) if poll_s else _supervision_poll_s())]
+    env = dict(os.environ)
+    if state:
+        env["ORCHESTRATION_DIR"] = str(state)
+    env.pop("ORCH_RUN_ID", None)  # сторож — не участник parent-цепочки ранов
+    env.pop("ORCH_FRONT", None)
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, env=env,
+                     **detach_popen_kwargs())
+
+
+def supervision_watch(run_id, state, session, front, role, pid_path,
+                      log_path, start_ts, poll_s=None):
+    """Detached-сторож надзорного рана: runtime-смерть → чип ≤60 с.
+
+    Событие = start∖end ∧ мёртвый pid (pid+starttime; debounce ≥2 поллингов
+    и ≥3 c от первого наблюдения — обёртка успевает дописать EXIT= при
+    нормальном финале). pid-файл исчез в grace → ждать end ≤60 с; «нет pid +
+    свежий start ≤60 с» = жив; RETRY/EXIT-маркер в логе → тишина (смерть
+    СО end — ветка скана orchlib). end/killed в journal → выход без чипа.
+    """
+    poll_s = float(poll_s) if poll_s else _supervision_poll_s()
+    declare_delay = max(2.0 * poll_s, 3.0)
+    first_dead_at = None
+    no_pid_since = None
+    while True:
+        time.sleep(poll_s)
+        for e in orchlib.journal_read(limit=64):
+            if e.get("kind") in ("end", "killed") and e.get("id") == run_id:
+                return  # ран завершён; смерть со end — ветка скана orchlib
+        now = time.time()
+        if os.path.isfile(pid_path):
+            no_pid_since = None
+            if run_pid_is_alive(pid_path):
+                first_dead_at = None
+                continue
+            first_dead_at = first_dead_at or now
+            if (now - first_dead_at) < declare_delay:
+                continue  # debounce ≥2 поллингов
+            marker = _log_last_marker_tail(log_path)
+            if marker is not None and marker.startswith(("RETRY=", "EXIT=")):
+                return  # retry в полёте / классификация завершена — тишина
+            orchlib.emit_supervision_dead_chip(
+                front, run_id, cause="runtime_pid_dead", role=role,
+                state=state)
+            return
+        first_dead_at = None
+        if (now - float(start_ts)) < SUPERVISION_GRACE_S:
+            continue  # нет pid + свежий start ≤60 с = жив (до Popen/grace)
+        if no_pid_since is None:
+            no_pid_since = now
+            continue
+        if (now - no_pid_since) < SUPERVISION_GRACE_S:
+            continue  # pid исчез в grace — ждать end ≤60 с
+        marker = _log_last_marker_tail(log_path)
+        if marker is not None and marker.startswith(("RETRY=", "EXIT=")):
+            return
+        orchlib.emit_supervision_dead_chip(
+            front, run_id, cause="runtime_no_pid", role=role, state=state)
+        return
 
 
 def detach_popen_kwargs():
@@ -1478,6 +1645,17 @@ def main():
               run_prompt, model, session,
               state=wstate, run_id=run_id, front=front, readonly=readonly)
         return 0
+    if len(sys.argv) > 1 and sys.argv[1] == "--__supervise":
+        # Сторож надзора (см. start_supervision_watchdog):
+        # --__supervise run_id state session front role pid_path log_path
+        #               start_ts [poll_s]
+        argv = sys.argv
+        supervision_watch(
+            argv[2], argv[3] or None, argv[4] or None, argv[5] or None,
+            argv[6] or None, argv[7], argv[8], float(argv[9]),
+            poll_s=(float(argv[10]) if len(argv) > 10 and argv[10]
+                    else None))
+        return 0
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--id", default=None, help="метка прогона (файлы логов/промтов)")
@@ -1538,6 +1716,7 @@ def main():
         params = orchlib.load_params()
     except ValueError as e:
         sys.stderr.write("%s\n" % e)
+        supervision_nonstart_refuse(a, state, 10)
         return 10
     if a.list:
         return cmd_list(state, a.session)
@@ -1559,6 +1738,7 @@ def main():
     # Гард дубль-id: после --status/--list, до создания процессов.
     dup_rc = check_duplicate_id_guard(state, a.id, a.session, force=a.force)
     if dup_rc is not None:
+        supervision_nonstart_refuse(a, state, dup_rc)
         return dup_rc
 
     os.makedirs(state, exist_ok=True)
@@ -1577,11 +1757,13 @@ def main():
     prompt_file = a.prompt_file or os.path.join(state, "prompt-%s.md" % a.id)
     if not os.path.exists(prompt_file):
         sys.stderr.write("промт-файл не найден: %s\n" % prompt_file)
+        supervision_nonstart_refuse(a, state, 2)
         return 2
     with open(prompt_file, "r", encoding="utf-8") as f:
         prompt = f.read()
     if not prompt.strip():
         sys.stderr.write("промт-файл пуст: %s\n" % prompt_file)
+        supervision_nonstart_refuse(a, state, 2)
         return 2
 
     if a.session:
@@ -1607,9 +1789,15 @@ def main():
                    "для технического смоука — --allow-unknown-role" % role)
             append_log(log_path, msg)
             sys.stderr.write(msg + "\n")
+            # надзор: front пары — из --front напрямую; + синхронный чип
+            front_pair = a.front if orchlib.role_is_oversight(role) else None
             journal_gate_refuse(
-                a.id, prompt_file, None, role, log_path, 12, readonly=readonly,
-                session=a.session)
+                a.id, prompt_file, front_pair, role, log_path, 12,
+                readonly=readonly, session=a.session)
+            if orchlib.role_is_oversight(role):
+                orchlib.emit_supervision_dead_chip(
+                    a.front, a.id, cause="nonstart_exit_12", role=role,
+                    state=state)
             return 12
     front_out, no_front_reason, front_refuse = orchlib.resolve_front_launch(
         a.front, a.no_front)
@@ -1643,6 +1831,7 @@ def main():
     exe = find_cursor_agent()
     if not exe:
         sys.stderr.write("cursor-agent не найден в PATH\n")
+        supervision_nonstart_refuse(a, state, 3)
         return 3
 
     gate_rc, gate_lines = apply_front_gates(a.front, log_path)
@@ -1680,6 +1869,14 @@ def main():
         os.environ["ORCH_FRONT"] = a.front
     else:
         os.environ.pop("ORCH_FRONT", None)
+
+    # F-C5 K1: detached-сторож надзора — сразу после journal_start, ДО Popen;
+    # переживает SIGKILL обёртки (runtime-смерть без end → чип ≤60 с)
+    if orchlib.role_is_oversight(role):
+        start_supervision_watchdog(
+            state, a.id, session=a.session, front=a.front, role=role,
+            pid_path=pid_path, log_path=log_path,
+            start_ts=time.time(), poll_s=_supervision_poll_s())
 
     # TOCTOU: сразу после journal_start до Popen — младший само-отказ
     dual_rc2, dual_msg2 = check_dual_writer_guard(
