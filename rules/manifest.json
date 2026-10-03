@@ -710,7 +710,10 @@
    "hit": 0,
    "created": 1790921773.7949939,
    "born_at": 1790921773.7949939,
-   "run_ref": "prosecutor-auto-F-MUSTCHECK-8"
+   "run_ref": "prosecutor-auto-F-MUSTCHECK-8",
+   "archived": true,
+   "archived_reason": "закрыто механизмом надзор-вне-рана (a1c1b45) + MM-реестр",
+   "archived_at": 1791044072.6594653
   },
   {
    "id": "dont-validaciya-sistemy-na-poslushnom-discipl",
