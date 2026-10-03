@@ -6586,9 +6586,11 @@ INVARIANTS_NOT_RUN_CHIP = "invariants_not_run"
 # Заголовок машинной секции инвариантов приказа фронта («## Инварианты
 # (машиночитаемые…»); прочие «## Инварианты» — проза, вне скопа детектора.
 _INVARIANTS_SECTION_RE = re.compile(r"^#{1,6}\s*Инварианты\s*\(машиночитаемые")
-# Строгий формат строки секции: «- Инвариант N: <cmd> → <оракул>»; cmd
-# хешируется байт-в-байт (без нормализации пробелов).
-_INVARIANT_ROW_RE = re.compile(r"^- Инвариант (\d+): (.+?) → (.+)$")
+# Строгий формат строки секции: «- Инвариант N: <cmd> → <оракул>»; N —
+# каноническое целое без ведущих нулей; cmd хешируется байт-в-байт (без
+# нормализации пробелов) и может содержать «→» — рез по ПОСЛЕДНЕЙ стрелке
+# строки (оракул стрелки не содержит).
+_INVARIANT_ROW_RE = re.compile(r"^- Инвариант ([1-9]\d*): (.+) → (.+)$")
 # tool-only генератор квитанций §3 (рукописная квитанция не гасит)
 _RECEIPT_TOOL_GENERATOR = "orch-probe-receipt/"
 
@@ -6604,33 +6606,35 @@ def parse_front_invariants(text):
     """Строгий парсер машинной секции инвариантов → (invariants, parse_error).
 
     Скоуп — ТОЛЬКО секция «## Инварианты (машиночитаемые…» до следующего
-    заголовка приказа фронта; колонельские приказы сюда не попадают в
+    «##»-заголовка или EOF; «#»-строки внутри секции — комментарии
+    (пропуск, не терминатор). Колонельские приказы сюда не попадают в
     принципе (парсится только fronts/<fid>/order.md). Нет секции →
     (None, None): инвариантов нет, чип не краснеет; проза вне секции —
-    тишина. Внутри секции каждая строка-список обязана совпадать с
-    «- Инвариант N: <cmd> → <оракул>» (cmd байт-в-байт), номера — ровно
-    1..K без пропусков/дублей. Отклонение формата/нумерации → parse_error
-    с номером строки (не fail-open); заголовок без строк формата →
-    parse_error no_rows. invariants = [{"num", "cmd", "oracle"}].
+    тишина. Вторая машинная секция (затенение первой) → parse-отказ
+    parse:duplicate_section. Внутри секции каждая строка-список обязана
+    совпадать с «- Инвариант N: <cmd> → <оракул>» (N без ведущих нулей;
+    cmd байт-в-байт, стрелка режет по последней), номера — ровно 1..K без
+    пропусков/дублей. Отклонение формата/нумерации → parse_error с номером
+    строки (не fail-open); заголовок без строк формата → parse_error
+    no_rows. invariants = [{"num", "cmd", "oracle"}].
     """
     if not text or not isinstance(text, str):
         return None, None
     lines = text.splitlines()
-    start = None
-    for i, ln in enumerate(lines):
-        if _INVARIANTS_SECTION_RE.match(ln):
-            start = i
-            break
-    if start is None:
+    heads = [i for i, ln in enumerate(lines)
+             if _INVARIANTS_SECTION_RE.match(ln)]
+    if not heads:
         return None, None
+    if len(heads) > 1:
+        return None, "parse:duplicate_section"
     out = []
-    for j in range(start + 1, len(lines)):
+    for j in range(heads[0] + 1, len(lines)):
         ln = lines[j]
-        if ln.startswith("#"):
-            break  # следующий заголовок — конец секции
+        if ln.startswith("##"):
+            break  # следующий ##-заголовок — конец секции
         s = ln.strip()
         if not s or not s.startswith("-"):
-            continue  # проза/пустые строки — не строки формата
+            continue  # пустые строки, #-комментарии и проза — не формат
         m = _INVARIANT_ROW_RE.match(ln)
         if not m:
             return None, "parse:line=%d:format" % (j + 1)
@@ -6643,12 +6647,26 @@ def parse_front_invariants(text):
     return out, None
 
 
+def _read_order_text(path):
+    """Чтение приказа с errors=replace (K1-паттерн устойчивого читателя).
+
+    Битые байты не глушат парсер в тишину: мусор доходит до
+    parse_front_invariants и даёт parse-причину (или расходящийся sha).
+    Нет файла → "" (инвариантов нет).
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
 def front_invariants_state(fid, state=None):
     """(invariants, parse_error) машинной секции приказа фронта fid."""
     if state is None:
         state = find_state_dir()
     return parse_front_invariants(
-        _read_text_silent(front_order_path(fid, state=state)))
+        _read_order_text(front_order_path(fid, state=state)))
 
 
 def _iter_probe_receipt_paths(state):

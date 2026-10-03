@@ -409,8 +409,14 @@ class TestParseDeviations(InvTemp):
     def test_numbering_starts_at_one(self):
         ids = self._parse_ids(FRONT_A, [_inv_row(2, CMD1)])
         self.assertEqual(ids, ["%s:parse:line=8:numbering" % FRONT_A])
-        _measure("MEASURE (6) мусор формата / пропуск / дубль номера в "
-                 "секции → чип с parse-причиной и номером строки")
+
+    def test_leading_zero_number_rejected(self):
+        # «Инвариант 01» — не каноническое целое: строгий формат, не номер 1
+        ids = self._parse_ids(
+            FRONT_A, ["- Инвариант 01: %s → exit 0" % CMD1])
+        self.assertEqual(ids, ["%s:parse:line=8:format" % FRONT_A])
+        _measure("MEASURE (6) мусор формата / пропуск / дубль номера / "
+                 "ведущий ноль в секции → чип с parse-причиной и строкой")
 
 
 # ---------------------------------------------------------------------------
@@ -523,19 +529,19 @@ class TestLiveFrontOrder(unittest.TestCase):
         os.path.isdir(LIVE_STATE) and os.path.isfile(LIVE_ORDER),
         "нет живого state / приказа F-C5")
     def test_live_order_parses_exactly_three(self):
-        text = orchlib._read_text_silent(self.LIVE_ORDER)
+        # «ровно 3» + номера 1..3 + валидность формата; БЕЗ дословных cmd
+        # живого приказа (хрупкость при эволюции секции в круге 3/close)
+        text = orchlib._read_order_text(self.LIVE_ORDER)
         invariants, parse_error = orchlib.parse_front_invariants(text)
         self.assertIsNone(parse_error, "живой приказ не parse-fail")
         self.assertIsNotNone(invariants)
         self.assertEqual([i["num"] for i in invariants], [1, 2, 3],
                          "живой order.md F-C5 → РОВНО 3 инварианта")
-        self.assertEqual(invariants[0]["cmd"],
-                         "python3 -m pytest tests/test_supervision_dead.py -q")
-        self.assertEqual(invariants[1]["cmd"],
-                         "python3 -m pytest tests/test_invariants_gate.py -q")
-        self.assertEqual(invariants[2]["cmd"],
-                         "python3 -m pytest tests/test_close_gate.py -q")
-        self.assertEqual(invariants[0]["oracle"], "exit 0")
+        for inv in invariants:
+            self.assertTrue(inv["cmd"].strip(),
+                            "cmd инварианта непуст: %r" % inv)
+            self.assertTrue(inv["oracle"].strip(),
+                            "оракул инварианта непуст: %r" % inv)
         _measure("MEASURE (10) живой order.md F-C5 → парсер даёт ровно 3 "
                  "(read-only замер, живой state не писался)")
 
@@ -577,7 +583,7 @@ class TestScopeParamReadyForK3(InvTemp):
             ],
         })
         _write_order(self.state, FRONT_A, [_inv_row(1, CMD1)])
-        # active-скоип по умолчанию: done-фронт — тишина (панель до K3
+        # active-скоуп по умолчанию: done-фронт — тишина (панель до K3
         # не меняется)
         self.assertEqual(orchlib.invariants_not_run(state=self.state), [])
         chips = orchlib.health_red_chips(state=self.state)
@@ -592,6 +598,96 @@ class TestScopeParamReadyForK3(InvTemp):
                  "active-ветке, но красен по синтетическому списку (K3)")
 
 
+# ---------------------------------------------------------------------------
+# FOLLOW-UP (ревью ×3, ремонтный круг): # -комментарии внутри секции,
+# дубль секции, битые байты приказа, ведущие нули, стрелка в cmd
+# ---------------------------------------------------------------------------
+
+
+class TestSectionCommentLines(InvTemp):
+    """(KR1-1) «#»-строка внутри секции — комментарий, не терминатор."""
+
+    def test_hash_comment_mid_section_keeps_rows(self):
+        _write_order(self.state, FRONT_A, [
+            _inv_row(1, CMD1),
+            "# комментарий внутри секции — не конец перечня",
+            _inv_row(2, CMD2),
+        ])
+        invariants, parse_error = orchlib.front_invariants_state(
+            FRONT_A, state=self.state)
+        self.assertIsNone(parse_error)
+        self.assertEqual([i["num"] for i in invariants], [1, 2],
+                         "инварианты до и после #-комментария видны")
+        # инвариант ПОСЛЕ комментария гасится своей квитанцией (не потерян)
+        _seed_probe_run(self.state, "INV-F1", FRONT_A, CMD2)
+        self.assertEqual(
+            orchlib.invariants_not_run(state=self.state),
+            ["%s:1" % FRONT_A],
+            "счёт тот же: 2 инварианта, чип перечисляет только первый")
+        _measure("MEASURE (FU-KR1-1) # -комментарий посередине секции → "
+                 "инварианты до/после видны, счёт тот же")
+
+
+class TestDuplicateSection(InvTemp):
+    """(KR1-2/KR2-1) вторая машинная секция — parse-красный, не first-wins."""
+
+    def test_second_machine_section_parse_red(self):
+        order = _write_order(self.state, FRONT_A, [_inv_row(1, CMD1)])
+        with open(order, "a", encoding="utf-8") as f:
+            f.write("\n%s\n\n%s\n"
+                    % (SECTION_HEADER, _inv_row(2, CMD2)))
+        self.assertEqual(
+            orchlib.invariants_not_run(state=self.state),
+            ["%s:parse:duplicate_section" % FRONT_A],
+            "дубль секции не затеняет первую — parse-причина")
+        _measure("MEASURE (FU-KR1-2) вторая машинная секция → чип "
+                 "fid:parse:duplicate_section (тишина/first-wins нет)")
+
+
+class TestBrokenBytesOrder(InvTemp):
+    """(KR2-3) битые байты приказа — parse-причина, не тишина (errors=replace)."""
+
+    def test_invalid_utf8_row_parse_red(self):
+        path = orchlib.front_order_path(FRONT_A, state=self.state)
+        _assert_not_live(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        head = (
+            "# Приказ фронту %s — k2 фикстуры\n\n## Цель\nтекст.\n\n"
+            % FRONT_A + SECTION_HEADER + "\n\n" + _inv_row(1, CMD1) + "\n"
+        ).encode("utf-8")
+        # строка 2: стрелка заменена невалидными utf-8 байтами
+        bad_row = ("- Инвариант 2: %s → exit 0\n"
+                   % CMD2).encode("utf-8").replace(
+            "→".encode("utf-8"), b"\xff\xfe")
+        tail = "\n## Границы\n- конец\n".encode("utf-8")
+        with open(path, "wb") as f:
+            f.write(head + bad_row + tail)
+        ids = orchlib.invariants_not_run(state=self.state)
+        self.assertEqual(
+            ids, ["%s:parse:line=9:format" % FRONT_A],
+            "битый байт в строке формата → parse-причина (не тишина)")
+        _measure("MEASURE (FU-KR2-3) битые байты order.md (errors=replace) "
+                 "→ парсер видит мусор → parse-красный")
+
+
+class TestCmdWithArrow(InvTemp):
+    """(KR1-3) cmd со стрелкой: рез по ПОСЛЕДНЕЙ «→», инвариант гасится."""
+
+    def test_cmd_containing_arrow_split_at_last(self):
+        cmd = "python3 -c 'print(\"a → b\")' -q"
+        _write_order(self.state, FRONT_A, [_inv_row(1, cmd)])
+        invariants, parse_error = orchlib.front_invariants_state(
+            FRONT_A, state=self.state)
+        self.assertIsNone(parse_error)
+        self.assertEqual(invariants[0]["cmd"], cmd,
+                         "cmd не режется по первой стрелке")
+        self.assertEqual(invariants[0]["oracle"], "exit 0")
+        # не липкий красный: квитанция с этим cmd гасит инвариант
+        _seed_probe_run(self.state, "INV-F2", FRONT_A, cmd)
+        self.assertEqual(orchlib.invariants_not_run(state=self.state), [])
+        _measure("MEASURE (FU-KR1-3) cmd с «→» режется по последней "
+                 "стрелке и гасится квитанцией (липкого красного нет)")
+
+
 if __name__ == "__main__":
-    _assert_not_live("/tmp")
     unittest.main(verbosity=2)
