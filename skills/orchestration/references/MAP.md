@@ -24,7 +24,7 @@ State — `.orchestration/` в проекте.
 - `handoff_oversize` — handoff >2000 симв при активной иерархии
 - `project_md_missing` — нет PROJECT.md при старте иерархии
 - `mustmap_stale` — доктрина новее audit/mustmap/mustmap.json
-- `kit_dirty_outside_wave` — tracked porcelain по маске WAVE_DOCS_MASK_PATHSPECS+README.md (без untracked/.orchestration/SHA256SUMS) и нет открытого journal start код-волны (normalize_journal_role ∈ coder/git-warden/docs-keeper/simplicity-warden или writable+непустой front); закрытый git-warden end не гасит навсегда; не mtime, не commander_hands_active
+- `kit_dirty_outside_wave` — tracked porcelain по маске WAVE_DOCS_MASK_PATHSPECS+README.md (без untracked/.orchestration/SHA256SUMS) и нет открытого journal start код-волны (normalize_journal_role ∈ KIT_DIRTY_OUTSIDE_WAVE_ROLES: coder/git-warden/docs-keeper/simplicity-warden); writable+front чужой роли не гасит; закрытый git-warden end не гасит навсегда; не mtime, не commander_hands_active
 - `bin/write-compass.py` — воронка проверенной записи compass (`--path` + `--text-file`/`--stdin`; exit: 0 записано; 1 ошибка чтения/записи; 2 превышение — файл не пишется, pending-флаг; 3 не compass-путь)
 - `bin/menu.py` — меню params; задача → сессионный compass (`--task` + `--session <sid>`)
 - `bin/verdict.py` — JSON-статус прогона из лога: `python3 bin/verdict.py <лог>`
