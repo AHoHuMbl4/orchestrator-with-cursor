@@ -203,11 +203,19 @@ def _live_housekeeping(rel):
     sessions/**: pending_*.json, null_series.json, enabled.json, last-seen
     (хуки/нуджи живой сессии) + sessions/*/runs/** — квитанционный
     харнесс §3: run.log, prompt*, probe-receipt.md там штатно пишет
-    writer и обёртка проб/ранов живой сессии. Корень state: cursor-run-*
-    (log/pid/TOMBSTONE) — та же обёртка для ранов без --session
-    (auto-prosecutor харнесса; зуб на запуск ранов живьём держит
-    counters/front-runs-*). Зубы: fronts.json, fronts/** (compass,
-    prosecutor/, colonels/), params.json и прочие пути — красные.
+    writer и обёртка проб/ранов живой сессии. Корень state — ТОЛЬКО
+    корень (len(parts)==1): cursor-run-* (log/pid/TOMBSTONE) — обёртка
+    ранов без --session (auto-prosecutor харнесса; зуб на запуск ранов
+    живьём держит counters/front-runs-*). Глубже корня cursor-run-* —
+    красный (fronts/**/cursor-run-*, audit/cursor-run-* — утечка).
+    Зубы: fronts.json, fronts/** (compass, prosecutor/, colonels/),
+    params.json и прочие пути — красные.
+
+    Решение (fix2, KR1+KR3 за, KR2 таймингами журнала против расширения):
+    prompt-prosecutor-auto-*.md, prompt-<id>.run.md и корневые runs/<id>/**
+    НЕ housekeeping — харнесс пишет их синхронно в journal_end предыдущего
+    рана (maybe_auto_prosecutor_after_end), строго ДО окна оракула; их
+    появление В окне — аномалия → красный.
     """
     parts = rel.split(os.sep)
     if parts and parts[0] == "counters":
@@ -219,7 +227,7 @@ def _live_housekeeping(rel):
         return (name == "last-seen" or name == "null_series.json"
                 or name == "enabled.json" or name.startswith("pending_"))
     name = os.path.basename(rel)
-    return name.startswith("cursor-run-")
+    return len(parts) == 1 and name.startswith("cursor-run-")
 
 
 def _live_journal_growth_violation(grown):
@@ -761,6 +769,16 @@ class TestLiveOracleReceiptHarness(unittest.TestCase):
             "params.json",
             "agent-SYN1.json",
             "sessions/s1/fronts-dirty.json",
+            # cursor-run-* глушится ТОЛЬКО в корне state (KR1+KR3 fix2)
+            "fronts/F-C5/cursor-run-leak.md",
+            "audit/cursor-run-x.log",
+            "sessions/s1/cursor-run-x.pid",
+            # решение fix2 (KR2, тайминги журнала): спавн-артефакты
+            # автопрокурора пишутся синхронно в journal_end предыдущего
+            # рана — строго ВНЕ окна оракула; в окне это аномалия → красный
+            "prompt-prosecutor-auto-F-C5-8.md",
+            "prompt-F-C5-K2-REG.run.md",
+            "runs/RCPT-CMDPROBE/probe-receipt.md",
         ):
             self.assertFalse(_live_housekeeping(rel),
                              "зуб оракула: %s обязан краснеть" % rel)
@@ -783,8 +801,9 @@ class TestLiveOracleReceiptHarness(unittest.TestCase):
             _live_journal_growth_violation(start + b"\n" + chip + b"\n"),
             "чип invariants_not_run в приросте — красный")
         _measure("MEASURE (FU2) харнесс-записи (sessions/*/runs/**, "
-                 "cursor-run-*, journal-прирост без чипов) — тишина; "
-                 "front-runs-*, fronts.json/compass/prosecutor, чип — "
+                 "cursor-run-* ТОЛЬКО в корне, journal-прирост без чипов) "
+                 "— тишина; front-runs-*, fronts.json/compass/prosecutor, "
+                 "глубокие cursor-run-*, prompt-*/runs спавна, чип — "
                  "красные")
 
 
