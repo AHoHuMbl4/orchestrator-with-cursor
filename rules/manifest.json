@@ -685,7 +685,10 @@
    "hit": 0,
    "created": 1790910773.8595147,
    "born_at": 1790910773.8595147,
-   "run_ref": "prosecutor-auto-F-MUSTMAP-20"
+   "run_ref": "prosecutor-auto-F-MUSTMAP-20",
+   "archived": true,
+   "archived_reason": "закрыто механизмом надзор-вне-рана (a1c1b45) + MM-реестр",
+   "archived_at": 1791044048.5855474
   },
   {
    "id": "case-mm-c1-d3-w1-end-problems-ispolnitel-ches",
@@ -730,6 +733,17 @@
    "created": 1791016901.974479,
    "run_ref": "050ce29",
    "born_at": 1791016901.974479
+  },
+  {
+   "id": "dont-glavkom-pravit-produkt-sam",
+   "type": "DON'T",
+   "кому": "commander",
+   "когда": "any",
+   "категория": "приёмка",
+   "hit": 0,
+   "created": 1791044048.5855474,
+   "run_ref": "W-S2 A5-live",
+   "born_at": 1791044048.5855474
   }
  ],
  "aliases": {}
