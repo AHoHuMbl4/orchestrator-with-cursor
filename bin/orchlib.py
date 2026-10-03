@@ -3271,6 +3271,14 @@ WAVE_DOCS_MASK_PATHSPECS = (
     "skills/orchestration/**",
 )
 
+# ADV-TC4: tracked-dirty вне волны. Роли открытого start, гасящие FP код-волны.
+KIT_DIRTY_OUTSIDE_WAVE_ROLES = frozenset((
+    "code/coder.md",
+    "code/git-warden.md",
+    "code/docs-keeper.md",
+    "code/simplicity-warden.md",
+))
+
 
 def _git_version_tuple():
     """(major, minor) установленного git или None."""
@@ -3353,6 +3361,113 @@ def _last_mask_commit(kit_dir):
     if not h:
         return None
     return (ct, h)
+
+
+def _kit_dirty_mask_pathspecs(kit_dir):
+    """Маска kit_dirty_outside_wave: wave_no_docs + README.md (A5)."""
+    specs = list(_wave_docs_mask_pathspecs(kit_dir))
+    if "README.md" not in specs:
+        specs.append("README.md")
+    return specs
+
+
+def _kit_dirty_posix_path(raw):
+    """Путь из porcelain → posix relative без кавычек git."""
+    p = (raw or "").strip()
+    if len(p) >= 2 and p[0] == '"' and p[-1] == '"':
+        p = p[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    p = p.replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    return p
+
+
+def _kit_dirty_path_excluded(path):
+    if not path:
+        return True
+    if path == "SHA256SUMS":
+        return True
+    if path == ".orchestration" or path.startswith(".orchestration/"):
+        return True
+    return False
+
+
+def _parse_kit_dirty_porcelain(stdout):
+    """Tracked paths из `git status --porcelain` (без untracked). Детерминированный порядок."""
+    found = []
+    seen = set()
+    for raw in (stdout or "").splitlines():
+        if not raw or len(raw) < 3:
+            continue
+        xy = raw[:2]
+        if xy == "??":
+            continue
+        rest = raw[3:] if raw[2:3] == " " else raw[2:].lstrip()
+        path = rest
+        if " -> " in rest and (xy[0] in "RC" or xy[1] in "RC"):
+            path = rest.split(" -> ", 1)[1]
+        rel = _kit_dirty_posix_path(path)
+        if _kit_dirty_path_excluded(rel):
+            continue
+        if rel not in seen:
+            seen.add(rel)
+            found.append(rel)
+    found.sort()
+    return found
+
+
+def _code_wave_fixpoint_open(entries):
+    """Открытый start код-волны / writable --front (не mtime, не commander_hands).
+
+    Закрытый end (в т.ч. git-warden) не гасит: после конца волны dirty снова красный.
+    """
+    open_starts = {}
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        kind = e.get("kind")
+        rid = e.get("id")
+        if kind == "start" and rid:
+            open_starts[rid] = e
+        elif kind == "end" and rid:
+            open_starts.pop(rid, None)
+    for st in open_starts.values():
+        role = normalize_journal_role(st.get("role"))
+        if role in KIT_DIRTY_OUTSIDE_WAVE_ROLES:
+            return True
+        front = st.get("front")
+        if st.get("writable") and front not in (None, ""):
+            return True
+    return False
+
+
+def _kit_dirty_outside_wave(entries, kit_dir):
+    """Список posix-путей tracked-dirty по маске, если нет фикс-точки волны."""
+    if not kit_dir:
+        return []
+    if _code_wave_fixpoint_open(entries):
+        return []
+    try:
+        env = os.environ.copy()
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        env.pop("GIT_INDEX_FILE", None)
+        r = subprocess.run(
+            [
+                "git", "-C", kit_dir, "status",
+                "--porcelain", "--untracked-files=no", "--",
+            ] + _kit_dirty_mask_pathspecs(kit_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=15,
+            env=env,
+        )
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    return _parse_kit_dirty_porcelain(r.stdout)
 
 
 # --- rules cards (F-RULES R1) -----------------------------------------------
@@ -6022,6 +6137,11 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
     skills/orchestration/**) новее последнего local docs-keeper end —
     список с %h mask-коммита. kit_dir=None → KIT_DIR (хук для /tmp-синтетики).
 
+    kit_dirty_outside_wave: tracked porcelain по маске wave_no_docs+README.md
+    при отсутствии открытого journal start код-волны (роли coder/git-warden/
+    docs-keeper/simplicity-warden или writable+непустой front). Не mtime;
+    не путать с commander_hands_active. Закрытый git-warden end не гасит.
+
     rules_no_retro / rules_dead / manifest_category_oversize — база rules/
     в kit_dir (хук для /tmp-синтетики).
 
@@ -6062,6 +6182,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
         "order_no_mechanics": [],
         # ADDITIVE MARKER: ADV-TC3 legacy waivers (visible, not chip_silenced)
         "legacy": [],
+        # ADDITIVE MARKER: ADV-TC4 kit_dirty_outside_wave
+        "kit_dirty_outside_wave": [],
     }
     try:
         if state is None:
@@ -6187,6 +6309,11 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             mask_ct, mask_h = mask
             if last_docs_end_ts is None or float(mask_ct) > last_docs_end_ts:
                 wave_no_docs.append(mask_h)
+
+        try:
+            kit_dirty_outside_wave = _kit_dirty_outside_wave(entries, kit_dir)
+        except Exception:
+            kit_dirty_outside_wave = []
 
         # P4: advisors_without_scouts — advisor-run id без web-scout.
         scout_starts = []
@@ -6452,6 +6579,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "mustmap_stale": mustmap_stale_ids,
             # ADDITIVE MARKER: F-ADVERSARIAL ADV-C1 order_no_mechanics
             "order_no_mechanics": order_no_mechanics_ids,
+            # ADDITIVE MARKER: ADV-TC4 kit_dirty_outside_wave
+            "kit_dirty_outside_wave": kit_dirty_outside_wave,
         }
         _prev_no_mig2 = os.environ.get("ORCH_RULES_NO_MIGRATE")
         os.environ["ORCH_RULES_NO_MIGRATE"] = "1"
@@ -6498,6 +6627,8 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
             "order_no_mechanics": order_no_mechanics_ids,
             # ADDITIVE MARKER: ADV-TC3 legacy waivers (visible, not chip_silenced)
             "legacy": [],
+            # ADDITIVE MARKER: ADV-TC4 kit_dirty_outside_wave
+            "kit_dirty_outside_wave": kit_dirty_outside_wave,
         }
         _apply_legacy_waivers(
             chips, entries, kit_dir, starts_by_id=starts_by_id)
