@@ -978,14 +978,20 @@ def _supervision_poll_s():
 
 
 def _early_resolve_role(a, state):
-    """Ранний резолв роли до точек отказа 10/11/2: --role → шапка промта."""
+    """Ранний резолв роли до точек отказа 10/11/2: --role → шапка промта.
+
+    Сессионный fallback — через кодировку session_dir (_supervision_session_root,
+    без mkdir): сырой путь по экзотичному/длинному sid не должен терять
+    нестарт-пару и чип (exit 10/11 — до дефолта a.prompt_file).
+    """
     if a.role:
         return orchlib.normalize_journal_role(a.role)
     pf = a.prompt_file
     if not pf and a.id:
         if a.session:
-            pf = os.path.join(state, "sessions", a.session, "runs",
-                              a.id, "prompt.md")
+            pf = os.path.join(
+                orchlib._supervision_session_root(state, a.session),
+                "runs", a.id, "prompt.md")
         else:
             pf = os.path.join(state, "prompt-%s.md" % a.id)
     if not pf or not os.path.isfile(pf):
@@ -1193,28 +1199,39 @@ def _supervise_journal_step(state, run_id, start_ts, offset, open_new):
     (open_new-=1); end при пустой очереди — end НАШЕЙ инкарнации → closed.
     killed не снимает (после --kill смерть без end — тоже сигнал).
     offset=None → первичный полный проход (наш start уже в файле — сторож
-    спавнится после journal_start); усечение/ротация → пересчёт с нуля.
+    спавнится после journal_start); усечение/ротация (size < offset) →
+    полный пересчёт с open_new=0. offset продвигается только до последнего
+    \\n (обрыв строки дочитывается следующим тиком); чтение байтами +
+    decode("utf-8","replace") — seek посреди многобайтового символа не
+    клинит читатель (кроссплатформенно: без fcntl appends не атомарны).
     """
     path = os.path.join(state, "journal.jsonl")
     try:
         size = os.path.getsize(path)
     except OSError:
         return offset, open_new, False
-    if offset is None or size < offset:
+    recompute = offset is not None and size < offset
+    if offset is None or recompute:
         pos = 0
+        if recompute:
+            open_new = 0  # очередь инкарнаций пересчитывается с нуля
     else:
         pos = offset
     if pos >= size:
         return offset, open_new, False
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "rb") as f:
             f.seek(pos)
-            chunk = f.read(size - pos)
+            data = f.read(size - pos)
     except Exception:
         return offset, open_new, False
-    new_offset = size
+    nl = data.rfind(b"\n")
+    if nl < 0:
+        return pos, open_new, False  # целых строк нет — offset не двигаем
+    new_offset = pos + nl + 1
     closed = False
-    for raw in chunk.splitlines():
+    for raw in data[:new_offset - pos].decode(
+            "utf-8", "replace").splitlines():
         s = raw.strip()
         if not s:
             continue

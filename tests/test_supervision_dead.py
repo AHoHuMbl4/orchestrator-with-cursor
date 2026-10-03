@@ -195,21 +195,32 @@ def setUpModule():
     _LIVE_SNAPSHOT.update(_live_snapshot())
 
 
+def _live_housekeeping(rel):
+    """Housekeeping-маркеры живой сессии — не писатели волны.
+
+    counters/: всё, кроме front-runs-* (их пишет run-exec волн — утечка
+    обязана краснеть); sessions/**: pending_*.json, null_series.json,
+    enabled.json, last-seen (хуки/нуджи живой сессии). Волновые писатели
+    (journal-чипы, пары, pid/log ранов) сюда не попадают.
+    """
+    parts = rel.split(os.sep)
+    if parts and parts[0] == "counters":
+        return not os.path.basename(rel).startswith("front-runs-")
+    if parts and parts[0] == "sessions":
+        name = os.path.basename(rel)
+        return (name == "last-seen" or name == "null_series.json"
+                or name == "enabled.json" or name.startswith("pending_"))
+    return False
+
+
 def tearDownModule():
     # Оракул «живой state не писался»: всё неизменно, НО journal.jsonl —
     # файл новых писателей волны — разрешён только в прирост строками БЕЗ
     # чипов supervision_dead (живая чужая запись допускается). Исключения —
-    # только housekeeping-маркеры живости САМОЙ живой сессии (reground.py
-    # heartbeat-*.json и sessions/*/last-seen): волновые писатели их не
+    # только housekeeping-маркеры живости САМОЙ живой сессии (хук-счётчики,
+    # нуджи, heartbeat; см. _live_housekeeping) — волновые писатели их не
     # трогают в принципе.
     after = _live_snapshot()
-
-    def _live_housekeeping(rel):
-        return (rel.startswith("counters" + os.sep)
-                and os.path.basename(rel).startswith("heartbeat-")) or (
-            rel.startswith("sessions" + os.sep)
-            and rel.endswith(os.sep + "last-seen"))
-
     for rel in after:
         assert rel in _LIVE_SNAPSHOT or _live_housekeeping(rel), (
             "live state touched (new file): %s" % rel)
@@ -1368,6 +1379,107 @@ class TestFollowUpReadonlyPair(SupTemp):
         self.assertIs(starts[0].get("readonly"), True,
                       "readonly-маркер в нестарт-паре (как journal_gate_refuse)")
         _measure("MEASURE (FU8) нестарт-пара надзора несёт readonly: true")
+
+
+class TestFix2NonstartSessionEncoding(SupTemp):
+    """(fix-r2, KR1) нестарт-цепочка exit 10/11 до дефолта prompt_file."""
+
+    def test_exotic_session_nonstart_pair_and_chip(self):
+        sid = "séssion ид + 2026/окт"  # требует percent-кодировки
+        # промт ЛЕЖИТ по кодированному пути (как его создал бы прод),
+        # шапка несёт роль надзора; --role/--prompt-file НЕ переданы
+        run_dir = os.path.join(
+            orchlib._supervision_session_root(self.state, sid),
+            "runs", "FX1")
+        os.makedirs(run_dir, exist_ok=True)
+        with open(os.path.join(run_dir, "prompt.md"), "w",
+                  encoding="utf-8") as f:
+            f.write("роль: %s\n\nнестарт по кодированному пути\n" % ROLE_PROS)
+        with open(os.path.join(self.state, "params.json"), "w",
+                  encoding="utf-8") as f:
+            f.write("{ битый json\n")
+        rc = self._main_argv(
+            ["--id", "FX1", "--front", FRONT, "--session", sid])
+        self.assertEqual(rc, 10)
+        j = _read_journal(self.state)
+        starts = [e for e in j if e.get("kind") == "start"
+                  and e.get("id") == "FX1"]
+        self.assertEqual(len(starts), 1,
+                         "нестарт-пара пишется и для кодируемого sid")
+        self.assertEqual(starts[0].get("role"), ROLE_PROS)
+        self.assertEqual(starts[0].get("session"), sid)
+        chips = [c for c in _sup_chips(self.state) if c.get("id") == "FX1"]
+        self.assertEqual(len(chips), 1)
+        self.assertEqual(chips[0].get("cause"), "nonstart_exit_10")
+        _measure("MEASURE (FX-1) экзотичный sid без --role/--prompt-file → "
+                 "нестарт-пара + чип (fallback через session-кодировку)")
+
+
+class TestFix2JournalStepRobustness(SupTemp):
+    """(fix-r2, KR2+KR3) инкрементальный читатель журнала сторожа."""
+
+    def _journal(self):
+        return os.path.join(self.state, "journal.jsonl")
+
+    def test_partial_line_completed_next_tick(self):
+        # обрыв строки в момент снапшота: offset не должен перепрыгнуть её
+        start_ts = time.time() - 100
+        with open(self._journal(), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": start_ts - 1, "kind": "start",
+                                "id": "FX2"}) + "\n")
+            f.write('{"ts": %f, "kind": "end", "id": "FX2"' % (start_ts + 1))
+        offset, open_new, closed = rex._supervise_journal_step(
+            self.state, "FX2", start_ts, None, 0)
+        self.assertFalse(closed)
+        with open(self._journal(), "a", encoding="utf-8") as f:
+            f.write(', "exit": 0}\n')  # строка дописана в следующем тике
+        offset2, open_new2, closed2 = rex._supervise_journal_step(
+            self.state, "FX2", start_ts, offset, open_new)
+        self.assertTrue(closed2, "дописанная строка дочитана — не потеряна")
+        _measure("MEASURE (FX-2a) offset только до последнего \\n — обрыв "
+                 "строки дочитывается следующим тиком")
+
+    def test_offset_inside_utf8_char_not_stuck(self):
+        start_ts = time.time() - 100
+        line1 = json.dumps({"ts": start_ts - 1, "kind": "start",
+                            "id": "FX3", "note": "кириллица-заметка"},
+                           ensure_ascii=False)
+        line2 = json.dumps({"ts": start_ts + 1, "kind": "end",
+                            "id": "FX3", "exit": 0}, ensure_ascii=False)
+        with open(self._journal(), "w", encoding="utf-8") as f:
+            f.write(line1 + "\n")
+            f.write(line2 + "\n")
+        # offset внутрь многобайтового символа первой строки
+        raw = line1.encode("utf-8")
+        mid = raw.find("кириллица".encode("utf-8")) + 3
+        offset, open_new, closed = rex._supervise_journal_step(
+            self.state, "FX3", start_ts, mid, 0)
+        self.assertTrue(closed, "seek посреди UTF-8 символа не клинит "
+                                "читатель — end распарсен")
+        _measure("MEASURE (FX-2b) чтение байтами + decode(replace): offset "
+                 "внутри многобайтового символа не клинит")
+
+    def test_truncation_recompute_resets_open_new(self):
+        start_ts = time.time() - 100
+        now = time.time()
+        _seed_journal(self.state, [
+            # наша инкарнация (ts ≤ start_ts — фильтруется) …
+            {"ts": start_ts - 1, "kind": "start", "id": "FX4"},
+            # … чужая более новая того же id (кладётся и снимается) …
+            {"ts": now, "kind": "start", "id": "FX4"},
+            {"ts": now + 1, "kind": "end", "id": "FX4", "exit": 11},
+            # … и end НАШЕЙ инкарнации
+            {"ts": now + 2, "kind": "end", "id": "FX4", "exit": 0},
+        ])
+        # ротация: offset за пределами усечённого файла, очередь «заедена»
+        size = os.path.getsize(self._journal())
+        offset, open_new, closed = rex._supervise_journal_step(
+            self.state, "FX4", start_ts, size + 1000, 5)
+        self.assertTrue(closed,
+                        "пересчёт с нуля: очередь сброшена, наш end виден")
+        self.assertEqual(open_new, 0)
+        _measure("MEASURE (FX-2c) усечение journal → полный пересчёт с "
+                 "open_new=0 (синтетика KR3: 5+1-1 больше не съедает end)")
 
 
 if __name__ == "__main__":
