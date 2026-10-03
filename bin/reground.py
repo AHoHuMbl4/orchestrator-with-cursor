@@ -43,8 +43,8 @@ _FRONT_ID_RE = re.compile(r"Фронт (F-[A-Z0-9]+)")
 
 # Счётчики обязанностей (to=commander|general) — снимок из mustmap.json при правке.
 _MUSTMAP_REL = "audit/mustmap/mustmap.json"
-_MUSTMAP_CMD_N = 105
-_MUSTMAP_GEN_N = 26
+_MUSTMAP_CMD_N = 106
+_MUSTMAP_GEN_N = 27
 
 NUDGE_TEXT = (
     "СВЕРКА КУРСА: ты — оркестратор. Твои правила: исполнение через "
