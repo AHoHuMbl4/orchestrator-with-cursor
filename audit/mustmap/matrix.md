@@ -1,6 +1,6 @@
 # MUSTMAP matrix (MM-C1)
 
-Сгенерировано: `2026-10-04T00:00:34Z`
+Сгенерировано: `2026-10-04T00:22:49Z`
 
 **Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 83; всего = 236
 
@@ -43,15 +43,15 @@ status: mechanism=77; prompt=150; human=9
 | MM-031 | commander | Пишущая волна кода: git-warden чекпоинт до + ревизия после; правки продукта только коммитами | правка мимо гита → запрещено | mechanism | code_waves_no_gitwarden | `skills/orchestration/SKILL.md:207` |
 | MM-032 | commander | Косяк волны: возврат ТОЛЬКО git-механиками (reset/revert), не чинить поверх | чинить поверх чекпоинта → запрещено | prompt | — | `skills/orchestration/SKILL.md:211` |
 | MM-033 | commander | Пересбор SHA256SUMS — не зона commit_wave, только командующий | агент пересобрал SHA256SUMS → вне зоны | prompt | — | `skills/orchestration/SKILL.md:219` |
-| MM-034 | commander | Волна с ошибкой не принимается без DON'T-карточки (чип rules_no_retro) | error wave without card → rules_no_retro | mechanism | rules_no_retro | `skills/orchestration/SKILL.md:230` |
+| MM-034 | commander | Волна с ошибкой не принимается без DON'T-карточки (чип rules_no_retro) | error wave without card → rules_no_retro | mechanism | rules_no_retro | `skills/orchestration/SKILL.md:232` |
 | MM-035 | commander | При старте иерархии командующий создаёт PROJECT.md; docs-keeper ведёт перезаписью, не дописыванием | нет PROJECT.md при иерархии → создать | prompt | — | `skills/orchestration/SKILL.md:239` |
-| MM-036 | commander | Готов = процесс завершился И критерий подтверждён замером; со слов исполнителя — никогда | принятие со слов → запрещено | prompt | — | `skills/orchestration/SKILL.md:262` |
+| MM-036 | commander | Готов = процесс завершился И критерий подтверждён замером; со слов исполнителя — никогда | принятие со слов → запрещено | prompt | — | `skills/orchestration/SKILL.md:263` |
 | MM-037 | commander | Фейл — один перезапуск; второй подряд — разбери или доложи; завис повторно — стоп ветки | второй фейл без доклада → нарушение | prompt | — | `skills/orchestration/SKILL.md:264` |
 | MM-038 | commander | Завис — стоп, разбор, перезапуск; повторный завис — стоп ветки, доклад | повторный stall → стоп ветки | prompt | — | `skills/orchestration/SKILL.md:266` |
 | MM-039 | commander | stall_after EXIT 124 retry; max_wall EXIT 125 без retry; частые таймауты = дробить, не поднимать лимиты | таймауты → replan мельче | prompt | — | `skills/orchestration/SKILL.md:268` |
 | MM-040 | commander | Частые таймауты = ошибка декомпозиции: дробить, а не поднимать лимиты | частые timeout → replan мельче, не ↑timeout | prompt | — | `skills/orchestration/SKILL.md:279` |
 | MM-041 | commander | Замер-гигиена: SHA в выводе; не глушить вывод проверок; ключ-мис = кривая проба | measurement prints SHA; no >/dev/null on checks | prompt | — | `skills/orchestration/SKILL.md:283` |
-| MM-042 | commander | Перед пачкой — фундамент planning.md; неоднозначность → СТОП/вопросы или Assumptions | пачка без фундамента → не стартовать | prompt | — | `skills/orchestration/SKILL.md:287` |
+| MM-042 | commander | Перед пачкой — фундамент planning.md; неоднозначность → СТОП/вопросы или Assumptions | пачка без фундамента → не стартовать | prompt | — | `skills/orchestration/SKILL.md:288` |
 | MM-043 | commander | Preflight: прогноз×критики×круги +15%; >ask_before_runs → СТОП, один вопрос владельцу | запасной > порога → стоп-вопрос | human | — | `skills/orchestration/SKILL.md:290` |
 | MM-044 | commander | Авто при превышении порога: Assumptions, не вечный стоп | auto over threshold → Assumptions continue | prompt | — | `skills/orchestration/SKILL.md:295` |
 | MM-045 | commander | Параллельный залп — только на независимых задачах; пишущие — по одной на область | пересечение файлов пишущих → сериализация | prompt | — | `skills/orchestration/SKILL.md:298` |
@@ -83,7 +83,7 @@ status: mechanism=77; prompt=150; human=9
 | MM-071 | commander | Пишущая задача parallel_per_task=1 + критики; spike — отдельное решение не по дефолту | spike по дефолту → запрещено | prompt | — | `skills/orchestration/SKILL.md:577` |
 | MM-072 | commander | Компас — обязателен и ТОЛЬКО сессионный; НИКОГДА не пиши в общий .orchestration/compass.md | запись в общий compass.md → запрещена | mechanism | write-compass.py | `skills/orchestration/SKILL.md:594` |
 | MM-073 | commander | COMPASS ПРЕВЫШЕН фронта: НЕ ужимать самому; директива генералу через воронку; повтор → stalled | overflow → order general rewrite | prompt | — | `skills/orchestration/SKILL.md:643` |
-| MM-074 | commander | Повторное превышение compass — фронт в stalled до исправления генералом | повторный COMPASS_OVERFLOW → stalled | mechanism | reground.py | `skills/orchestration/SKILL.md:648` |
+| MM-074 | commander | Повторное превышение compass — фронт в stalled до исправления генералом | повторный COMPASS_OVERFLOW → stalled | mechanism | reground.py | `skills/orchestration/SKILL.md:654` |
 | MM-075 | commander | Перед каждой волной и каждые reground.every_min — перечитай params/compass; дрейф → назад | дрейф без возврата → нарушение | mechanism | reground.py | `skills/orchestration/SKILL.md:658` |
 | MM-076 | commander | После end роли волны возможен автопрокурор prosecutor-auto (один на волну) | wave-end idle → auto prosecutor | mechanism | maybe_auto_prosecutor_after_end | `skills/orchestration/references/FLOW.md:70` |
 | MM-077 | commander | validate_fronts: циклы deps запрещены | cycle in fronts deps → error | mechanism | validate_fronts | `skills/orchestration/references/FLOW.md:76` |
@@ -105,14 +105,14 @@ status: mechanism=77; prompt=150; human=9
 | MM-093 | commander | Приёмка=функция: текст/артефакт/чип-в-норме ≠ доказательство | green iff probe oracle on polygon | mechanism | probes_missing | `skills/orchestration/references/planning.md:246` |
 | MM-094 | commander | Блок пробы обязателен в карточке волны кода/фикса; нет → нудж + probes_missing | нет проба:/оракул: → probes_missing | mechanism | probes_missing | `skills/orchestration/references/planning.md:250` |
 | MM-095 | commander | narrative не самообъявляемый; артефакт-оракул narrative быть не может | narrative class restricted | prompt | — | `skills/orchestration/references/planning.md:255` |
-| MM-096 | commander | Ремонт плана = новая волна критиков плана (не ремонтный follow-up артефакта) | follow-up на план → запрещено | prompt | — | `skills/orchestration/references/planning.md:354` |
-| MM-097 | commander | Фронт стартует когда все deps done; cancelled/rejected — запуски закрыты | FRONT_CLOSED on cancelled/rejected | mechanism | FRONT_CLOSED | `skills/orchestration/references/planning.md:363` |
-| MM-098 | commander | Между волнами gate: критерии зелёные замером + сверка с compass | волна без замера/сверки → не закрывать | prompt | — | `skills/orchestration/references/planning.md:416` |
-| MM-099 | commander | Финальная сшивка — волна синтеза, не текст оркестратора в своём контексте | commander doesn't stitch N arts himself | prompt | — | `skills/orchestration/references/planning.md:422` |
-| MM-100 | commander | Волна перекрёстной сверки — только независимые источники; основной источник волн в границах запрещён by design | основной источник в cross-check → by design запрет | prompt | — | `skills/orchestration/references/planning.md:424` |
-| MM-101 | commander | Partial-fail replan: зелёные не перезапускаются; только красные и зависимые | зелёный узел → не перезапускать | prompt | — | `skills/orchestration/references/planning.md:432` |
-| MM-102 | commander | Анти-паттерн: premature decomposition / мелкая нарезка / гигант / нет сверки compass / каскад / полный restart /↑timeout | decomposition anti-patterns avoided | prompt | — | `skills/orchestration/references/planning.md:443` |
-| MM-103 | commander | Анти-паттерн: резать до фиксации цели/критерия | premature decomposition → запрещено | prompt | — | `skills/orchestration/references/planning.md:445` |
+| MM-096 | commander | Ремонт плана = новая волна критиков плана (не ремонтный follow-up артефакта) | follow-up на план → запрещено | prompt | — | `skills/orchestration/references/planning.md:366` |
+| MM-097 | commander | Фронт стартует когда все deps done; cancelled/rejected — запуски закрыты | FRONT_CLOSED on cancelled/rejected | mechanism | FRONT_CLOSED | `skills/orchestration/references/planning.md:375` |
+| MM-098 | commander | Между волнами gate: критерии зелёные замером + сверка с compass | волна без замера/сверки → не закрывать | prompt | — | `skills/orchestration/references/planning.md:428` |
+| MM-099 | commander | Финальная сшивка — волна синтеза, не текст оркестратора в своём контексте | commander doesn't stitch N arts himself | prompt | — | `skills/orchestration/references/planning.md:435` |
+| MM-100 | commander | Волна перекрёстной сверки — только независимые источники; основной источник волн в границах запрещён by design | основной источник в cross-check → by design запрет | prompt | — | `skills/orchestration/references/planning.md:436` |
+| MM-101 | commander | Partial-fail replan: зелёные не перезапускаются; только красные и зависимые | зелёный узел → не перезапускать | prompt | — | `skills/orchestration/references/planning.md:444` |
+| MM-102 | commander | Анти-паттерн: premature decomposition / мелкая нарезка / гигант / нет сверки compass / каскад / полный restart /↑timeout | decomposition anti-patterns avoided | prompt | — | `skills/orchestration/references/planning.md:455` |
+| MM-103 | commander | Анти-паттерн: резать до фиксации цели/критерия | premature decomposition → запрещено | prompt | — | `skills/orchestration/references/planning.md:457` |
 | MM-104 | commander | Наблюдатель запускается командующим на КТ; запуск обычный НЕ --readonly (нужен Write метки) | observer not --readonly | prompt | — | `skills/orchestration/references/roles/meta/front-observer.md:4` |
 | MM-230 | commander | Закрытие волны механизма дисциплины/hardening НЕ принимается без таблицы ожидание×факт на корпусе атак (оракул = journal/exit/чип, состояние); прогон только на дисциплинированном/послушном командующем = НЕ зачёт. Связь: dont-validaciya-sistemy-na-poslushnom-discipl (run_ref=owner-02-10), do-zelenyj-rabotaet-na-poligone-prinyat-vol; suite: tests/adversarial/** | закрытие волны дисциплины/hardening → таблица ожидание×факт на корпусе; оракул journal/exit; иначе не зачёт | mechanism | tests/adversarial suite (scenarios.json + report.md) | `skills/orchestration/references/planning.md:291` |
 | MM-232 | commander | Серая зона без советников — fail-safe suspect; тихое OK запрещено | mechanical→молчание; fork неуверенный (mid/high и band=low)/defer/сбой канала→suspect; тихое OK только явный mechanical; шум — allowlist+expires_on | mechanism | orders_suspect+advisor-need-check+tests/test_orders_allowlist* | `skills/orchestration/SKILL.md:487` |
@@ -138,8 +138,8 @@ status: mechanism=77; prompt=150; human=9
 | MM-119 | general | Генерал/полковник сырьё не читают — только raw-brief ≤15 строк вверх | чтение сырья командиром → запрещено | prompt | — | `skills/orchestration/references/FLOW.md:113` |
 | MM-120 | general | Бегущие волны при новом генерале НЕ перезапускать; start без end = бежит | дубль бегущей волны → запрещено | prompt | — | `skills/orchestration/references/FLOW.md:115` |
 | MM-121 | general | Границы волны: СВОИ пути + запрет чужих; назначение фронтов непересекающееся | пересечение файлов фронтов → ошибка графа | prompt | — | `skills/orchestration/references/planning.md:195` |
-| MM-122 | general | САМОисполнение работы полковника/исполнителя запрещено — стоп и делегируй | general self-exec → stop+delegate | prompt | — | `skills/orchestration/references/planning.md:334` |
-| MM-123 | general | Оркестратору по часам не рвать генерала — только по границам работ или дрейфу | таймер окна → не повод рвать руками | prompt | — | `skills/orchestration/references/planning.md:338` |
+| MM-122 | general | САМОисполнение работы полковника/исполнителя запрещено — стоп и делегируй | general self-exec → stop+delegate | prompt | — | `skills/orchestration/references/planning.md:346` |
+| MM-123 | general | Оркестратору по часам не рвать генерала — только по границам работ или дрейфу | таймер окна → не повод рвать руками | prompt | — | `skills/orchestration/references/planning.md:350` |
 | MM-124 | general | Инструменты генерала исчерпывающие (а–д); всё остальное запрещено; Write/Edit проекта = нарушение с первого раза | Shell-правка кода → сразу стоп | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:7` |
 | MM-125 | general | Write/Edit/Shell правок проекта = нарушение с первого раза — остановись и запусти полковника | urge to edit → stop+delegate colonel | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:13` |
 | MM-126 | general | Чужие runs/вердикты параллельных фронтов НЕ читать; с параллельными НЕ координироваться — через командующего | координация с соседним генералом → запрещено | prompt | — | `skills/orchestration/references/roles/meta/front-general.md:16` |
@@ -157,7 +157,7 @@ status: mechanism=77; prompt=150; human=9
 | MM-131 | colonel | Свита обязательна: advisor, plan critics, acceptance critics, raw-brief, git/docs/simplicity wardens | colonel suite roles present | prompt | — | `skills/orchestration/SKILL.md:501` |
 | MM-132 | colonel | Значимая код-волна: simplicity-warden иначе PROBLEMS | simplicity gate after significant code | prompt | — | `skills/orchestration/references/FLOW.md:77` |
 | MM-133 | colonel | colonels order пишет генерал; mini-compass пишет полковник через воронку | полковник пишет свой order → нарушение | prompt | — | `skills/orchestration/references/FLOW.md:87` |
-| MM-134 | colonel | Рамки: 3–5 работ; order только читает; mini-compass ≤4000; не порождает полковников | полковник пишет свой order → запрещено | prompt | — | `skills/orchestration/references/planning.md:297` |
+| MM-134 | colonel | Рамки: 3–5 работ; order только читает; mini-compass ≤4000; не порождает полковников | полковник пишет свой order → запрещено | prompt | — | `skills/orchestration/references/planning.md:309` |
 | MM-135 | colonel | Сам код/инфру руками не пишешь — командуешь cursor-исполнителями | полковник Write кода → запрещено | prompt | — | `skills/orchestration/references/roles/meta/front-colonel.md:5` |
 | MM-136 | colonel | Не порождать вложенных полковников; сырьё самому не читать; чужие runs НЕ читать | вложенный полковник → НИКОГДА | prompt | — | `skills/orchestration/references/roles/meta/front-colonel.md:9` |
 | MM-137 | colonel | Сырьё читают ТОЛЬКО raw-brief; код-волна → git-warden; значимая → docs+simplicity | код без git-warden → нарушение | mechanism | code_waves_no_gitwarden | `skills/orchestration/references/roles/meta/front-colonel.md:17` |
@@ -170,7 +170,7 @@ status: mechanism=77; prompt=150; human=9
 | MM-139 | executor | Код: правки через CLI run-exec; артефакт=дифф; критики=дифф+критерий | code wave uses run-exec + diff critics | prompt | — | `skills/orchestration/SKILL.md:201` |
 | MM-140 | executor | Правки продукта — только через коммиты; мимо гита запрещено | правка продукта → только коммит | prompt | — | `skills/orchestration/SKILL.md:210` |
 | MM-141 | executor | Сырой git commit -a / git add -A запрещён; только pathspec через commit_wave | commit via commit-wave.py pathspec | mechanism | commit-wave.py | `skills/orchestration/SKILL.md:217` |
-| MM-142 | executor | Промт самодостаточен: цель/критерий; точные файлы; что НЕ трогать; путь/команда дословно; артефакт | промт без НЕ трогать → неполнота | prompt | — | `skills/orchestration/SKILL.md:253` |
+| MM-142 | executor | Промт самодостаточен: цель/критерий; точные файлы; что НЕ трогать; путь/команда дословно; артефакт | промт без НЕ трогать → неполнота | prompt | — | `skills/orchestration/SKILL.md:254` |
 | MM-143 | executor | --front вклеивает A2 owns+forbids; ORCH_FRONT в дочерние | front launch injects ownership block | mechanism | run-exec.py | `skills/orchestration/SKILL.md:478` |
 | MM-144 | executor | Прогоны: --front или --no-front иначе FRONT_REQUIRED exit 8 (hierarchy≠off) | missing front flag → exit 8 | mechanism | FRONT_REQUIRED | `skills/orchestration/SKILL.md:534` |
 | MM-145 | executor | Секреты в промте → SECRETS_IN_PROMPT exit 5; процесс не стартует | secrets in prompt → exit 5 | mechanism | SECRETS_IN_PROMPT | `skills/orchestration/references/FLOW.md:62` |
@@ -187,7 +187,7 @@ status: mechanism=77; prompt=150; human=9
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
 | MM-153 | critic | Критики волны — всегда шаблон критика-скептика/ревьюера; не задаёт вопросов и не видит лог | критик → шаблон из библиотеки, без лога исполнителя | prompt | — | `skills/orchestration/SKILL.md:59` |
-| MM-154 | critic | Критики — всегда свежие read-only агенты того же режима, что и исполнители | критик → fresh readonly, тот же режим | prompt | — | `skills/orchestration/SKILL.md:99` |
+| MM-154 | critic | Критики — всегда свежие read-only агенты того же режима, что и исполнители | критик → fresh readonly, тот же режим | prompt | — | `skills/orchestration/SKILL.md:98` |
 | MM-155 | critic | Критик видит ТОЛЬКО дифф + критерий, никогда — лог/ход мыслей исполнителя | критик читает лог → нарушение | prompt | — | `skills/orchestration/SKILL.md:179` |
 | MM-156 | critic | Замер-гигиена: SHA кода в выводе; не глушить вывод; ключ-мис = проба кривая | приёмочный замер → SHA+живые логи+схема | prompt | — | `skills/orchestration/SKILL.md:283` |
 | MM-157 | critic | Формат проблем: ПРОБЛЕМА: место — суть — как чинить; нет проблем — только Вердикт: OK | отчёт критика → префикс ПРОБЛЕМА: или OK | prompt | — | `skills/orchestration/SKILL.md:306` |
@@ -197,7 +197,7 @@ status: mechanism=77; prompt=150; human=9
 | MM-161 | critic | Вердикт без своего прогона недействителен; самоотчёт исполнителя ≠ оракул | критик без пробы → недействителен | mechanism | probes_missing | `skills/orchestration/references/planning.md:274` |
 | MM-162 | critic | Снятие probes_missing только валидной квитанцией; дифф гасящий чип → chip_silenced | silencing chip without fix → chip_silenced | mechanism | chip_silenced | `skills/orchestration/references/planning.md:276` |
 | MM-163 | critic | Критик обязан проверить: исключена ли истинная причина сигнала? CAUSE-CLEARED | глушение без причины → нарушение | mechanism | orch-lint | `skills/orchestration/references/planning.md:290` |
-| MM-164 | critic | промт критика/аудитора/наблюдателя: артефакт+критерий; без карт локаций | карта в промте проверяющего → слепое пятно | prompt | — | `skills/orchestration/references/planning.md:321` |
+| MM-164 | critic | промт критика/аудитора/наблюдателя: артефакт+критерий; без карт локаций | карта в промте проверяющего → слепое пятно | prompt | — | `skills/orchestration/references/planning.md:333` |
 | MM-165 | critic | Видишь только дифф и критерий, не ход автора; вопросов не задавать; ничего не править — только отчёт | критик правит код → нарушение | prompt | — | `skills/orchestration/references/roles/code/code-reviewer.md:6` |
 | MM-166 | critic | Вопросов не задавать; ничего не править — только отчёт | read-only critic; no questions | prompt | — | `skills/orchestration/references/roles/code/code-reviewer.md:9` |
 | MM-167 | critic | Каждой проблеме — файл:строка и серьёзность; пункты с префиксом ПРОБЛЕМА:; Вердикт первой строкой | проблема без ПРОБЛЕМА: → нарушение формата | prompt | — | `skills/orchestration/references/roles/code/code-reviewer.md:12` |
@@ -244,8 +244,8 @@ status: mechanism=77; prompt=150; human=9
 | MM-193 | all | Косяк волны: возврат ТОЛЬКО git-механиками (reset/revert), не чинить поверх | откат волны → reset/revert, не самодельный скрипт | prompt | — | `skills/orchestration/SKILL.md:211` |
 | MM-194 | all | Сырой git commit -a / git add -A агентам запрещён; только pathspec через commit_wave | коммит агентом → только commit-wave.py pathspec | mechanism | commit-wave.py | `skills/orchestration/SKILL.md:217` |
 | MM-195 | all | --no-verify в логе коммита → чип commit_no_verify | коммит с --no-verify → красный чип | mechanism | commit_no_verify | `skills/orchestration/SKILL.md:219` |
-| MM-196 | all | Волна с ошибкой не принимается без DON'T-карточки (чип rules_no_retro) | ошибка волны без ретро-карточки → rules_no_retro | mechanism | rules_no_retro | `skills/orchestration/SKILL.md:230` |
-| MM-197 | all | Первая строка рабочего промта: роль: <путь>; run-exec/run-cloud — передавай --role; extractor — первые 3 строки | шапка роли отсутствует (не смоук) → нарушение | prompt | — | `skills/orchestration/SKILL.md:245` |
+| MM-196 | all | Волна с ошибкой не принимается без DON'T-карточки (чип rules_no_retro) | ошибка волны без ретро-карточки → rules_no_retro | mechanism | rules_no_retro | `skills/orchestration/SKILL.md:232` |
+| MM-197 | all | Первая строка рабочего промта: роль: <путь>; run-exec/run-cloud — передавай --role; extractor — первые 3 строки | шапка роли отсутствует (не смоук) → нарушение | prompt | — | `skills/orchestration/SKILL.md:246` |
 | MM-198 | all | stall_after EXIT 124 retry; max_wall EXIT 125 без retry | timeout classes respect exit codes | mechanism | run-exec.py | `skills/orchestration/SKILL.md:268` |
 | MM-199 | all | Глушить/ослаблять детектор без CAUSE-CLEARED — нарушение; цвет чипа ≠ критерий | detector weaken needs CAUSE-CLEARED | mechanism | orch-lint | `skills/orchestration/SKILL.md:281` |
 | MM-200 | all | Замер-гигиена: SHA кода в выводе; не глушить вывод проверок; ключ-мис = кривая проба | >/dev/null на проверке → нарушение гигиены | prompt | — | `skills/orchestration/SKILL.md:283` |

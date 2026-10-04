@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-04T00:00:34Z",
+  "generated_at": "2026-10-04T00:22:49Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -323,7 +323,7 @@
       "check": "error wave without card → rules_no_retro",
       "status": "mechanism",
       "mechanism": "rules_no_retro",
-      "source": "skills/orchestration/SKILL.md:230"
+      "source": "skills/orchestration/SKILL.md:232"
     },
     {
       "id": "MM-035",
@@ -341,7 +341,7 @@
       "check": "принятие со слов → запрещено",
       "status": "mechanism",
       "mechanism": "probes_missing",
-      "source": "skills/orchestration/SKILL.md:262"
+      "source": "skills/orchestration/SKILL.md:263"
     },
     {
       "id": "MM-037",
@@ -395,7 +395,7 @@
       "check": "пачка без фундамента → не стартовать",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/SKILL.md:287"
+      "source": "skills/orchestration/SKILL.md:288"
     },
     {
       "id": "MM-043",
@@ -683,7 +683,7 @@
       "check": "повторный COMPASS_OVERFLOW → stalled",
       "status": "mechanism",
       "mechanism": "reground.py",
-      "source": "skills/orchestration/SKILL.md:648"
+      "source": "skills/orchestration/SKILL.md:654"
     },
     {
       "id": "MM-075",
@@ -881,7 +881,7 @@
       "check": "follow-up на план → запрещено",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:354"
+      "source": "skills/orchestration/references/planning.md:366"
     },
     {
       "id": "MM-097",
@@ -890,7 +890,7 @@
       "check": "FRONT_CLOSED on cancelled/rejected",
       "status": "mechanism",
       "mechanism": "FRONT_CLOSED",
-      "source": "skills/orchestration/references/planning.md:363"
+      "source": "skills/orchestration/references/planning.md:375"
     },
     {
       "id": "MM-098",
@@ -899,7 +899,7 @@
       "check": "волна без замера/сверки → не закрывать",
       "status": "mechanism",
       "mechanism": "probes_missing",
-      "source": "skills/orchestration/references/planning.md:416"
+      "source": "skills/orchestration/references/planning.md:428"
     },
     {
       "id": "MM-099",
@@ -908,7 +908,7 @@
       "check": "commander doesn't stitch N arts himself",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:422"
+      "source": "skills/orchestration/references/planning.md:435"
     },
     {
       "id": "MM-100",
@@ -917,7 +917,7 @@
       "check": "основной источник в cross-check → by design запрет",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:424"
+      "source": "skills/orchestration/references/planning.md:436"
     },
     {
       "id": "MM-101",
@@ -926,7 +926,7 @@
       "check": "зелёный узел → не перезапускать",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:432"
+      "source": "skills/orchestration/references/planning.md:444"
     },
     {
       "id": "MM-102",
@@ -935,7 +935,7 @@
       "check": "decomposition anti-patterns avoided",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:443"
+      "source": "skills/orchestration/references/planning.md:455"
     },
     {
       "id": "MM-103",
@@ -944,7 +944,7 @@
       "check": "premature decomposition → запрещено",
       "status": "human",
       "mechanism": null,
-      "source": "skills/orchestration/references/planning.md:445"
+      "source": "skills/orchestration/references/planning.md:457"
     },
     {
       "id": "MM-104",
@@ -1115,7 +1115,7 @@
       "check": "general self-exec → stop+delegate",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:334"
+      "source": "skills/orchestration/references/planning.md:346"
     },
     {
       "id": "MM-123",
@@ -1124,7 +1124,7 @@
       "check": "таймер окна → не повод рвать руками",
       "status": "mechanism",
       "mechanism": "mustmap_nudge",
-      "source": "skills/orchestration/references/planning.md:338"
+      "source": "skills/orchestration/references/planning.md:350"
     },
     {
       "id": "MM-124",
@@ -1223,7 +1223,7 @@
       "check": "полковник пишет свой order → запрещено",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/references/planning.md:297"
+      "source": "skills/orchestration/references/planning.md:309"
     },
     {
       "id": "MM-135",
@@ -1295,7 +1295,7 @@
       "check": "промт без НЕ трогать → неполнота",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/SKILL.md:253"
+      "source": "skills/orchestration/SKILL.md:254"
     },
     {
       "id": "MM-143",
@@ -1403,7 +1403,7 @@
       "check": "критик → fresh readonly, тот же режим",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/SKILL.md:99"
+      "source": "skills/orchestration/SKILL.md:98"
     },
     {
       "id": "MM-155",
@@ -1493,7 +1493,7 @@
       "check": "карта в промте проверяющего → слепое пятно",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/references/planning.md:321"
+      "source": "skills/orchestration/references/planning.md:333"
     },
     {
       "id": "MM-165",
@@ -1781,7 +1781,7 @@
       "check": "ошибка волны без ретро-карточки → rules_no_retro",
       "status": "mechanism",
       "mechanism": "rules_no_retro",
-      "source": "skills/orchestration/SKILL.md:230"
+      "source": "skills/orchestration/SKILL.md:232"
     },
     {
       "id": "MM-197",
@@ -1790,7 +1790,7 @@
       "check": "шапка роли отсутствует (не смоук) → нарушение",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/SKILL.md:245"
+      "source": "skills/orchestration/SKILL.md:246"
     },
     {
       "id": "MM-198",
