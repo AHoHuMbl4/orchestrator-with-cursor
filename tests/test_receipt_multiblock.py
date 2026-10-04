@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""C5-K8: много-блочные квитанции §3 — отравление ретраев красной историей.
+"""C5-K8 + K8-FU: много-блочные квитанции §3 — отравление ретраев красной историей.
 
 Файл валиден ⇔ ≥1 блок §3-валиден и ЗЕЛЁНЫЙ; красные аудит-записи
 (oracle_match:false) — история, не яд; только-красный файл и mix без
 зелёного блока — невалидны. Фикстуры приказа (а)–(г) + e2e-ретрай
---probe того же id (рана F-C5-K6-REG). Запуск: cd repo &&
+--probe того же id (рана F-C5-K6-REG). Follow-up (критики ×3):
+FU-1 покрытие инвариантов только individually зелёными записями;
+FU-2 откат лжезелёного fresh-блока при живой зелёной истории;
+FU-3 require_generator per-record; FU-4 красный append на зелёный
+файл → ok=True, история сохранена. Запуск: cd repo &&
 python3 -m pytest tests/test_receipt_multiblock.py -q.
 Полигоны: только ORCHESTRATION_DIR=/tmp/k8mb-…; живой /root/.orchestration
 не пишем.
@@ -137,6 +141,47 @@ def _audit_block(rid, cmd, exit_code, ts=None):
     ) % (rid, cmd, int(exit_code), ts if ts is not None else time.time(),
          rid, rid, orchlib.kit_version(),
          hashlib.sha256(str(cmd).encode("utf-8")).hexdigest())
+
+
+def _tool_block(probe, cmd, exit_code, oracle_match, ts=None, gen=None):
+    """Блок §3 writer-канона с реальным sha (зелёный/красный по om)."""
+    import hashlib
+    return (
+        "probe: %s\n"
+        "cmd: %s\n"
+        "exit: %s\n"
+        "oracle_match: %s\n"
+        "ts: %s\n"
+        "critic_id: %s\n"
+        "artifact: %s\n"
+        "generator: %s\n"
+        "cmd_sha256: %s\n"
+    ) % (probe, cmd, int(exit_code), oracle_match,
+         ts if ts is not None else time.time(), probe, probe,
+         gen if gen is not None else
+         "orch-probe-receipt/%s" % orchlib.kit_version(),
+         hashlib.sha256(str(cmd).encode("utf-8")).hexdigest())
+
+
+_INV_SECTION_HEADER = (
+    "## Инварианты (машиночитаемые — строгий формат "
+    "«Инвариант N: <cmd> → <оракул>»; приёмка требует прогона КАЖДОГО)")
+
+
+def _write_front_order(state, fid, inv_rows):
+    """Приказ фронта с машинной секцией инвариантов (полигон /tmp)."""
+    lines = ["# Приказ фронту %s — k8fu фикстуры" % fid, "", _INV_SECTION_HEADER, ""]
+    lines.extend(inv_rows)
+    lines.append("")
+    lines.extend(["## Границы", "- полигоны /tmp."])
+    path = orchlib.front_order_path(fid, state=state)
+    _assert_not_live(path)
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
 
 
 def _run_probe(state, rid, sid, probe_cmd, oracle):
@@ -321,6 +366,145 @@ class TestReceiptMultiblock(unittest.TestCase):
         self.assertNotIn("oracle_match: false", text)
         records = orchlib._parse_receipt_records(text)
         self.assertEqual(len(records), 1)
+        pok, reason = orchlib.parse_probe_receipt(
+            text, artifact_path=art, run_id=rid)
+        self.assertTrue(pok, reason)
+        self.assertTrue(
+            orchlib.wave_has_valid_probe_receipt(rid, state=self.state))
+        self.assertNotIn(rid, orchlib.probes_missing(state=self.state))
+
+    # --- FU-1 (KR1-1): покрытие инвариантов — только individually
+    #     зелёные записи; красный аудит не легализуется чужим зелёным ---
+    def test_e_invariants_red_not_covered_by_foreign_green(self):
+        _measure("FU-1 red-A + green-B → A остаётся красным")
+        cmd_a = "python3 -m pytest tests/test_a.py -q"
+        cmd_b = "python3 -m pytest tests/test_b.py -q"
+        _write_front_order(self.state, "F-POLY", [
+            "- Инвариант 1: %s → exit 0" % cmd_a,
+            "- Инвариант 2: %s → exit 0" % cmd_b,
+        ])
+        rid = "K8-INV"
+        run_dir, _art = _mk_wave(self.state, rid)
+        # один файл: проваленный прогон A (красный аудит) + зелёный B
+        _write_text(
+            os.path.join(run_dir, "probe-receipt.md"),
+            _audit_block(rid, cmd_a, 1) + "\n"
+            + _tool_block(rid, cmd_b, 0, "true"))
+        self.assertEqual(
+            orchlib.invariants_not_run(state=self.state),
+            ["F-POLY:1"],
+            "красная запись A не гасится зелёным блоком B; B погашен своим зелёным")
+
+    def test_f_invariants_green_covers(self):
+        _measure("FU-1 green-A → гаснет")
+        cmd_a = "python3 -m pytest tests/test_a.py -q"
+        cmd_b = "python3 -m pytest tests/test_b.py -q"
+        _write_front_order(self.state, "F-POLY", [
+            "- Инвариант 1: %s → exit 0" % cmd_a,
+            "- Инвариант 2: %s → exit 0" % cmd_b,
+        ])
+        run_dir_a, _ = _mk_wave(self.state, "K8-INV-A")
+        _write_text(
+            os.path.join(run_dir_a, "probe-receipt.md"),
+            _tool_block("K8-INV-A", cmd_a, 0, "true"))
+        run_dir_b, _ = _mk_wave(self.state, "K8-INV-B")
+        _write_text(
+            os.path.join(run_dir_b, "probe-receipt.md"),
+            _tool_block("K8-INV-B", cmd_b, 0, "true"))
+        self.assertEqual(orchlib.invariants_not_run(state=self.state), [])
+
+    # --- FU-2 (KR2-1): writer откатывает лжезелёный fresh-блок
+    #     даже при живой зелёной истории ---
+    def test_g_writer_fake_green_fresh_rolled_back(self):
+        _measure("FU-2 лжезелёный fresh (exit_ne_oracle/artifact_mismatch) → откат")
+        rid = "K8-W"
+        run_dir, _art = _mk_wave(self.state, rid, with_probe_block=True)
+        path = os.path.join(run_dir, "probe-receipt.md")
+        ok, info = orchlib.write_probe_receipt(
+            probe=rid, cmd="true", exit_code=0,
+            oracle_match=True, critic_id=rid, artifact=rid,
+            run_id=rid, path=path, state=self.state)
+        self.assertTrue(ok, info)
+        green_text = orchlib._read_text_silent(path)
+        # §1-оракул «exit 0», fresh заявляет oracle_match:true при exit 1
+        ok2, info2 = orchlib.write_probe_receipt(
+            probe=rid, cmd="false", exit_code=1,
+            oracle_match=True, critic_id=rid, artifact=rid,
+            run_id=rid, path=path, state=self.state)
+        self.assertFalse(ok2)
+        self.assertEqual(info2, "validate_failed:fresh_exit_ne_oracle")
+        text = orchlib._read_text_silent(path)
+        self.assertEqual(text, green_text, "лжезелёный append откачен, зелёная история нетронута")
+        # artifact_mismatch: fresh с чужим artifact-референсом
+        ok3, info3 = orchlib.write_probe_receipt(
+            probe=rid, cmd="true", exit_code=0,
+            oracle_match=True, critic_id=rid, artifact="K8-OTHER",
+            run_id=rid, path=path, state=self.state)
+        self.assertFalse(ok3)
+        self.assertEqual(info3, "validate_failed:fresh_artifact_mismatch")
+        self.assertEqual(
+            orchlib._read_text_silent(path), green_text)
+
+    # --- FU-3 (KR1-2/KR2-2): require_generator per-record — красная
+    #     tool-запись не «донирует» generator рукописной зелёной ---
+    def test_h_require_generator_per_record(self):
+        _measure("FU-3 require_generator: generator обязана нести сама гасящая запись")
+        rid = "K8-GEN"
+        run_dir, art = _mk_wave(self.state, rid)
+        path = os.path.join(run_dir, "probe-receipt.md")
+        mtime = float(os.path.getmtime(art))
+        handmade_green = (
+            "probe: %s\n"
+            "cmd: true\n"
+            "exit: 0\n"
+            "oracle_match: true\n"
+            "ts: %s\n"
+            "critic_id: %s\n"
+            "artifact: %s\n"
+        ) % (rid, mtime + 5.0, rid, rid)
+        # рукописная зелёная без generator + красная tool-запись С generator
+        _write_text(
+            path, handmade_green + "\n" + _audit_block(rid, "true", 1))
+        _write_json(os.path.join(self.state, "params.json"), {
+            "orchestration": {"enabled": True, "hierarchy": "off"},
+            "execution": {"timeout_s": 1800},
+            "receipt": {"require_generator": True},
+        })
+        self.assertFalse(
+            orchlib.wave_has_valid_probe_receipt(rid, state=self.state),
+            "generator красной записи не легализует зелёную без generator")
+        self.assertIn(rid, orchlib.probes_missing(state=self.state))
+        # fail-open / false → рукописная зелёная снова гасит
+        _write_json(os.path.join(self.state, "params.json"), {
+            "orchestration": {"enabled": True, "hierarchy": "off"},
+            "execution": {"timeout_s": 1800},
+        })
+        self.assertTrue(
+            orchlib.wave_has_valid_probe_receipt(rid, state=self.state))
+        self.assertNotIn(rid, orchlib.probes_missing(state=self.state))
+
+    # --- FU-4 (KR1-3): красный append на зелёный файл → ok=True,
+    #     история сохранена ---
+    def test_i_red_append_on_green_file_kept_as_history(self):
+        _measure("FU-4 красный append на зелёный файл → ok=True, история жива")
+        rid = "K8-H"
+        run_dir, art = _mk_wave(self.state, rid)
+        path = os.path.join(run_dir, "probe-receipt.md")
+        ok, info = orchlib.write_probe_receipt(
+            probe=rid, cmd="true", exit_code=0,
+            oracle_match=True, critic_id=rid, artifact=rid,
+            run_id=rid, path=path, state=self.state)
+        self.assertTrue(ok, info)
+        ok2, info2 = orchlib.write_probe_receipt(
+            probe=rid, cmd="false", exit_code=1,
+            oracle_match=False, critic_id=rid, artifact=rid,
+            run_id=rid, path=path, state=self.state)
+        self.assertTrue(ok2, info2)
+        text = orchlib._read_text_silent(path)
+        self.assertEqual(text.count("oracle_match: false"), 1, text)
+        self.assertEqual(text.count("oracle_match: true"), 1, text)
+        records = orchlib._parse_receipt_records(text)
+        self.assertEqual(len(records), 2)
         pok, reason = orchlib.parse_probe_receipt(
             text, artifact_path=art, run_id=rid)
         self.assertTrue(pok, reason)

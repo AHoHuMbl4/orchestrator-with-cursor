@@ -5096,6 +5096,28 @@ def _validate_receipt_record(rec, art_mtime=None, oracle_exit=None,
     return True, "ok"
 
 
+def _receipt_art_context(artifact_path):
+    """(art_mtime, oracle_exit, art_base) артефакта для per-record §3-проверок.
+
+    art_mtime/oracle_exit — None без файла/§1-блока; art_base — basename
+    или None без пути.
+    """
+    art_mtime = None
+    oracle_exit = None
+    if artifact_path and os.path.isfile(artifact_path):
+        try:
+            art_mtime = float(os.path.getmtime(artifact_path))
+        except Exception:
+            art_mtime = None
+        block = parse_probe_block(_read_text_silent(artifact_path))
+        if block:
+            oracle_exit = _oracle_expected_exit(block.get("оракул", ""))
+    art_base = None
+    if artifact_path:
+        art_base = os.path.basename(artifact_path)
+    return art_mtime, oracle_exit, art_base
+
+
 def parse_probe_receipt(text, artifact_path=None, run_id=None):
     """Валидация квитанции §3 → (ok: bool, reason: str).
 
@@ -5115,19 +5137,7 @@ def parse_probe_receipt(text, artifact_path=None, run_id=None):
     records = _parse_receipt_records(text)
     if not records:
         return False, "no_records"
-    art_mtime = None
-    oracle_exit = None
-    if artifact_path and os.path.isfile(artifact_path):
-        try:
-            art_mtime = float(os.path.getmtime(artifact_path))
-        except Exception:
-            art_mtime = None
-        block = parse_probe_block(_read_text_silent(artifact_path))
-        if block:
-            oracle_exit = _oracle_expected_exit(block.get("оракул", ""))
-    art_base = None
-    if artifact_path:
-        art_base = os.path.basename(artifact_path)
+    art_mtime, oracle_exit, art_base = _receipt_art_context(artifact_path)
     first_bad = None
     for rec in records:
         ok, reason = _validate_receipt_record(
@@ -5209,11 +5219,13 @@ def write_probe_receipt(
 
     ts=time.time() только внутри; параметр ts извне отвергается.
     generator=orch-probe-receipt/<kit_version()>; cmd_sha256=sha256(cmd utf-8).
-    Multi-record append; после записи — parse_probe_receipt всего файла;
-    при семантике «валиден ⇔ ≥1 зелёный блок» это эквивалент валидации
-    freshly-written блока: свежая зелёная запись валидна ⇒ файл валиден
-    (красная история не отравляет), красная запись при живом зелёном
-    блоке остаётся историей; откат — только если зелёного блока нет.
+    Multi-record append; после записи — валидация fresh-блока per-record
+    (_validate_receipt_record) + parse_probe_receipt всего файла (п.1:
+    валиден ⇔ ≥1 зелёный блок). Откат: fresh-блок сам невалиден НЕ как
+    красный аудит (лжезелёный exit_ne_oracle/artifact_mismatch/… — даже
+    при живой зелёной истории) или в файле нет зелёного блока; зелёный
+    fresh при красной истории принимается, красный fresh при живом
+    зелёном остаётся историей.
     """
     if "ts" in kwargs:
         return False, "ts_rejected"
@@ -5288,9 +5300,28 @@ def write_probe_receipt(
         art_path = wave_probe_artifact_path(run_id, state=state)
     if art_path is None and artifact and os.path.isfile(str(artifact)):
         art_path = str(artifact)
+    art_mtime, oracle_exit, art_base = _receipt_art_context(art_path)
+    # fresh-блок валидируется сам по себе: лжезелёная запись (exit_ne_oracle,
+    # artifact_mismatch, …) откатывается даже при живой зелёной истории
+    fresh_rec = {
+        "probe": str(probe),
+        "cmd": cmd_s,
+        "exit": exit_s,
+        "oracle_match": om_s,
+        "ts": str(ts),
+        "critic_id": str(critic_id),
+        "artifact": str(artifact),
+        "generator": generator,
+        "cmd_sha256": cmd_sha,
+    }
+    fresh_ok, fresh_reason = _validate_receipt_record(
+        fresh_rec, art_mtime=art_mtime, oracle_exit=oracle_exit,
+        art_base=art_base, run_id=run_id)
+    # файл-уровень п.1: зелёный ≥1 блок; красный fresh без зелёной истории
+    # здесь откатывается, при живом зелёном — остаётся историей
     ok, reason = parse_probe_receipt(
         full, artifact_path=art_path, run_id=run_id)
-    if not ok:
+    if not ok or (not fresh_ok and fresh_reason != "oracle_match_false"):
         try:
             if not existed:
                 os.unlink(path)
@@ -5299,30 +5330,40 @@ def write_probe_receipt(
                     f.write(prev if prev is not None else "")
         except Exception:
             pass
-        return False, "validate_failed:%s" % reason
+        if not ok:
+            return False, "validate_failed:%s" % reason
+        return False, "validate_failed:fresh_%s" % fresh_reason
     return True, path
 
 
 def wave_has_valid_probe_receipt(run_id, state=None):
-    """True если есть ≥1 валидная квитанция §3 на артефакт волны.
+    """True если есть ≥1 ЗЕЛЁНАЯ §3-валидная запись квитанции на волны.
 
-    ADDITIVE: при params receipt.require_generator=true квитанции без
-    generator не снимают probes_missing (fail-open: ключ отсутствует → false).
-    parse_probe_receipt без params-ветки.
+    Per-record (K8-FU): гасит только запись, САМА зелёная и §3-валидная
+    (проходит _validate_receipt_record); красные аудит-записи и чужие
+    невалидные блоки ничего не гасят. ADDITIVE: при params
+    receipt.require_generator=true generator обязана нести САМА гасящая
+    запись (красная tool-запись не «донирует» generator рукописной
+    зелёной); fail-open: ключ отсутствует → false.
     """
     if state is None:
         state = find_state_dir()
     art = wave_probe_artifact_path(run_id, state=state)
     require_gen = _receipt_require_generator(state=state)
+    art_mtime, oracle_exit, art_base = _receipt_art_context(art)
     for path in find_probe_receipts(run_id, state=state):
         text = _read_text_silent(path)
-        ok, _reason = parse_probe_receipt(
-            text, artifact_path=art, run_id=run_id)
-        if not ok:
+        if not text or not text.strip():
             continue
-        if require_gen and not _receipt_records_have_generator(text):
-            continue
-        return True
+        for rec in _parse_receipt_records(text):
+            ok, _reason = _validate_receipt_record(
+                rec, art_mtime=art_mtime, oracle_exit=oracle_exit,
+                art_base=art_base, run_id=run_id)
+            if not ok:
+                continue
+            if require_gen and not str(rec.get("generator") or "").strip():
+                continue
+            return True
     return False
 
 
@@ -6960,6 +7001,9 @@ def _invariant_receipt_fronts(state=None, entries=None):
     start с front) по ПОЛНОМУ журналу (_journal_entries_at, не окно
     HEALTH_JOURNAL_SCAN_LIMIT). Гасит только generator=orch-probe-receipt/*
     (tool-only канон §3: рукописная квитанция с подсчитанным sha не гасит).
+    K8-FU: покрытие — per-record, только записи, САМИ зелёные и
+    §3-валидные (_validate_receipt_record); красная аудит-запись ничего
+    не гасит (чужой зелёный блок не легализует провалившуюся пробу).
     """
     if state is None:
         state = find_state_dir()
@@ -6976,12 +7020,14 @@ def _invariant_receipt_fronts(state=None, entries=None):
         text = _read_text_silent(path)
         if not text:
             continue
-        ok, _reason = parse_probe_receipt(
-            text, artifact_path=wave_probe_artifact_path(rid, state=state),
-            run_id=rid)
-        if not ok:
-            continue
+        art_mtime, oracle_exit, art_base = _receipt_art_context(
+            wave_probe_artifact_path(rid, state=state))
         for rec in _parse_receipt_records(text):
+            ok, _reason = _validate_receipt_record(
+                rec, art_mtime=art_mtime, oracle_exit=oracle_exit,
+                art_base=art_base, run_id=rid)
+            if not ok:
+                continue
             gen = str(rec.get("generator") or "").strip()
             if not gen.startswith(_RECEIPT_TOOL_GENERATOR):
                 continue
