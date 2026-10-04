@@ -5052,13 +5052,60 @@ def _parse_receipt_ts(raw):
     return _rules_iso_to_ts(s)
 
 
+def _validate_receipt_record(rec, art_mtime=None, oracle_exit=None,
+                             art_base=None, run_id=None):
+    """Один блок §3 → (green_valid: bool, reason: str).
+
+    green_valid: все обязательные поля; exit числом; exit==оракулу
+    (если числовой); oracle_match true; ts≥mtime(артефакта); artifact
+    ссылается на волну. Порядок проверок — прежний канон §3.
+    """
+    required = ("probe", "cmd", "exit", "oracle_match", "ts",
+                "critic_id", "artifact")
+    for k in required:
+        if k not in rec or rec[k] == "":
+            return False, "missing_%s" % k
+    try:
+        exit_code = int(str(rec["exit"]).strip())
+    except (TypeError, ValueError):
+        return False, "exit_not_int"
+    om = str(rec["oracle_match"]).strip().lower()
+    if om not in ("true", "false"):
+        return False, "oracle_match_bad"
+    ts = _parse_receipt_ts(rec["ts"])
+    if ts is None:
+        return False, "ts_not_number"
+    if art_mtime is not None and ts < art_mtime:
+        return False, "ts_stale"
+    if oracle_exit is not None and exit_code != oracle_exit:
+        return False, "exit_ne_oracle"
+    # снятие чипа — только при oracle_match true
+    if om != "true":
+        return False, "oracle_match_false"
+    art_ref = str(rec["artifact"]).strip()
+    if run_id and art_ref not in (run_id, "artifact.md", art_base or ""):
+        # допускаем путь, оканчивающийся на runs/<id>/artifact.md
+        ok_ref = (
+            art_ref.endswith("/" + run_id + "/artifact.md")
+            or art_ref.endswith("\\" + run_id + "\\artifact.md")
+            or run_id in art_ref.split("/")
+            or run_id in art_ref.split("\\")
+        )
+        if not ok_ref and art_base and art_ref != art_base:
+            return False, "artifact_mismatch"
+    return True, "ok"
+
+
 def parse_probe_receipt(text, artifact_path=None, run_id=None):
     """Валидация квитанции §3 → (ok: bool, reason: str).
 
-    ok только если: все поля; exit числом; exit==оракулу (если числовой);
-    oracle_match true; ts≥mtime(артефакта); artifact ссылается на волну;
-    проза без cmd/exit = violation.
-    ts: epoch-число или ISO-8601 (Z / ±offset) → epoch UTC.
+    Файл валиден ⇔ ХОТЯ БЫ ОДИН блок §3-валиден и ЗЕЛЁНЫЙ (все поля;
+    exit числом; exit==оракулу (если числовой); oracle_match true;
+    ts≥mtime(артефакта); artifact ссылается на волну). Красные
+    аудит-записи (oracle_match:false) — история: не отравляют валидность
+    и сами её не дают — файл только-красный / mix без зелёного блока
+    невалиден (reason первой неверной записи). Проза без cmd/exit =
+    violation. ts: epoch-число или ISO-8601 (Z / ±offset) → epoch UTC.
     """
     if not text or not isinstance(text, str) or not text.strip():
         return False, "empty"
@@ -5081,41 +5128,16 @@ def parse_probe_receipt(text, artifact_path=None, run_id=None):
     art_base = None
     if artifact_path:
         art_base = os.path.basename(artifact_path)
+    first_bad = None
     for rec in records:
-        required = ("probe", "cmd", "exit", "oracle_match", "ts",
-                    "critic_id", "artifact")
-        for k in required:
-            if k not in rec or rec[k] == "":
-                return False, "missing_%s" % k
-        try:
-            exit_code = int(str(rec["exit"]).strip())
-        except (TypeError, ValueError):
-            return False, "exit_not_int"
-        om = str(rec["oracle_match"]).strip().lower()
-        if om not in ("true", "false"):
-            return False, "oracle_match_bad"
-        ts = _parse_receipt_ts(rec["ts"])
-        if ts is None:
-            return False, "ts_not_number"
-        if art_mtime is not None and ts < art_mtime:
-            return False, "ts_stale"
-        if oracle_exit is not None and exit_code != oracle_exit:
-            return False, "exit_ne_oracle"
-        # снятие чипа — только при oracle_match true
-        if om != "true":
-            return False, "oracle_match_false"
-        art_ref = str(rec["artifact"]).strip()
-        if run_id and art_ref not in (run_id, "artifact.md", art_base or ""):
-            # допускаем путь, оканчивающийся на runs/<id>/artifact.md
-            ok_ref = (
-                art_ref.endswith("/" + run_id + "/artifact.md")
-                or art_ref.endswith("\\" + run_id + "\\artifact.md")
-                or run_id in art_ref.split("/")
-                or run_id in art_ref.split("\\")
-            )
-            if not ok_ref and art_base and art_ref != art_base:
-                return False, "artifact_mismatch"
-    return True, "ok"
+        ok, reason = _validate_receipt_record(
+            rec, art_mtime=art_mtime, oracle_exit=oracle_exit,
+            art_base=art_base, run_id=run_id)
+        if ok:
+            return True, "ok"
+        if first_bad is None:
+            first_bad = reason
+    return False, first_bad if first_bad is not None else "no_green_record"
 
 
 def find_probe_receipts(run_id, state=None):
@@ -5187,7 +5209,11 @@ def write_probe_receipt(
 
     ts=time.time() только внутри; параметр ts извне отвергается.
     generator=orch-probe-receipt/<kit_version()>; cmd_sha256=sha256(cmd utf-8).
-    Multi-record append; после записи — parse_probe_receipt; fail → откат.
+    Multi-record append; после записи — parse_probe_receipt всего файла;
+    при семантике «валиден ⇔ ≥1 зелёный блок» это эквивалент валидации
+    freshly-written блока: свежая зелёная запись валидна ⇒ файл валиден
+    (красная история не отравляет), красная запись при живом зелёном
+    блоке остаётся историей; откат — только если зелёного блока нет.
     """
     if "ts" in kwargs:
         return False, "ts_rejected"
