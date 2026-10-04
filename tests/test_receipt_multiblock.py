@@ -9,7 +9,11 @@
 FU-1 покрытие инвариантов только individually зелёными записями;
 FU-2 откат лжезелёного fresh-блока при живой зелёной истории;
 FU-3 require_generator per-record; FU-4 красный append на зелёный
-файл → ok=True, история сохранена. Запуск: cd repo &&
+файл → ok=True, история сохранена. Follow-up №2 (фикс-критики ×3):
+exempt отката по собственному oracle_match записи (честный красный
+с §1-числовым оракулом — история, не откат), append в
+_write_failed_oracle_audit, FU-4/а-e2e с каноническим §1-блоком
+(«оракул: exit 0») + красный ретрай при живом зелёном. Запуск: cd repo &&
 python3 -m pytest tests/test_receipt_multiblock.py -q.
 Полигоны: только ORCHESTRATION_DIR=/tmp/k8mb-…; живой /root/.orchestration
 не пишем.
@@ -278,7 +282,9 @@ class TestReceiptMultiblock(unittest.TestCase):
     def test_a2_probe_wrapper_retry_green_same_id(self):
         _measure("(а-e2e) --probe fail → retry same id → зелёная квитанция")
         rid, sid = "K8-E2E", "s1"
-        run_dir, art = _mk_wave(self.state, rid, sid=sid)
+        # канонический §1-блок («оракул: exit 0») — числовой оракул артефакта
+        run_dir, art = _mk_wave(self.state, rid, sid=sid,
+                                with_probe_block=True)
         path = os.path.join(run_dir, "probe-receipt.md")
         r1 = _run_probe(self.state, rid, sid, "false", 0)
         self.assertNotEqual(r1.returncode, 0, r1.stdout)
@@ -300,6 +306,23 @@ class TestReceiptMultiblock(unittest.TestCase):
         pok, reason = orchlib.parse_probe_receipt(
             text2, artifact_path=art, run_id=rid)
         self.assertTrue(pok, reason)
+        self.assertTrue(
+            orchlib.wave_has_valid_probe_receipt(rid, state=self.state))
+        self.assertNotIn(rid, orchlib.probes_missing(state=self.state))
+
+        # K8-FU2: КРАСНЫЙ ретрай того же id при живом зелёном (§1-оракул
+        # числовой) — зелёный блок жив, красный аудит в истории, рана
+        # не рецидивирует (e2e-репродукция фикс-критиков ×3)
+        r3 = _run_probe(self.state, rid, sid, "false", 0)
+        self.assertNotEqual(r3.returncode, 0, r3.stdout)
+        text3 = orchlib._read_text_silent(path)
+        self.assertEqual(
+            text3.count("oracle_match: false"), 2, text3)
+        self.assertEqual(
+            text3.count("oracle_match: true"), 1, text3)
+        pok3, reason3 = orchlib.parse_probe_receipt(
+            text3, artifact_path=art, run_id=rid)
+        self.assertTrue(pok3, reason3)
         self.assertTrue(
             orchlib.wave_has_valid_probe_receipt(rid, state=self.state))
         self.assertNotIn(rid, orchlib.probes_missing(state=self.state))
@@ -484,17 +507,20 @@ class TestReceiptMultiblock(unittest.TestCase):
         self.assertNotIn(rid, orchlib.probes_missing(state=self.state))
 
     # --- FU-4 (KR1-3): красный append на зелёный файл → ok=True,
-    #     история сохранена ---
+    #     история сохранена; K8-FU2 — с каноническим §1-блоком
+    #     (числовой оракул «exit 0»): честный красный exit 1 ≠ оракулу ---
     def test_i_red_append_on_green_file_kept_as_history(self):
-        _measure("FU-4 красный append на зелёный файл → ok=True, история жива")
+        _measure("FU-4 красный append на зелёный файл (§1-оракул) → ok=True, история жива")
         rid = "K8-H"
-        run_dir, art = _mk_wave(self.state, rid)
+        run_dir, art = _mk_wave(self.state, rid, with_probe_block=True)
         path = os.path.join(run_dir, "probe-receipt.md")
         ok, info = orchlib.write_probe_receipt(
             probe=rid, cmd="true", exit_code=0,
             oracle_match=True, critic_id=rid, artifact=rid,
             run_id=rid, path=path, state=self.state)
         self.assertTrue(ok, info)
+        # честный красный: om=false, exit 1 ≠ §1-оракулу exit 0 —
+        # per-record reason exit_ne_oracle, но красность по om_s
         ok2, info2 = orchlib.write_probe_receipt(
             probe=rid, cmd="false", exit_code=1,
             oracle_match=False, critic_id=rid, artifact=rid,

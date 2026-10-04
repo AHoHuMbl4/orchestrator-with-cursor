@@ -1554,6 +1554,8 @@ def _write_failed_oracle_audit(path, probe, cmd, exit_code, critic_id, artifact)
     write_probe_receipt волны A откатывает запись: parse требует oracle_match
     true (снятие probes_missing). Автопуть --probe обязан оставить след
     провала оракула в том же каноне полей + generator (не второй writer).
+    Append, не "w" (K8-FU2): история файла неприкосновенна даже в fallback —
+    откат writer'а мог восстановить зелёный блок, транкейт недопустим.
     """
     import hashlib
     cmd_s = "" if cmd is None else str(cmd)
@@ -1575,7 +1577,20 @@ def _write_failed_oracle_audit(path, probe, cmd, exit_code, critic_id, artifact)
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    existed = os.path.isfile(path)
+    prev = ""
+    if existed:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                prev = f.read()
+        except Exception:
+            prev = ""
+    with open(path, "a", encoding="utf-8") as f:
+        if existed and prev:
+            if not prev.endswith("\n"):
+                f.write("\n")
+            if prev.strip():
+                f.write("\n")
         f.write(block)
     return path
 

@@ -5221,11 +5221,11 @@ def write_probe_receipt(
     generator=orch-probe-receipt/<kit_version()>; cmd_sha256=sha256(cmd utf-8).
     Multi-record append; после записи — валидация fresh-блока per-record
     (_validate_receipt_record) + parse_probe_receipt всего файла (п.1:
-    валиден ⇔ ≥1 зелёный блок). Откат: fresh-блок сам невалиден НЕ как
-    красный аудит (лжезелёный exit_ne_oracle/artifact_mismatch/… — даже
-    при живой зелёной истории) или в файле нет зелёного блока; зелёный
-    fresh при красной истории принимается, красный fresh при живом
-    зелёном остаётся историей.
+    валиден ⇔ ≥1 зелёный блок). Откат классифицируется по собственному
+    oracle_match fresh-записи: om=true и fresh невалиден (лжезелёный
+    exit_ne_oracle/artifact_mismatch/…) — откат даже при живой зелёной
+    истории; om=false (честный красный аудит, любой per-record reason) —
+    история, пока файл валиден по п.1 (нет зелёного нигде — откат).
     """
     if "ts" in kwargs:
         return False, "ts_rejected"
@@ -5321,7 +5321,12 @@ def write_probe_receipt(
     # здесь откатывается, при живом зелёном — остаётся историей
     ok, reason = parse_probe_receipt(
         full, artifact_path=art_path, run_id=run_id)
-    if not ok or (not fresh_ok and fresh_reason != "oracle_match_false"):
+    # exempt по собственному oracle_match fresh-записи (не по reason):
+    # om_s=="false" — честный красный аудит, любой per-record reason
+    # (exit_ne_oracle при провале оракула — норма красной записи) —
+    # история, пока файл валиден; om_s=="true" и fresh невалиден —
+    # лжезелёный, откат даже при живой зелёной истории
+    if not ok or (not fresh_ok and om_s != "false"):
         try:
             if not existed:
                 os.unlink(path)
