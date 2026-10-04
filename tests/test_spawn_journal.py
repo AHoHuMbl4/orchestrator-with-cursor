@@ -315,7 +315,7 @@ class TestSpawnPairVisible(SpawnTemp):
         self.assertEqual(st.get("engine"), "local")
         self.assertEqual(en.get("verdict"), "Вердикт: OK")
         self.assertTrue(en.get("spawn"))
-        self.assertEqual(en.get("source_artifact"), os.path.abspath(art))
+        self.assertEqual(en.get("source_artifact"), os.path.realpath(art))
         self.assertAlmostEqual(en.get("artifact_mtime", 0),
                                os.path.getmtime(art), delta=5.0)
         self.assertEqual(en.get("receipts"), [r1, r2])
@@ -502,19 +502,22 @@ class TestSpawnBackfill(SpawnTemp):
         self.assertEqual(bf["id"], "BF1")
         self.assertEqual(bf["role"], "code/coder.md")
         self.assertEqual(bf["front"], FRONT)
-        self.assertEqual(bf["source_artifact"], os.path.abspath(art))
+        self.assertEqual(bf["source_artifact"], os.path.realpath(art))
         self.assertEqual(bf["artifact_mtime"], mtime)
         self.assertTrue(bf["verdict"].startswith("Вердикт: ГОТОВО"))
         # verdict-строка из файла, без выдумок
         self.assertEqual(en["verdict"], bf["verdict"])
-        self.assertEqual(en.get("source_artifact"), os.path.abspath(art))
+        self.assertEqual(en.get("source_artifact"), os.path.realpath(art))
         self.assertEqual(en.get("artifact_mtime"), mtime)
         self.assertEqual(en.get("receipts"), [r1])
         self.assertTrue(st.get("spawn") and en.get("spawn"))
+        # поле exit отсутствует: истина завершения — verdict (KR3), не
+        # синтетический «код успеха» регистрации
+        self.assertNotIn("exit", en, "spawn-end без поля exit")
         _measure("MEASURE (в) spawn-backfill → start+end+kind=backfill; "
                  "ts=момент регистрации (строго новее mtime файла), "
                  "registered_ts==ts, verdict/source_artifact/mtime — из "
-                 "артефакта-факта")
+                 "артефакта-факта; поле exit в spawn-записях отсутствует")
 
     def test_verdict_line_formats(self):
         # строгий формат — частный случай; суффикс/декор; голый заголовок;
@@ -760,6 +763,203 @@ class TestBeforeAfterRegistration(SpawnTemp):
                  "--check-close exit 1 (waves_no_critic + "
                  "code_waves_no_gitwarden); spawn-backfill волны из "
                  "артефактов → --check-close exit 0, блокеров нет")
+
+
+# ---------------------------------------------------------------------------
+# FOLLOW-UP (ревью ×3): дедуп source_artifact (realpath, вкл. симлинк);
+# spawn-abandon висящего старта (idle-детекторы возвращаются); секрет в
+# вердикт-строке; строгость флагов по режиму
+# ---------------------------------------------------------------------------
+
+
+class TestFollowup(SpawnTemp):
+    def test_artifact_dedup_realpath_and_symlink(self):
+        # один source_artifact (в т.ч. симлинк на него) не регистрируется
+        # под вторым id; id-дедуп остаётся (тот же id → duplicate_start)
+        r1 = _mk_receipt(self.state, "R-FA")
+        art = _artifact(self.root, "one.md", "Вердикт: OK\n")
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-backfill", "--id", "FA-1",
+            "--role", "code/coder.md", "--front", FRONT,
+            "--artifact", art, "--receipts", r1)
+        self.assertEqual(rc, 0, err)
+        after_first = _raw_journal(self.state)
+        # другой id, тот же файл → отказ
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-backfill", "--id", "FA-2",
+            "--role", "code/coder.md", "--front", FRONT,
+            "--artifact", art, "--receipts", r1)
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("duplicate_artifact", err)
+        self.assertEqual(_raw_journal(self.state), after_first,
+                         "дубль артефакта не пишется")
+        # симлинк на тот же файл — тот же источник (realpath)
+        link = os.path.join(self.root, "art", "one-link.md")
+        os.symlink(art, link)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-backfill", "--id", "FA-3",
+            "--role", "code/code-reviewer.md", "--front", FRONT,
+            "--artifact", link)
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("duplicate_artifact", err)
+        self.assertEqual(_raw_journal(self.state), after_first)
+        # тот же id повторно → id-дедуп (не артефактный)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-backfill", "--id", "FA-1",
+            "--role", "code/coder.md", "--front", FRONT,
+            "--artifact", art, "--receipts", r1)
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("duplicate_start", err)
+        # spawn-finish другого рана с тем же артефактом → тоже отказ
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-start", "--id", "FA-4",
+            "--role", "code/git-warden.md", "--front", FRONT)
+        self.assertEqual(rc, 0, err)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-finish", "--id", "FA-4", "--artifact", art)
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("duplicate_artifact", err)
+        # другой артефакт — регистрируется свободно
+        art2 = _artifact(self.root, "two.md", "Вердикт: OK\n")
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-finish", "--id", "FA-4", "--artifact", art2)
+        self.assertEqual(rc, 0, err)
+        _measure("MEASURE (FU-1) один source_artifact (вкл. симлинк) — "
+                 "ровно один ран: повторный backfill/finish под другим id → "
+                 "отказ duplicate_artifact, журнал не тронут; id-дедуп "
+                 "сохранён (duplicate_start)")
+
+    def test_spawn_abandon_restores_idle_detectors(self):
+        # висящий spawn-start навсегда делал idle=False → fid-детекторы
+        # фронта подавлены; abandon закрывает ран честной пометкой
+        _prosecutor(self.state, FRONT, self.now)
+        # базовая линия: законченная волна (проб-ран обёртки с квитанцией)
+        # честно видна детекторам
+        _seed_run(self.state, "W-A", FRONT, "code/coder.md",
+                  self.now - 60, self.now - 50)
+        _mk_receipt(self.state, "W-A")
+        base = orchlib.close_blockers(FRONT, state=self.state, use_cache=False)
+        self.assertIn("waves_no_critic:%s" % FRONT, base)
+        self.assertIn("code_waves_no_gitwarden:%s" % FRONT, base)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-start", "--id", "HANG1",
+            "--role", "code/coder.md", "--front", FRONT)
+        self.assertEqual(rc, 0, err)
+        # ДО abandon: открытый старт держит idle=False — волна «невидима»
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertNotIn("waves_no_critic:%s" % FRONT, blockers,
+                         "висящий старт подавил idle-детектор (сцена KR1)")
+        self.assertNotIn("code_waves_no_gitwarden:%s" % FRONT, blockers)
+        # abandon без причины — usage; с секретом в причине — гард
+        rc, _o, _e = _cli_spawn(self.state, "spawn-abandon", "--id", "HANG1")
+        self.assertEqual(rc, 2)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-abandon", "--id", "HANG1",
+            "--reason", "умер, ключ sk-abcdef0123456789abcdef0123456789")
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("secrets_in_argv", err)
+        # честный abandon с фактом в причине
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-abandon", "--id", "HANG1",
+            "--reason", "движковый ран умер без артефакта, отчёта нет")
+        self.assertEqual(rc, 0, err)
+        ends = [e for e in _entries(self.state)
+                if e.get("kind") == "end" and e.get("id") == "HANG1"]
+        self.assertEqual(len(ends), 1)
+        en = ends[0]
+        self.assertEqual(
+            en.get("verdict"),
+            "ABANDONED: движковый ран умер без артефакта, отчёта нет")
+        self.assertTrue(en.get("spawn"))
+        self.assertNotIn("source_artifact", en)
+        self.assertNotIn("exit", en)
+        self.assertNotIn("receipts", en)
+        # ПОСЛЕ abandon: ран закрыт → idle вернулся, волна честно видна
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertIn("waves_no_critic:%s" % FRONT, blockers)
+        self.assertIn("code_waves_no_gitwarden:%s" % FRONT, blockers)
+        # abandon-код-рана без квитанций остаётся красной в probes_missing
+        # (fail-closed: артефакта/приёмки нет — рана не прикрыта)
+        self.assertIn("HANG1",
+                      orchlib.probes_missing(state=self.state,
+                                             scan_limit=False))
+        # abandon неизвестного/закрытого рана — отказ
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-abandon", "--id", "GHOST-X",
+            "--reason", "нет рана")
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("no_spawn_start", err)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-abandon", "--id", "HANG1",
+            "--reason", "повтор")
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("duplicate_end", err)
+        _measure("MEASURE (FU-2) spawn-abandon: законченная волна видна → "
+                 "висящий spawn-start подавил idle-детекторы → end с "
+                 "verdict=ABANDONED:<факт> (без exit/source_artifact) → "
+                 "волна снова видна честно; abandon код-раны без квитанций "
+                 "остаётся красной в probes_missing")
+
+    def test_verdict_secret_refused(self):
+        # секрет, случайно попавший в вердикт-строку артефакта, не
+        # переезжает в журнал (KR1): гард secrets_in_verdict
+        r1 = _mk_receipt(self.state, "R-SEC")
+        art = _artifact(
+            self.root, "leak.md",
+            "Вердикт: OK — ключ sk-abcdef0123456789abcdef0123456789 утёк\n")
+        before = _raw_journal(self.state)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-backfill", "--id", "SEC1",
+            "--role", "code/coder.md", "--front", FRONT,
+            "--artifact", art, "--receipts", r1)
+        self.assertEqual(rc, orchlib.SPAWN_REFUSE_EXIT, err)
+        self.assertIn("secrets_in_verdict", err)
+        self.assertEqual(_raw_journal(self.state), before,
+                         "секретный вердикт не пишется в журнал")
+
+    def test_mode_flags_strictness(self):
+        # неприменимые к режиму флаги — usage-отказ exit 2, не молчаливое
+        # игнорирование (KR3): --receipts на start, --role на finish,
+        # --artifact на start, --front на finish, всё лишнее на abandon
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-start", "--id", "STX",
+            "--role", "code/git-warden.md", "--front", FRONT,
+            "--receipts", "R1")
+        self.assertEqual(rc, 2, err)
+        art = _artifact(self.root, "stx.md", "Вердикт: OK\n")
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-start", "--id", "STX",
+            "--role", "code/git-warden.md", "--front", FRONT,
+            "--artifact", art)
+        self.assertEqual(rc, 2, err)
+        rc, _o, _e = _cli_spawn(
+            self.state, "spawn-start", "--id", "STX",
+            "--role", "code/git-warden.md", "--front", FRONT)
+        self.assertEqual(rc, 0)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-finish", "--id", "STX",
+            "--role", "code/git-warden.md", "--artifact", art)
+        self.assertEqual(rc, 2, err)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-finish", "--id", "STX",
+            "--front", FRONT, "--artifact", art)
+        self.assertEqual(rc, 2, err)
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-abandon", "--id", "STX",
+            "--reason", "x", "--receipts", "R1")
+        self.assertEqual(rc, 2, err)
+        # применимые флаги по-прежнему работают
+        rc, _o, err = _cli_spawn(
+            self.state, "spawn-finish", "--id", "STX", "--artifact", art)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(_raw_journal(self.state).count(b'"kind": "start"'), 1,
+                         "за usage-отказы журнал не рос лишними стартами")
+        _measure("MEASURE (FU-3) строгость argv: неприменимые к режиму "
+                 "флаги (--receipts на start, --role/--front на finish, "
+                 "--artifact на start, лишнее на abandon) → exit 2 до "
+                 "записи; секрет в вердикт-строке → secrets_in_verdict")
 
 
 # ---------------------------------------------------------------------------

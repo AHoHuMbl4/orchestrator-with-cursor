@@ -8871,8 +8871,10 @@ def _spawn_locked_write(state, builder):
     """Критическая секция регистрации: flock journal → гарды по существующим
     записям → запись всех записей сразу (отказ — без единой строки).
 
-    builder(starts_by_id, start_ids, end_ids) → (ok, reason, entries):
-    журнальные гарды вызывающего (дедуп id, требуемый spawn-start).
+    builder(starts_by_id, start_ids, end_ids, art_by_id) → (ok, reason,
+    entries): журнальные гарды вызывающего (дедуп id, требуемый
+    spawn-start, дедуп source_artifact). art_by_id — source_artifact → id
+    уже зарегистрированных ранов (kind=end/backfill).
     """
     path = os.path.join(state, "journal.jsonl")
     try:
@@ -8888,6 +8890,7 @@ def _spawn_locked_write(state, builder):
                 starts_by_id = {}
                 start_ids = set()
                 end_ids = set()
+                art_by_id = {}
                 for line in raw.splitlines():
                     s = line.strip()
                     if not s:
@@ -8903,7 +8906,12 @@ def _spawn_locked_write(state, builder):
                         start_ids.add(obj["id"])
                     elif obj.get("kind") == "end" and obj.get("id"):
                         end_ids.add(obj["id"])
-                ok, reason, entries = builder(starts_by_id, start_ids, end_ids)
+                    if (obj.get("kind") in ("end", "backfill")
+                            and obj.get("id")
+                            and isinstance(obj.get("source_artifact"), str)):
+                        art_by_id.setdefault(obj["source_artifact"], obj["id"])
+                ok, reason, entries = builder(
+                    starts_by_id, start_ids, end_ids, art_by_id)
                 if not ok:
                     return False, reason
                 for entry in entries:
@@ -8919,19 +8927,26 @@ def _spawn_locked_write(state, builder):
 
 
 def spawn_register(mode, run_id, role=None, front=None, artifact=None,
-                   receipts=None, state=None):
+                   receipts=None, reason=None, state=None):
     """Регистрация движкового спавн-рана в journal (K5; журнал = истина).
 
     mode="start" — kind=start (spawn:true); mode="finish" — kind=end по
     существующему spawn-start (verdict/source_artifact/artifact_mtime из
-    артефакта-факта); mode="backfill" — пара + сводка kind=backfill одним
-    вызовом для уже завершённого рана (ts = момент регистрации, НЕ
-    исторический). Гарды: front обязателен; артефакт существует/непустой/
-    с вердикт-строкой; для код-ролей (coder/fix) — обязательные --receipts
-    (все id — валидные квитанции §3); дедуп id под flock; секретов в argv
-    нет. Возвращает (ok, message); отказ — журнал не тронут.
+    артефакта-факта, читаемого ПОД замком — без TOCTOU-окна); 
+    mode="backfill" — пара + сводка kind=backfill одним вызовом для уже
+    завершённого рана (ts = момент регистрации, НЕ исторический);
+    mode="abandon" — kind=end с verdict="ABANDONED: <reason>" для
+    мёртвого рана без артефакта (честная пометка, НЕ успех: ран перестаёт
+    висеть и снова виден idle-детекторам; код-рана без квитанций остаётся
+    красной в probes_missing — fail-closed). Истина завершения — verdict
+    (строка артефакта / ABANDONED), поле exit в spawn-записи отсутствует.
+    Гарды: front обязателен (start/backfill); артефакт существует/непустой/
+    с вердикт-строкой БЕЗ секретов; для код-ролей (coder/fix) — обязательные
+    --receipts (все id — валидные квитанции §3, кроме abandon); дедуп id И
+    source_artifact (realpath) под flock; секретов в argv/reason нет.
+    Возвращает (ok, message); отказ — журнал не тронут.
     """
-    if mode not in ("start", "finish", "backfill"):
+    if mode not in ("start", "finish", "backfill", "abandon"):
         return False, "bad_mode:%s" % mode
     if state is None:
         state = find_state_dir()
@@ -8944,44 +8959,25 @@ def spawn_register(mode, run_id, role=None, front=None, artifact=None,
     reg_role = normalize_journal_role(role) if role else None
     if mode in ("start", "backfill") and not reg_role:
         return False, "role_required"
-    # секреты не в argv (единый сканер кита)
+    reason = re.sub(r"\s+", " ", str(reason or "")).strip()
+    if mode == "abandon" and not reason:
+        return False, "reason_required"
+    # секреты не в argv (единый сканер кита; reason — тоже argv)
     argv_blob = " ".join(x for x in (
         run_id, reg_role or "", front or "", artifact or "",
-        ",".join(receipts or [])) if x)
+        ",".join(receipts or []), reason or "") if x)
     secret = scan_secrets(argv_blob)
     if secret:
         return False, "secrets_in_argv:%s" % secret
 
-    verdict = None
-    mtime = None
-    artifact_abs = None
-    if mode in ("finish", "backfill"):
-        if not artifact or not isinstance(artifact, str):
-            return False, "artifact_required"
-        artifact_abs = os.path.abspath(artifact)
-        if not os.path.isfile(artifact_abs):
-            return False, "artifact_missing:%s" % artifact_abs
-        try:
-            if os.path.getsize(artifact_abs) <= 0:
-                return False, "artifact_empty:%s" % artifact_abs
-            with open(artifact_abs, "r", encoding="utf-8",
-                      errors="replace") as f:
-                text = f.read()
-        except OSError as e:
-            return False, "artifact_unreadable:%s" % e
-        verdict = spawn_verdict_from_text(text)
-        if not verdict:
-            return False, "artifact_no_verdict:%s" % artifact_abs
-        try:
-            mtime = float(os.path.getmtime(artifact_abs))
-        except OSError as e:
-            return False, "artifact_mtime_failed:%s" % e
-
     receipts = [r for r in (receipts or []) if isinstance(r, str)]
+    artifact = artifact if isinstance(artifact, str) and artifact else None
+    if mode in ("finish", "backfill") and not artifact:
+        return False, "artifact_required"
 
-    # роль finish-рана — из существующего start (дочитываем до замка;
-    # под замком сверяем, что start не изменился)
-    if mode == "finish":
+    # роль finish/abandon-рана — из существующего start (дочитываем до
+    # замка; под замком сверяем, что start не изменился)
+    if mode in ("finish", "abandon"):
         pre = _journal_entries_at(state)
         pre_starts = _journal_start_index(pre)
         st = pre_starts.get(run_id)
@@ -9001,14 +8997,43 @@ def spawn_register(mode, run_id, role=None, front=None, artifact=None,
         if bad:
             return False, "receipts_invalid:%s" % ",".join(bad)
 
-    def _builder(starts_by_id, start_ids, end_ids):
-        if mode == "finish":
+    def _read_artifact_under_lock():
+        """Артефакт-факт под замком: (verdict, mtime, realpath, None) или
+        (None, None, None, reason-отказа).
+
+        Чтение текста и mtime в одной критсекции с append в journal —
+        verdict/mtime соответствуют моменту записи (KR3: TOCTOU-окна нет).
+        Вердикт-строка проходит scan_secrets: секрет из артефакта не
+        переезжает в журнал (KR1).
+        """
+        real = os.path.realpath(artifact)
+        if not os.path.isfile(real):
+            return None, None, None, "artifact_missing:%s" % real
+        try:
+            if os.path.getsize(real) <= 0:
+                return None, None, None, "artifact_empty:%s" % real
+            with open(real, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            mtime = float(os.path.getmtime(real))
+        except OSError as e:
+            return None, None, None, "artifact_unreadable:%s" % e
+        verdict = spawn_verdict_from_text(text)
+        if not verdict:
+            return None, None, None, "artifact_no_verdict:%s" % real
+        secret = scan_secrets(verdict)
+        if secret:
+            return None, None, None, "secrets_in_verdict:%s" % secret
+        return verdict, mtime, real, None
+
+    def _builder(starts_by_id, start_ids, end_ids, art_by_id):
+        if mode in ("finish", "abandon"):
             st = starts_by_id.get(run_id)
             if st is None:
                 return False, "no_spawn_start:%s" % run_id, []
             if not st.get("spawn"):
                 return False, "not_spawn_start:%s" % run_id, []
-            if normalize_journal_role(st.get("role")) != reg_role:
+            if mode == "finish" and normalize_journal_role(
+                    st.get("role")) != reg_role:
                 return False, "start_role_changed:%s" % run_id, []
             if run_id in end_ids:
                 return False, "duplicate_end:%s" % run_id, []
@@ -9017,6 +9042,24 @@ def spawn_register(mode, run_id, role=None, front=None, artifact=None,
                 return False, "duplicate_start:%s" % run_id, []
             if mode == "backfill" and run_id in end_ids:
                 return False, "duplicate_end:%s" % run_id, []
+        verdict = None
+        mtime = None
+        artifact_real = None
+        if mode in ("finish", "backfill"):
+            verdict, mtime, artifact_real, problem = (
+                _read_artifact_under_lock())
+            if problem:
+                return False, problem, []
+            # дедуп источника (realpath): один артефакт — один ран (симлинк
+            # на тот же файл — тот же источник); id-дедуп остаётся выше
+            other = art_by_id.get(artifact_real)
+            if other is not None and other != run_id:
+                return False, "duplicate_artifact:%s already %s" % (
+                    artifact_real, other), []
+        elif mode == "abandon":
+            verdict = ("ABANDONED: %s" % reason).strip()
+            if len(verdict) > _VERDICT_MAX_LEN:
+                verdict = verdict[:_VERDICT_MAX_LEN]
         ts = time.time()
         entries = []
         if mode in ("start", "backfill"):
@@ -9026,21 +9069,24 @@ def spawn_register(mode, run_id, role=None, front=None, artifact=None,
                 "engine": "local", "front": front, "role": reg_role,
                 "spawn": True,
             })
-        if mode in ("finish", "backfill"):
+        if mode in ("finish", "backfill", "abandon"):
+            # поле exit отсутствует: истина завершения — verdict (строка
+            # артефакта / ABANDONED), исторический код рана неизвестен
             end_entry = {
-                "ts": ts, "kind": "end", "id": run_id, "exit": 0,
+                "ts": ts, "kind": "end", "id": run_id,
                 "verdict": verdict, "gates": [], "spawn": True,
-                "source_artifact": artifact_abs,
-                "artifact_mtime": mtime,
             }
-            if receipts:
-                end_entry["receipts"] = list(receipts)
+            if mode in ("finish", "backfill"):
+                end_entry["source_artifact"] = artifact_real
+                end_entry["artifact_mtime"] = mtime
+                if receipts:
+                    end_entry["receipts"] = list(receipts)
             entries.append(end_entry)
         if mode == "backfill":
             entries.append({
                 "ts": ts, "kind": "backfill", "id": run_id,
                 "role": reg_role, "front": front,
-                "source_artifact": artifact_abs, "verdict": verdict,
+                "source_artifact": artifact_real, "verdict": verdict,
                 "artifact_mtime": mtime, "registered_ts": ts,
             })
         return True, "ok", entries
@@ -9048,14 +9094,27 @@ def spawn_register(mode, run_id, role=None, front=None, artifact=None,
     return _spawn_locked_write(state, _builder)
 
 
-def _cli_spawn(argv):
-    """spawn-start / spawn-finish / spawn-backfill (регистратор K5).
+# Допустимые флаги по режиму (строгость argv, KR3): неприменимый к режиму
+# флаг — usage-отказ exit 2, а не молчаливое игнорирование.
+_SPAWN_MODE_FLAGS = {
+    "start": ("--id", "--role", "--front"),
+    "finish": ("--id", "--artifact", "--receipts"),
+    "backfill": ("--id", "--role", "--front", "--artifact", "--receipts"),
+    "abandon": ("--id", "--reason"),
+}
 
-    exit 0 — записано; 2 — usage; SPAWN_REFUSE_EXIT — гард (журнал не
-    тронут). Повторная регистрация того же id — отказ (дедуп под flock).
+
+def _cli_spawn(argv):
+    """spawn-start / spawn-finish / spawn-backfill / spawn-abandon (K5).
+
+    exit 0 — записано; 2 — usage (в т.ч. неприменимый к режиму флаг);
+    SPAWN_REFUSE_EXIT — гард (журнал не тронут). Повторная регистрация
+    того же id/артефакта — отказ (дедуп под flock).
     """
     mode = argv[0][len("spawn-"):]
-    known = ("--id", "--role", "--front", "--artifact", "--receipts")
+    allowed_flags = _SPAWN_MODE_FLAGS.get(mode, ())
+    known = ("--id", "--role", "--front", "--artifact", "--receipts",
+             "--reason")
     flags = {}
     i = 1
     while i < len(argv):
@@ -9066,6 +9125,12 @@ def _cli_spawn(argv):
             continue
         sys.stderr.write("spawn: неизвестный или неполный аргумент: %s\n" % a)
         return 2
+    for flag in flags:
+        if flag not in allowed_flags:
+            sys.stderr.write(
+                "spawn %s: флаг %s неприменим к режиму (допустимо: %s)\n"
+                % (mode, flag, " ".join(allowed_flags)))
+            return 2
     run_id = (flags.get("--id") or "").strip()
     if not run_id:
         sys.stderr.write("spawn %s: --id обязателен\n" % mode)
@@ -9074,6 +9139,7 @@ def _cli_spawn(argv):
         "start": ("--role", "--front"),
         "finish": ("--artifact",),
         "backfill": ("--role", "--front", "--artifact"),
+        "abandon": ("--reason",),
     }.get(mode, ())
     for flag in required:
         if not (flags.get(flag) or "").strip():
@@ -9085,6 +9151,7 @@ def _cli_spawn(argv):
         front=flags.get("--front"),
         artifact=flags.get("--artifact"),
         receipts=_spawn_split_receipts(flags.get("--receipts")),
+        reason=flags.get("--reason"),
     )
     if not ok:
         sys.stderr.write("spawn %s refuse: %s\n" % (mode, msg))
@@ -9110,9 +9177,10 @@ def _cli_check_close(fid):
 
 
 def main(argv=None):
-    """CLI: --check-close <front-id>; spawn-start/finish/backfill (K5)."""
+    """CLI: --check-close <front-id>; spawn-start/finish/backfill/abandon."""
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("spawn-start", "spawn-finish", "spawn-backfill"):
+    if argv and argv[0] in ("spawn-start", "spawn-finish", "spawn-backfill",
+                            "spawn-abandon"):
         return _cli_spawn(argv)
     if len(argv) == 2 and argv[0] == "--check-close" and argv[1].strip():
         return _cli_check_close(argv[1].strip())
@@ -9122,7 +9190,8 @@ def main(argv=None):
         "orchlib.py spawn-finish --id ID --artifact FILE "
         "[--receipts ID[,ID…]] | "
         "orchlib.py spawn-backfill --id ID --role R --front F "
-        "--artifact FILE [--receipts ID[,ID…]]\n")
+        "--artifact FILE [--receipts ID[,ID…]] | "
+        "orchlib.py spawn-abandon --id ID --reason \"<факт>\"\n")
     return 2
 
 
