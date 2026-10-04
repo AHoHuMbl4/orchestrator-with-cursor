@@ -5456,6 +5456,14 @@ def probes_missing(state=None, scan_limit=None, front_ids=None):
             if _end_is_gate_refuse(e.get("exit"), e.get("gates") or []):
                 continue
             has_receipt = wave_has_valid_probe_receipt(rid, state=state)
+            # F-C5 K5: spawn-ран (движковый пул) может нести receipts —
+            # список id квитанций §3 волны (spawn-finish/backfill). Рана
+            # прикрыта, только если ВСЕ перечисленные квитанции валидны
+            # (fail-closed); без поля у код-раны — красный, как раньше.
+            if (not has_receipt and st.get("spawn")
+                    and isinstance(e.get("receipts"), list)):
+                has_receipt = _spawn_receipts_valid(e.get("receipts"),
+                                                    state=state)
             # нет валидной квитанции → красный. §1-блок не обязателен:
             # run-exec --probe пишет probe-receipt.md без artifact.md
             # (ложный probes_missing при parse=ok, кейс ADV-PROBE-A4FIX2).
@@ -8766,6 +8774,325 @@ def orch_lint_violations(kit_dir=None, state=None, deep=False,
     return viols
 
 
+# --- F-C5 K5: регистратор движковых спавн-ранов (spawn-*) -------------------
+# Движковый спавн волны (мимо обёрток run-exec/run-cloud) обязан писать
+# journal-пару start/end — иначе волна невидима детекторам и close-гейту.
+# Запись лишь отражает существующий артефакт с вердиктом: ts = момент
+# регистрации, никакого ретро-творчества (журнал = истина, приведение к
+# факту ≠ подделка).
+
+# Отказ гарда регистратора (usage-ошибка — 2, блокеры close — 1).
+SPAWN_REFUSE_EXIT = 3
+
+# «Вердикт: …» с md-декором и суффиксом (follow-up / микро-ремонта №3).
+_SPAWN_VERDICT_INLINE_RE = re.compile(
+    r"^[\s>#*]{0,8}Вердикт(?:\s+[^\n:]{1,40})?:\s*(\S.*?)(?:\*\*)?\s*$")
+# Голый заголовок «## Вердикт» — вердикт = первая непустая строка ниже.
+_SPAWN_VERDICT_BARE_RE = re.compile(r"^[\s>#*]{0,8}Вердикт\s*$")
+# Итог-строка — запасной источник вердикта артефакта.
+_SPAWN_ITOG_RE = re.compile(r"^[\s>#*]{0,8}Итог:\s*(\S.*?)\s*$")
+
+
+def spawn_verdict_from_text(text):
+    """Вердикт-строка артефакта («Вердикт: …» / итог-строки) или None.
+
+    Источники (по убыванию приоритета): последнее «Вердикт …: …» (строгий
+    «Вердикт: OK» — частный случай), первый непустой текст под последним
+    голым заголовком «Вердикт», последнее «Итог: …». None = вердикт-строки
+    нет — гард регистратора обязан отказать (никакого ретро-творчества).
+    Результат — «Вердикт: <текст>» одной строкой, ≤ _VERDICT_MAX_LEN.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    lines = text.splitlines()
+    inline = None
+    bare_idx = None
+    itog = None
+    for i, line in enumerate(lines):
+        m = _SPAWN_VERDICT_INLINE_RE.match(line)
+        if m and m.group(1).strip():
+            # «**Вердикт: OK** — пояснение»: ядро вердикта — до первого
+            # возобновления bold-разметки, не вклейка «OK**»
+            core = m.group(1).strip().split("**")[0].strip()
+            inline = core or m.group(1).strip()
+            continue
+        if _SPAWN_VERDICT_BARE_RE.match(line):
+            bare_idx = i
+            continue
+        m2 = _SPAWN_ITOG_RE.match(line)
+        if m2 and m2.group(1).strip():
+            itog = m2.group(1).strip()
+    if inline is not None:
+        v = inline
+    elif bare_idx is not None:
+        v = None
+        for line in lines[bare_idx + 1:]:
+            s = line.strip().strip("*").strip()
+            if s:
+                v = s
+                break
+        if v is None:
+            return None
+    elif itog is not None:
+        v = itog
+    else:
+        return None
+    v = "Вердикт: %s" % re.sub(r"\s+", " ", v).strip()
+    if len(v) > _VERDICT_MAX_LEN:
+        v = v[:_VERDICT_MAX_LEN]
+    return v
+
+
+def _spawn_split_receipts(raw):
+    """--receipts «id1,id2» → список непустых id без дублей."""
+    if not raw:
+        return []
+    out = []
+    for part in str(raw).replace(";", ",").split(","):
+        p = part.strip()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def _spawn_receipts_valid(receipts, state=None):
+    """True если список id квитанций §3 непуст и ВСЕ валидны (fail-closed)."""
+    if not isinstance(receipts, list) or not receipts:
+        return False
+    for rid in receipts:
+        if not isinstance(rid, str) or not rid:
+            return False
+        if not wave_has_valid_probe_receipt(rid, state=state):
+            return False
+    return True
+
+
+def _spawn_locked_write(state, builder):
+    """Критическая секция регистрации: flock journal → гарды по существующим
+    записям → запись всех записей сразу (отказ — без единой строки).
+
+    builder(starts_by_id, start_ids, end_ids) → (ok, reason, entries):
+    журнальные гарды вызывающего (дедуп id, требуемый spawn-start).
+    """
+    path = os.path.join(state, "journal.jsonl")
+    try:
+        os.makedirs(state, exist_ok=True)
+        with open(path, "a+", encoding="utf-8", errors="replace") as f:
+            locked = False
+            if fcntl is not None:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                locked = True
+            try:
+                f.seek(0)
+                raw = f.read()
+                starts_by_id = {}
+                start_ids = set()
+                end_ids = set()
+                for line in raw.splitlines():
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        obj = json.loads(s)
+                    except Exception:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    if obj.get("kind") == "start" and obj.get("id"):
+                        starts_by_id[obj["id"]] = obj
+                        start_ids.add(obj["id"])
+                    elif obj.get("kind") == "end" and obj.get("id"):
+                        end_ids.add(obj["id"])
+                ok, reason, entries = builder(starts_by_id, start_ids, end_ids)
+                if not ok:
+                    return False, reason
+                for entry in entries:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+                return True, "ok"
+            finally:
+                if locked:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        return False, "io_error:%s" % e
+
+
+def spawn_register(mode, run_id, role=None, front=None, artifact=None,
+                   receipts=None, state=None):
+    """Регистрация движкового спавн-рана в journal (K5; журнал = истина).
+
+    mode="start" — kind=start (spawn:true); mode="finish" — kind=end по
+    существующему spawn-start (verdict/source_artifact/artifact_mtime из
+    артефакта-факта); mode="backfill" — пара + сводка kind=backfill одним
+    вызовом для уже завершённого рана (ts = момент регистрации, НЕ
+    исторический). Гарды: front обязателен; артефакт существует/непустой/
+    с вердикт-строкой; для код-ролей (coder/fix) — обязательные --receipts
+    (все id — валидные квитанции §3); дедуп id под flock; секретов в argv
+    нет. Возвращает (ok, message); отказ — журнал не тронут.
+    """
+    if mode not in ("start", "finish", "backfill"):
+        return False, "bad_mode:%s" % mode
+    if state is None:
+        state = find_state_dir()
+    run_id = run_id.strip() if isinstance(run_id, str) else ""
+    if not run_id:
+        return False, "id_required"
+    front = front.strip() if isinstance(front, str) and front.strip() else None
+    if mode in ("start", "backfill") and not front:
+        return False, "front_required"
+    reg_role = normalize_journal_role(role) if role else None
+    if mode in ("start", "backfill") and not reg_role:
+        return False, "role_required"
+    # секреты не в argv (единый сканер кита)
+    argv_blob = " ".join(x for x in (
+        run_id, reg_role or "", front or "", artifact or "",
+        ",".join(receipts or [])) if x)
+    secret = scan_secrets(argv_blob)
+    if secret:
+        return False, "secrets_in_argv:%s" % secret
+
+    verdict = None
+    mtime = None
+    artifact_abs = None
+    if mode in ("finish", "backfill"):
+        if not artifact or not isinstance(artifact, str):
+            return False, "artifact_required"
+        artifact_abs = os.path.abspath(artifact)
+        if not os.path.isfile(artifact_abs):
+            return False, "artifact_missing:%s" % artifact_abs
+        try:
+            if os.path.getsize(artifact_abs) <= 0:
+                return False, "artifact_empty:%s" % artifact_abs
+            with open(artifact_abs, "r", encoding="utf-8",
+                      errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            return False, "artifact_unreadable:%s" % e
+        verdict = spawn_verdict_from_text(text)
+        if not verdict:
+            return False, "artifact_no_verdict:%s" % artifact_abs
+        try:
+            mtime = float(os.path.getmtime(artifact_abs))
+        except OSError as e:
+            return False, "artifact_mtime_failed:%s" % e
+
+    receipts = [r for r in (receipts or []) if isinstance(r, str)]
+
+    # роль finish-рана — из существующего start (дочитываем до замка;
+    # под замком сверяем, что start не изменился)
+    if mode == "finish":
+        pre = _journal_entries_at(state)
+        pre_starts = _journal_start_index(pre)
+        st = pre_starts.get(run_id)
+        if st is None:
+            return False, "no_spawn_start:%s" % run_id
+        if not st.get("spawn"):
+            return False, "not_spawn_start:%s" % run_id
+        reg_role = normalize_journal_role(st.get("role"))
+
+    # квитанции §3: для код-ранов обязательны и валидны (закрывают рану
+    # для probes_missing); некод-ранам не требуются, но данные — валидируем
+    if mode in ("finish", "backfill") and reg_role:
+        if _role_is_code_or_fix_wave(reg_role) and not receipts:
+            return False, "receipts_required:%s" % reg_role
+        bad = [r for r in receipts
+               if not wave_has_valid_probe_receipt(r, state=state)]
+        if bad:
+            return False, "receipts_invalid:%s" % ",".join(bad)
+
+    def _builder(starts_by_id, start_ids, end_ids):
+        if mode == "finish":
+            st = starts_by_id.get(run_id)
+            if st is None:
+                return False, "no_spawn_start:%s" % run_id, []
+            if not st.get("spawn"):
+                return False, "not_spawn_start:%s" % run_id, []
+            if normalize_journal_role(st.get("role")) != reg_role:
+                return False, "start_role_changed:%s" % run_id, []
+            if run_id in end_ids:
+                return False, "duplicate_end:%s" % run_id, []
+        else:
+            if run_id in start_ids:
+                return False, "duplicate_start:%s" % run_id, []
+            if mode == "backfill" and run_id in end_ids:
+                return False, "duplicate_end:%s" % run_id, []
+        ts = time.time()
+        entries = []
+        if mode in ("start", "backfill"):
+            entries.append({
+                "ts": ts, "kind": "start", "id": run_id,
+                "parent": resolve_journal_parent(run_id),
+                "engine": "local", "front": front, "role": reg_role,
+                "spawn": True,
+            })
+        if mode in ("finish", "backfill"):
+            end_entry = {
+                "ts": ts, "kind": "end", "id": run_id, "exit": 0,
+                "verdict": verdict, "gates": [], "spawn": True,
+                "source_artifact": artifact_abs,
+                "artifact_mtime": mtime,
+            }
+            if receipts:
+                end_entry["receipts"] = list(receipts)
+            entries.append(end_entry)
+        if mode == "backfill":
+            entries.append({
+                "ts": ts, "kind": "backfill", "id": run_id,
+                "role": reg_role, "front": front,
+                "source_artifact": artifact_abs, "verdict": verdict,
+                "artifact_mtime": mtime, "registered_ts": ts,
+            })
+        return True, "ok", entries
+
+    return _spawn_locked_write(state, _builder)
+
+
+def _cli_spawn(argv):
+    """spawn-start / spawn-finish / spawn-backfill (регистратор K5).
+
+    exit 0 — записано; 2 — usage; SPAWN_REFUSE_EXIT — гард (журнал не
+    тронут). Повторная регистрация того же id — отказ (дедуп под flock).
+    """
+    mode = argv[0][len("spawn-"):]
+    known = ("--id", "--role", "--front", "--artifact", "--receipts")
+    flags = {}
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in known and i + 1 < len(argv):
+            flags[a] = argv[i + 1]
+            i += 2
+            continue
+        sys.stderr.write("spawn: неизвестный или неполный аргумент: %s\n" % a)
+        return 2
+    run_id = (flags.get("--id") or "").strip()
+    if not run_id:
+        sys.stderr.write("spawn %s: --id обязателен\n" % mode)
+        return 2
+    required = {
+        "start": ("--role", "--front"),
+        "finish": ("--artifact",),
+        "backfill": ("--role", "--front", "--artifact"),
+    }.get(mode, ())
+    for flag in required:
+        if not (flags.get(flag) or "").strip():
+            sys.stderr.write("spawn %s: %s обязателен\n" % (mode, flag))
+            return 2
+    ok, msg = spawn_register(
+        mode, run_id,
+        role=flags.get("--role"),
+        front=flags.get("--front"),
+        artifact=flags.get("--artifact"),
+        receipts=_spawn_split_receipts(flags.get("--receipts")),
+    )
+    if not ok:
+        sys.stderr.write("spawn %s refuse: %s\n" % (mode, msg))
+        return SPAWN_REFUSE_EXIT
+    sys.stdout.write("spawn %s ok: %s\n" % (mode, run_id))
+    return 0
+
+
 # --- F-C5 K3: CLI-точка --check-close (гейт И3; owns.py не трогаем) --------
 
 def _cli_check_close(fid):
@@ -8783,11 +9110,19 @@ def _cli_check_close(fid):
 
 
 def main(argv=None):
-    """CLI: python3 bin/orchlib.py --check-close <front-id>."""
+    """CLI: --check-close <front-id>; spawn-start/finish/backfill (K5)."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("spawn-start", "spawn-finish", "spawn-backfill"):
+        return _cli_spawn(argv)
     if len(argv) == 2 and argv[0] == "--check-close" and argv[1].strip():
         return _cli_check_close(argv[1].strip())
-    sys.stderr.write("использование: orchlib.py --check-close <front-id>\n")
+    sys.stderr.write(
+        "использование: orchlib.py --check-close <front-id> | "
+        "orchlib.py spawn-start --id ID --role R --front F | "
+        "orchlib.py spawn-finish --id ID --artifact FILE "
+        "[--receipts ID[,ID…]] | "
+        "orchlib.py spawn-backfill --id ID --role R --front F "
+        "--artifact FILE [--receipts ID[,ID…]]\n")
     return 2
 
 
