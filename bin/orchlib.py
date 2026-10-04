@@ -6386,10 +6386,24 @@ def _supervision_walk(entries):
 
 
 def _supervision_ok_ends(entries):
-    """[(start_ts, class)] успешных надзоров: end 0 у инкарнации надзора."""
+    """[(start_ts, class)] успешных надзоров: end 0 у инкарнации надзора.
+
+    Успешный end — (а) обёрточный exit=="0" (семантика прежняя) или
+    (б) spawn-end (spawn:true) с verdict, начинающимся строго с
+    «Вердикт: OK» — голый маркер или «Вердикт: OK <суффикс>» (exit в
+    spawn-записях отсутствует, истина завершения = verdict, K5);
+    «Вердикт: OKAY…»/PROBLEMS/BLOCKED/ABANDONED — НЕ успех (префикс
+    точный, без fuzzy).
+    """
     out = []
     for st, en in _supervision_walk(entries):
-        if en is None or str(en.get("exit")) != "0":
+        if en is None:
+            continue
+        verdict = en.get("verdict")
+        if not (str(en.get("exit")) == "0"
+                or (en.get("spawn") and isinstance(verdict, str)
+                    and (verdict == "Вердикт: OK"
+                         or verdict.startswith("Вердикт: OK ")))):
             continue
         cls = _supervision_role_class(st.get("role"))
         if cls is None:

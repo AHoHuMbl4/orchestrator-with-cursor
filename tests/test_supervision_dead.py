@@ -1499,6 +1499,125 @@ class TestFix2JournalStepRobustness(SupTemp):
                  "open_new=0 (синтетика KR3: 5+1-1 больше не съедает end)")
 
 
+# ---------------------------------------------------------------------------
+# K6 (интеграционный фикс K1×K5): spawn-end (spawn:true, БЕЗ exit — истина
+# завершения = verdict) — успешный надзор для гашения supervision_dead
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnEndOkClearing(SupTemp):
+    """(K6 а–е) spawn-end «Вердикт: OK» гасит смерть ТОГО ЖЕ класса."""
+
+    def _seed_death(self, rid, role=ROLE_PROS):
+        # закрытая смерть надзора (пара start+end 4 — форма живого кейса
+        # F-C5: prosecutor-auto-*-N) → чип death_exit_4 сканом
+        now = time.time()
+        _seed_journal(self.state, [
+            {"ts": now - 300, "kind": "start", "id": rid,
+             "engine": "local", "front": FRONT, "role": role},
+            {"ts": now - 200, "kind": "end", "id": rid, "exit": 4},
+        ])
+        orchlib.supervision_dead_scan(state=self.state)
+        self.assertIn(rid, orchlib.supervision_dead_ids(state=self.state))
+
+    def _seed_spawn_end(self, rid, verdict, role=ROLE_PROS):
+        # пара движкового спавн-рана (K5): spawn:true, exit отсутствует —
+        # истина завершения = verdict (orchlib, spawn_register)
+        time.sleep(0.05)  # start строго новее чипа смерти
+        t = time.time()
+        _seed_journal(self.state, [
+            {"ts": t, "kind": "start", "id": rid, "engine": "local",
+             "front": FRONT, "role": role, "spawn": True},
+            {"ts": t + 1, "kind": "end", "id": rid, "verdict": verdict,
+             "gates": [], "spawn": True},
+        ])
+
+    def test_a_spawn_ok_same_class_clears(self):
+        # (а) смерть прокурора (чип) → spawn-end «Вердикт: OK» того же
+        # класса со start новее смерти → чип гаснет (health-предикт —
+        # supervision_dead_ids, как 9a для обёрточного end 0)
+        self._seed_death("SPK1")
+        self._seed_spawn_end("SPK1R", "Вердикт: OK")
+        ids = orchlib.supervision_dead_ids(state=self.state)
+        self.assertNotIn("SPK1", ids, "spawn-end OK того же класса новее "
+                                       "смерти — чип снят в health")
+        self.assertNotIn("SPK1R", ids)
+        _measure("MEASURE (K6-а) смерть прокурора (чип) + spawn-end "
+                 "«Вердикт: OK» того же класса со start новее → "
+                 "supervision_dead погашен (health-предикт)")
+
+    def test_b_spawn_problems_not_clears(self):
+        # (б) spawn-end «Вердикт: PROBLEMS…» — НЕ успешен, не гасит
+        self._seed_death("SPK2")
+        self._seed_spawn_end("SPK2R", "Вердикт: PROBLEMS: ниты")
+        self.assertIn("SPK2", orchlib.supervision_dead_ids(state=self.state),
+                      "PROBLEMS-вердикт — не успех, смерть жива")
+        _measure("MEASURE (K6-б) spawn-end «Вердикт: PROBLEMS…» не гасит")
+
+    def test_c_spawn_abandoned_not_clears(self):
+        # (в) spawn-abandon (verdict=ABANDONED:<факт>) — не гасит
+        self._seed_death("SPK3")
+        self._seed_spawn_end(
+            "SPK3R", "ABANDONED: движковый ран умер без артефакта")
+        self.assertIn("SPK3", orchlib.supervision_dead_ids(state=self.state),
+                      "ABANDONED — не успех, смерть жива")
+        _measure("MEASURE (K6-в) spawn-abandon (ABANDONED:…) не гасит")
+
+    def test_d_spawn_ok_other_class_not_clears(self):
+        # (г) spawn-end OK ДРУГОГО класса (observer) не гасит смерть
+        # прокурора — правило класса живо
+        self._seed_death("SPK4")
+        self._seed_spawn_end("SPK4R", "Вердикт: OK", role=ROLE_OBS)
+        self.assertIn("SPK4", orchlib.supervision_dead_ids(state=self.state),
+                      "observer-OK не гасит смерть prosecutor")
+        _measure("MEASURE (K6-г) spawn-end OK ДРУГОГО класса (observer vs "
+                 "prosecutor) не гасит — правило класса живо")
+
+    def test_e_strict_ok_prefix_and_wrapper_path(self):
+        # (е) строгий префикс: «Вердикт: OK» и «Вердикт: OK …» — успех;
+        # «Вердикт: OKAY-подобное» / «Вердикт: PROBLEMS: OK» / BLOCKED /
+        # ABANDONED / пусто / None — нет. (д) обёрточный путь: exit 0 —
+        # успех, прочие exit — нет (семантика не менялась)
+        now = time.time()
+        spawn_cases = [
+            ("Вердикт: OK", True),
+            ("Вердикт: OK — механизм реализован, SHA abc1234", True),
+            ("Вердикт: OKAY-подобное", False),
+            ("Вердикт: PROBLEMS: OK", False),
+            ("Вердикт: BLOCKED: нет доступа", False),
+            ("ABANDONED: ран умер", False),
+            ("", False),
+            (None, False),
+        ]
+        for i, (verdict, ok) in enumerate(spawn_cases):
+            rid = "K6E%d" % i
+            entries = [
+                {"ts": now - 10, "kind": "start", "id": rid,
+                 "engine": "local", "front": FRONT, "role": ROLE_PROS,
+                 "spawn": True},
+                {"ts": now - 5, "kind": "end", "id": rid,
+                 "verdict": verdict, "gates": [], "spawn": True},
+            ]
+            self.assertEqual(
+                bool(orchlib._supervision_ok_ends(entries)), ok,
+                "spawn verdict=%r → успех=%s" % (verdict, ok))
+        wrapper = [
+            {"ts": now - 10, "kind": "start", "id": "K6W1",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": now - 5, "kind": "end", "id": "K6W1", "exit": 0},
+            {"ts": now - 10, "kind": "start", "id": "K6W2",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": now - 5, "kind": "end", "id": "K6W2", "exit": 4},
+        ]
+        self.assertEqual(
+            [cls for _ts, cls in orchlib._supervision_ok_ends(wrapper)],
+            ["prosecutor"],
+            "обёрточный end 0 — успех (как раньше), прочие exit — нет")
+        _measure("MEASURE (K6-е,д) строгий префикс «Вердикт: OK»: голый и с "
+                 "суффиксом гасят; OKAY-подобное / PROBLEMS: OK — нет; "
+                 "обёрточный exit 0 — успех как раньше")
+
+
 if __name__ == "__main__":
     _assert_not_live("/tmp")
     unittest.main(verbosity=2)
