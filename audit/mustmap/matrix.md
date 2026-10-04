@@ -1,10 +1,10 @@
 # MUSTMAP matrix (MM-C1)
 
-Сгенерировано: `2026-10-03T07:35:55Z`
+Сгенерировано: `2026-10-04T00:00:34Z`
 
-**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 80; всего = 233
+**Консенсус:** 3/3 = 92; 2/3 = 61; 1/3-проверено = 83; всего = 236
 
-status: mechanism=74; prompt=150; human=9
+status: mechanism=77; prompt=150; human=9
 
 ## commander (106)
 
@@ -230,7 +230,7 @@ status: mechanism=74; prompt=150; human=9
 | MM-184 | prosecutor | НИКОГДА вмешиваться (стоп/правка/лечение); НИКОГДА сообщать генералам; НИКОГДА поверхностный вердикт | лечение дублей снизу → НИКОГДА | prompt | — | `skills/orchestration/references/roles/meta/front-prosecutor.md:29` |
 | MM-185 | prosecutor | journal end без front — by-design не ПРОБЛЕМА; старт после max_rounds при доке эскалации — by-design | end без front → не ПРОБЛЕМА | prompt | — | `skills/orchestration/references/roles/meta/front-prosecutor.md:36` |
 
-## all (44)
+## all (47)
 
 | id | кому | текст | check | статус | механизм | источник |
 |----|------|-------|-------|--------|----------|----------|
@@ -277,5 +277,8 @@ status: mechanism=74; prompt=150; human=9
 | MM-226 | all | orch-lint: подавления --exit-zero/noqa как способ погасить приёмку запрещены | подавление линта для приёмки → запрещено | mechanism | orch-lint | `skills/orchestration/references/planning.md:280` |
 | MM-227 | all | Jev probe-sufficiency только advisory — никогда не разрешает/запрещает закрытие | probe-sufficiency → не гейт закрытия | prompt | — | `skills/orchestration/references/planning.md:282` |
 | MM-228 | all | Oracle-класс: обязательна пара проба-green + проба-red на /tmp-полигоне | oracle-дифф без green+red → недостаточно | prompt | — | `skills/orchestration/references/planning.md:286` |
-| MM-229 | all | Импровизированные роли с головы запрещены; только _index.md или фабрика | роль не из каталога → запрещена | prompt | — | `skills/orchestration/references/planning.md:292` |
+| MM-229 | all | Импровизированные роли с головы запрещены; только _index.md или фабрика | роль не из каталога → запрещена | prompt | — | `skills/orchestration/references/planning.md:304` |
+| MM-234 | all | Смерть/нестарт надзорного рана → чип supervision_dead ≤60 с (обёртка/сторож/скан, дедуп) | kill надзора молча → чип ≤60 с | mechanism | supervision_dead+tests/test_supervision_dead.py | `skills/orchestration/references/planning.md:157` |
+| MM-235 | all | Инвариант машинной секции приказа фронта без валидной квитанции §3 (cmd_sha256+front+generator) → чип invariants_not_run | инвариант приказа не прогнан → invariants_not_run | mechanism | invariants_not_run+tests/test_invariants_gate.py | `skills/orchestration/references/planning.md:292` |
+| MM-236 | all | done при красных чипах волн → отказ close-гейта с перечнем; обход (vim/панель) → чип front_closed_red | закрытие с красным чипом → отказ с перечнем | mechanism | close_blockers/save_fronts+tests/test_close_gate.py | `skills/orchestration/references/planning.md:298` |
 

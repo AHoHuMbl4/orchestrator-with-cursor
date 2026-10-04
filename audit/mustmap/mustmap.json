@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-03T07:35:55Z",
+  "generated_at": "2026-10-04T00:00:34Z",
   "doctrine_files": [
     "skills/orchestration/SKILL.md",
     "skills/orchestration/references/planning.md",
@@ -15,8 +15,8 @@
   "consensus_counters": {
     "3/3": 92,
     "2/3": 61,
-    "1/3_verified": 80,
-    "total": 233
+    "1/3_verified": 83,
+    "total": 236
   },
   "imperatives": [
     {
@@ -2078,7 +2078,7 @@
       "check": "роль не из каталога → запрещена",
       "status": "prompt",
       "mechanism": null,
-      "source": "skills/orchestration/references/planning.md:292"
+      "source": "skills/orchestration/references/planning.md:304"
     },
     {
       "id": "MM-230",
@@ -2115,6 +2115,33 @@
       "status": "mechanism",
       "mechanism": "orders_suspect+advisor-need-check+tests/test_orders_allowlist*",
       "source": "skills/orchestration/SKILL.md:487"
+    },
+    {
+      "id": "MM-234",
+      "to": "all",
+      "text": "Смерть/нестарт надзорного рана → чип supervision_dead ≤60 с (обёртка/сторож/скан, дедуп)",
+      "check": "kill надзора молча → чип ≤60 с",
+      "status": "mechanism",
+      "mechanism": "supervision_dead+tests/test_supervision_dead.py",
+      "source": "skills/orchestration/references/planning.md:157"
+    },
+    {
+      "id": "MM-235",
+      "to": "all",
+      "text": "Инвариант машинной секции приказа фронта без валидной квитанции §3 (cmd_sha256+front+generator) → чип invariants_not_run",
+      "check": "инвариант приказа не прогнан → invariants_not_run",
+      "status": "mechanism",
+      "mechanism": "invariants_not_run+tests/test_invariants_gate.py",
+      "source": "skills/orchestration/references/planning.md:292"
+    },
+    {
+      "id": "MM-236",
+      "to": "all",
+      "text": "done при красных чипах волн → отказ close-гейта с перечнем; обход (vim/панель) → чип front_closed_red",
+      "check": "закрытие с красным чипом → отказ с перечнем",
+      "status": "mechanism",
+      "mechanism": "close_blockers/save_fronts+tests/test_close_gate.py",
+      "source": "skills/orchestration/references/planning.md:298"
     }
   ]
 }
