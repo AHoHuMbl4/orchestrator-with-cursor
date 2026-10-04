@@ -1450,5 +1450,170 @@ class TestUnreadableJournalFailClosed(CloseTemp):
                  "→ блокеров нет, close проходит (новый state)")
 
 
+# ---------------------------------------------------------------------------
+# K7: жизненный цикл supervision_dead в close — п.1.4 (cutoff по event_ts)
+# + п.2 вариант A (пост-мортем-покрытие свежим same-class надзором фронта)
+# ---------------------------------------------------------------------------
+
+
+class TestK7SupervisionLifecycle(CloseTemp):
+    """(K7 п.1.4 + п.2 A) докатовая смерть не пост-катовный блокер;
+    блокер гасится пост-мортем-надзором фронта (start новее ВСЕХ:
+    event_ts непогашенных смертей И последнего wave-work end);
+    серединный/чужой/не-надзорный OK не гасит."""
+
+    ROLE_PROS = "meta/front-prosecutor.md"
+    ROLE_OBS = "meta/front-observer.md"
+
+    def _death_chip(self, rid, ev_ts, front=FRONT, role=ROLE_PROS):
+        """start+end(exit 4) надзора + скан-чип (event_ts события)."""
+        _seed_journal(self.state, [
+            {"ts": ev_ts - 10, "kind": "start", "id": rid,
+             "engine": "local", "front": front, "role": role},
+            {"ts": ev_ts, "kind": "end", "id": rid, "exit": 4},
+        ])
+        orchlib.supervision_dead_scan(state=self.state)
+        chips = [c for c in _chips_in_journal(self.state,
+                                              "supervision_dead")
+                 if c.get("id") == rid]
+        self.assertEqual(len(chips), 1, "ровно один чип на смерть")
+        return chips[0]
+
+    def _seed_wave(self, t0):
+        """Канонная волна (кодер+кв. §3+критик+warden): [ends] — wave-work."""
+        _seed_run(self.state, "K7COD", FRONT, "code/coder.md",
+                  t0, t0 + 10)
+        ok, info = orchlib.write_probe_receipt(
+            probe="K7COD", cmd="true", exit_code=0, oracle_match=True,
+            critic_id="K7CRT", artifact="K7COD", run_id="K7COD",
+            state=self.state)
+        self.assertTrue(ok, info)
+        _seed_run(self.state, "K7CRT", FRONT, "code/code-reviewer.md",
+                  t0 + 15, t0 + 20)
+        _seed_run(self.state, "K7GW", FRONT, "code/git-warden.md",
+                  t0 + 25, t0 + 30)
+        return t0 + 30  # последний wave-work end
+
+    def test_precutoff_death_not_postcutoff_blocker(self):
+        # (п.1.4-д) событие ДО cutoff, чип записан ПОСЛЕ (форма живого
+        # пере-эмита prosecutor-tail) — НЕ блокер; пост-чипа нет
+        cut = orchlib.CLOSE_GATE_SHIP_TS
+        self.assertLess(cut, self.now)
+        chip = self._death_chip("K7OLD", cut - 500)
+        self.assertGreater(chip["ts"], cut, "чип записан после cutoff")
+        self.assertLess(chip["event_ts"], cut, "событие — до cutoff")
+        self.assertEqual(
+            orchlib.close_blockers(FRONT, state=self.state,
+                                   use_cache=False), [],
+            "докатовая смерть не становится пост-катовным блокером")
+        _vim_close(self.state, FRONT)
+        self.assertEqual(
+            orchlib.front_closed_red_scan(state=self.state), [],
+            "пост-чип front_closed_red по докатовой смерти не пишется")
+        # контроль: тот же чип, событие ПОСЛЕ cutoff — блокер на месте
+        self._death_chip("K7NEW", self.now - 100)
+        self.assertIn("supervision_dead:K7NEW",
+                      orchlib.close_blockers(FRONT, state=self.state,
+                                             use_cache=False))
+        _measure("MEASURE (K7-д) cutoff-фильтр по event_ts: докатовая "
+                 "смерть (чип свежий) — тишина; пост-катовая — блокер")
+
+    def test_postmortem_ok_closes_front(self):
+        # (п.2 позитив) смерть надзора → честная волна → финальный OK
+        # надзора СВОЕГО фронта (start новее волн и события) → close []
+        death_ts = self.now - 200
+        self._death_chip("K7SUP1", death_ts)
+        last_wave_end = self._seed_wave(self.now - 120)  # ends ≥ now-90
+        ok_start = last_wave_end + 10
+        _seed_run(self.state, "K7FINPRO", FRONT, self.ROLE_PROS,
+                  ok_start, ok_start + 5)
+        blockers = orchlib.close_blockers(
+            FRONT, state=self.state, use_cache=False)
+        self.assertEqual(blockers, [],
+                         "пост-мортем OK новее волн и смертей — гасит")
+        _close_via_save(self.state, FRONT)
+        self.assertEqual(_disk_status(self.state, FRONT), "done",
+                         "честное завершение фронта → закрытие возможно")
+        self.assertEqual(
+            orchlib.front_closed_red_scan(state=self.state), [])
+        _measure("MEASURE (K7-п.2+) смерть надзора → честное завершение "
+                 "фронта → финальный OK-надзор → close [] → done штатно")
+
+    def test_mid_ok_before_last_wave_does_not_clear(self):
+        # (п.2 негатив «серединный OK») OK после смерти, но ДО конца
+        # последней волны — не пост-мортем всего фронта
+        death_ts = self.now - 200
+        self._death_chip("K7SUP2", death_ts)
+        last_wave_end = self._seed_wave(self.now - 120)
+        mid_start = self.now - 110  # > события, < последнего wave end
+        self.assertLess(mid_start, last_wave_end)
+        _seed_run(self.state, "K7MIDPRO", FRONT, self.ROLE_PROS,
+                  mid_start, mid_start + 5)
+        self.assertIn("supervision_dead:K7SUP2",
+                      orchlib.close_blockers(FRONT, state=self.state,
+                                             use_cache=False),
+                      "серединный OK не гасит (якорь «новее всех волн»)")
+        with self.assertRaises(ValueError):
+            _close_via_save(self.state, FRONT)
+        self.assertEqual(_disk_status(self.state, FRONT), "active")
+        _measure("MEASURE (K7-п.2-) серединный OK (раньше последнего "
+                 "wave-work end) НЕ гасит close-блокер")
+
+    def test_foreign_front_ok_does_not_clear(self):
+        # (п.2 негатив «чужой фронт») OK надзора ДРУГОГО фронта — не гасит
+        death_ts = self.now - 200
+        self._death_chip("K7SUP3", death_ts)
+        last_wave_end = self._seed_wave(self.now - 120)
+        ok_start = last_wave_end + 10
+        _seed_run(self.state, "K7FORPRO", FRONT_B, self.ROLE_PROS,
+                  ok_start, ok_start + 5)
+        self.assertIn("supervision_dead:K7SUP3",
+                      orchlib.close_blockers(FRONT, state=self.state,
+                                             use_cache=False),
+                      "биндинг по фронту: чужой OK не гасит")
+        # тот же OK у СВОЕГО фронта — гасит (контроль зеркала)
+        _seed_run(self.state, "K7OWNPRO", FRONT, self.ROLE_PROS,
+                  ok_start + 10, ok_start + 15)
+        self.assertEqual(
+            orchlib.close_blockers(FRONT, state=self.state,
+                                   use_cache=False), [])
+        _measure("MEASURE (K7-п.2-) чужой фронт не гасит; свой финальный "
+                 "OK — гасит (биндинг по start.front в close)")
+
+    def test_spawn_problems_other_class_and_agent_do_not_clear(self):
+        # (п.2 негативы) spawn-вердикт PROBLEMS; чужой класс (observer);
+        # агент-ран (code/coder exit 0) — ничего не гасит
+        death_ts = self.now - 200
+        self._death_chip("K7SUP4", death_ts)
+        last_wave_end = self._seed_wave(self.now - 120)
+        t = last_wave_end + 10
+        _seed_journal(self.state, [
+            {"ts": t, "kind": "start", "id": "K7SPROB", "engine": "local",
+             "front": FRONT, "role": self.ROLE_PROS, "spawn": True},
+            {"ts": t + 1, "kind": "end", "id": "K7SPROB",
+             "verdict": "Вердикт: PROBLEMS: ниты", "gates": [],
+             "spawn": True},
+        ])
+        blockers = orchlib.close_blockers(FRONT, state=self.state,
+                                          use_cache=False)
+        self.assertIn("supervision_dead:K7SUP4", blockers,
+                      "PROBLEMS-вердикт — не успешный надзор")
+        _seed_run(self.state, "K7OBS", FRONT, self.ROLE_OBS, t + 5, t + 6)
+        self.assertIn("supervision_dead:K7SUP4",
+                      orchlib.close_blockers(FRONT, state=self.state,
+                                             use_cache=False),
+                      "observer-OK не гасит смерть prosecutor")
+        # агент волны (code/coder, exit 0) — не надзор: своего красного
+        # агент не отмывает
+        _seed_run(self.state, "K7AGENT", FRONT, "code/coder.md",
+                  t + 10, t + 11)
+        self.assertIn("supervision_dead:K7SUP4",
+                      orchlib.close_blockers(FRONT, state=self.state,
+                                             use_cache=False),
+                      "агент-ран не гасит (не надзор своего класса)")
+        _measure("MEASURE (K7-п.2-) PROBLEMS / чужой класс / агент-ран — "
+                 "не гасят close-блокер (агент не отмывает свой красный)")
+
+
 if __name__ == "__main__":
     unittest.main()

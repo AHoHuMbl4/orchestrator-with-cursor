@@ -6358,16 +6358,17 @@ def _supervision_event_class(cause):
     return "nonstart" if str(cause or "").startswith("nonstart") else "death"
 
 
-def _supervision_walk(entries):
-    """Инкарнации ранов по хронологии journal: [(start, end|None)].
+def _supervision_incarnations(entries):
+    """Инкарнации ранов по хронологии journal: {id: [(start, end|None), …]}.
 
     start кладётся в очередь своего id; end снимает ПОСЛЕДНЮЮ открытую
     инкарнацию того же id (дубль-id не гасит чужую смерть — матч инкарнаций
     по хронологии пары, не «последняя start»). killed не снимает: после
-    --kill смерть без end — тоже сигнал (runtime-ветвь/скан).
+    --kill смерть без end — тоже сигнал (runtime-ветвь/скан). Индекс в
+    списке id = номер инкарнации (якорь дедупа чипа, K7).
     """
     open_by_id = {}
-    order = []
+    out = {}
     for e in entries:
         rid = e.get("id")
         if not isinstance(rid, str) or not rid:
@@ -6376,24 +6377,38 @@ def _supervision_walk(entries):
         if kind == "start":
             node = [e, None]
             open_by_id.setdefault(rid, []).append(node)
-            order.append(node)
+            out.setdefault(rid, []).append(node)
         elif kind == "end":
             q = open_by_id.get(rid)
             if q:
                 q[-1][1] = e
                 q.pop()
+    return out
+
+
+def _supervision_walk(entries):
+    """Инкарнации ранов по хронологии journal: [(start, end|None)].
+
+    Плоский список инкарнаций (_supervision_incarnations), порядок — по
+    первому start каждого id (K7: группировка не меняет предикаты, они
+    пособытийные).
+    """
+    order = []
+    for nodes in _supervision_incarnations(entries).values():
+        order.extend(nodes)
     return order
 
 
 def _supervision_ok_ends(entries):
-    """[(start_ts, class)] успешных надзоров: end 0 у инкарнации надзора.
+    """[(start_ts, класс, front)] успешных надзоров: end 0 у инкарнации надзора.
 
     Успешный end — (а) обёрточный exit=="0" (семантика прежняя) или
     (б) spawn-end (spawn:true) с verdict, начинающимся строго с
     «Вердикт: OK» — голый маркер или «Вердикт: OK <суффикс>» (exit в
     spawn-записях отсутствует, истина завершения = verdict, K5);
     «Вердикт: OKAY…»/PROBLEMS/BLOCKED/ABANDONED — НЕ успех (префикс
-    точный, без fuzzy).
+    точный, без fuzzy). front = start.front (биндинг гашения по своему
+    фронту: чужой OK не гасит чужую смерть, K7).
     """
     out = []
     for st, en in _supervision_walk(entries):
@@ -6409,7 +6424,8 @@ def _supervision_ok_ends(entries):
         if cls is None:
             continue
         try:
-            out.append((float(st.get("ts") or 0), cls))
+            out.append((float(st.get("ts") or 0), cls,
+                        st.get("front") or None))
         except (TypeError, ValueError):
             continue
     return out
@@ -6425,7 +6441,9 @@ def supervision_dead_events(state=None, now=None, entries=None):
     runtime — только новейшая открытая инкарнация id (pid-файл один на id).
     Ложные окна — тишина: живой pid, СВЕЖИЙ (≤60 с) RETRY/EXIT-маркер или
     TOMBSTONE (замороженный маркер — чип), «нет pid + свежий start ≤60 с».
-    Возвращает [{"id","front","role","ts","cause"}] — по одному на ран.
+    Возвращает [{"id","front","role","ts","cause","incarnation"}] — по
+    одному на ран (ts = ts СОБЫТИЯ: end-запись инкарнации / момент смерти;
+    incarnation — индекс инкарнации id, K7).
     """
     try:
         if state is None:
@@ -6434,30 +6452,31 @@ def supervision_dead_events(state=None, now=None, entries=None):
         if entries is None:
             entries = _journal_entries_at(state)
         out = []
-        open_latest = {}  # id → (start, role) — новейшая открытая инкарнация
-        for st, en in _supervision_walk(entries):
-            rid = st.get("id")
-            role = normalize_journal_role(st.get("role"))
-            if en is not None:
-                if not role_is_oversight(role):
+        open_latest = {}  # id → (start, role, инкарнация) — новейшая открытая
+        for rid, nodes in _supervision_incarnations(entries).items():
+            for inc, (st, en) in enumerate(nodes):
+                role = normalize_journal_role(st.get("role"))
+                if en is not None:
+                    if not role_is_oversight(role):
+                        continue
+                    exit_s = str(en.get("exit"))
+                    if exit_s in SUPERVISION_NONSTART_EXITS:
+                        cause = "nonstart_exit_%s" % exit_s
+                    elif exit_s in SUPERVISION_DEATH_EXITS:
+                        cause = "death_exit_%s" % exit_s
+                    else:
+                        continue  # end 0 / легитимные гейт-отказы 5–9,13 — тишина
+                    try:
+                        ev_ts = float(en.get("ts") or 0)
+                    except (TypeError, ValueError):
+                        ev_ts = 0.0
+                    out.append({"id": rid, "front": st.get("front"),
+                                "role": role, "ts": ev_ts, "cause": cause,
+                                "incarnation": inc})
                     continue
-                exit_s = str(en.get("exit"))
-                if exit_s in SUPERVISION_NONSTART_EXITS:
-                    cause = "nonstart_exit_%s" % exit_s
-                elif exit_s in SUPERVISION_DEATH_EXITS:
-                    cause = "death_exit_%s" % exit_s
-                else:
-                    continue  # end 0 / легитимные гейт-отказы 5–9,13 — тишина
-                try:
-                    ev_ts = float(en.get("ts") or 0)
-                except (TypeError, ValueError):
-                    ev_ts = 0.0
-                out.append({"id": rid, "front": st.get("front"),
-                            "role": role, "ts": ev_ts, "cause": cause})
-                continue
-            if role_is_oversight(role):
-                open_latest[rid] = (st, role)
-        for rid, (st, role) in open_latest.items():
+                if role_is_oversight(role):
+                    open_latest[rid] = (st, role, inc)
+        for rid, (st, role, inc) in open_latest.items():
             if (st.get("engine") or "local") != "local":
                 continue
             session = st.get("session")
@@ -6471,7 +6490,8 @@ def supervision_dead_events(state=None, now=None, entries=None):
                     continue
                 out.append({"id": rid, "front": st.get("front"),
                             "role": role, "ts": now,
-                            "cause": "runtime_pid_dead"})
+                            "cause": "runtime_pid_dead",
+                            "incarnation": inc})
                 continue
             try:
                 start_ts = float(st.get("ts") or 0)
@@ -6483,60 +6503,164 @@ def supervision_dead_events(state=None, now=None, entries=None):
                     state, rid, session=session, log_path=log_path, now=now):
                 continue
             out.append({"id": rid, "front": st.get("front"), "role": role,
-                        "ts": now, "cause": "runtime_no_pid"})
+                        "ts": now, "cause": "runtime_no_pid",
+                        "incarnation": inc})
         return out
     except Exception:
         return []
 
 
-def _supervision_chip_outstanding(entries, front, run_id, cause):
-    """True, если есть НЕпогашенный чип с тем же (name, front, id, класс).
+_SUPERVISION_CAUSE_EXIT_RE = re.compile(
+    r"^(?:death|nonstart)_exit_(\d+)$")
 
-    Погашение — успешный end 0 надзора ТОГО ЖЕ класса со start новее чипа
-    (зеркало снятия в health): погашенный чип не глушит новую смерть того
-    же id (снятый чип может писаться заново).
+
+def _supervision_journal_events(entries):
+    """События смерти/нестарта по ЖУРНАЛУ: {(front, id, класс): [(инк, ts,
+    класс роли)]}.
+
+    Только надзорные роли; хронология внутри ключа = хронология end-записей
+    инкарнаций. Истина события — end-запись инкарнации (её ts = event_ts);
+    класс роли (prosecutor|observer) — из start-записи инкарнации.
     """
-    want_cls = _supervision_event_class(cause)
-    ok_ends = _supervision_ok_ends(entries)
-    outstanding = False
+    out = {}
+    for rid, nodes in _supervision_incarnations(entries).items():
+        for inc, (st, en) in enumerate(nodes):
+            if en is None:
+                continue
+            role = normalize_journal_role(st.get("role"))
+            if not role_is_oversight(role):
+                continue
+            exit_s = str(en.get("exit"))
+            if exit_s in SUPERVISION_NONSTART_EXITS:
+                cls = "nonstart"
+            elif exit_s in SUPERVISION_DEATH_EXITS:
+                cls = "death"
+            else:
+                continue
+            try:
+                ev_ts = float(en.get("ts") or 0)
+            except (TypeError, ValueError):
+                ev_ts = 0.0
+            key = (st.get("front") or None, rid, cls)
+            out.setdefault(key, []).append(
+                (inc, ev_ts, _supervision_role_class(role)))
+    return out
+
+
+def _supervision_chip_anchors(entries):
+    """Якоря чип-событий supervision_dead: {(front,id,класс): {(инк,
+    event_ts, класс роли)}}.
+
+    event_ts = ts СОБЫТИЯ (K7): поле event_ts чипа, если есть; легаси-чип
+    без поля (эра пере-эмита) якорится событием журнала того же ключа
+    (i-й по хронологии чип ключа → i-е событие; дубликаты пере-эмита
+    схлопываются на последнее доступное); нет события — ts записи чипа
+    (синтетика без рана в журнале). Инкарнация якоря — из чипа либо из
+    события; отсутствует (None) только у синтетики без рана. Класс роли —
+    из события (start инкарнации) либо поля role чипа.
+    """
+    events = _supervision_journal_events(entries)
+    legacy_seen = {}
+    out = {}
     for e in entries:
         if (e.get("kind") != "chip"
-                or e.get("name") != SUPERVISION_DEAD_CHIP
-                or e.get("id") != run_id):
+                or e.get("name") != SUPERVISION_DEAD_CHIP):
             continue
-        if (e.get("front") or None) != (front or None):
-            continue
-        if _supervision_event_class(e.get("cause")) != want_cls:
-            continue
+        key = (e.get("front") or None, e.get("id"),
+               _supervision_event_class(e.get("cause")))
         try:
-            cts = float(e.get("ts") or 0)
+            chip_ts = float(e.get("ts") or 0)
         except (TypeError, ValueError):
-            cts = 0.0
-        cls = _supervision_role_class(e.get("role"))
-        cleared = cls is not None and any(
-            ocls == cls and sts > cts for sts, ocls in ok_ends)
-        if not cleared:
-            outstanding = True
-    return outstanding
+            chip_ts = 0.0
+        ev_ts = e.get("event_ts")
+        if isinstance(ev_ts, (int, float)) and not isinstance(ev_ts, bool):
+            inc = e.get("incarnation")
+            anchor = (inc if isinstance(inc, int) and not isinstance(
+                inc, bool) else None, float(ev_ts),
+                _supervision_role_class(e.get("role")))
+        else:
+            evs = events.get(key) or []
+            if evs:
+                idx = legacy_seen.get(key, 0)
+                legacy_seen[key] = idx + 1
+                anchor = evs[min(idx, len(evs) - 1)]
+            else:
+                anchor = (None, chip_ts,
+                          _supervision_role_class(e.get("role")))
+        out.setdefault(key, set()).add(anchor)
+    return out
+
+
+def _supervision_event_covered(entries, front, run_id, cause,
+                               incarnation=None):
+    """True, если событие (front, id, класс[, инкарнация]) чип уже описывал.
+
+    Дедуп на инкарнацию (K7; бывший _supervision_chip_outstanding —
+    «непогашенность» больше не часть дедупа, см. supervision_dead_ids):
+    смерть — одно чип-событие на ИНКАРНАЦИЮ рана: пере-эмит скана поверх
+    сторожа (или погашенного чипа) НЕ новое событие, повторная смерть той
+    же id в НОВОЙ инкарнации — новое; нестарт — id-уровень (K1 8b:
+    повторный нестарт того же id — то же «ран не стартовал», без дубля).
+    Легаси-чип без incarnation покрывает инкарнации событий журнала того
+    же ключа (хронология), а без событий — ключ целиком (синтетика).
+    """
+    key = (front or None, run_id, _supervision_event_class(cause))
+    covered = _supervision_chip_anchors(entries).get(key) or set()
+    if not covered:
+        return False
+    if _supervision_event_class(cause) == "nonstart":
+        return True
+    if incarnation is None:
+        return any(inc is None for inc, _ts, _rcls in covered)
+    return any(inc == incarnation for inc, _ts, _rcls in covered)
+
+
+def _supervision_emit_anchor(entries, run_id, cause, now=None):
+    """(инкарнация, event_ts) события для emit: якорь по журналу.
+
+    Класс end-причины (death|nonstart)_exit_N — последняя инкарнация id с
+    end этого exit (её ts = event_ts); runtime-причина — новейшая
+    инкарнация id, event_ts = момент смерти (теперь). Нет рана в журнале —
+    (None, теперь): синтетика, дедуп по ключу без инкарнации.
+    """
+    ts_now = time.time() if now is None else float(now)
+    nodes = _supervision_incarnations(entries).get(run_id) or []
+    m = _SUPERVISION_CAUSE_EXIT_RE.match(str(cause or ""))
+    if m and nodes:
+        want = m.group(1)
+        for inc in range(len(nodes) - 1, -1, -1):
+            en = nodes[inc][1]
+            if en is not None and str(en.get("exit")) == want:
+                try:
+                    return inc, float(en.get("ts") or 0)
+                except (TypeError, ValueError):
+                    return inc, 0.0
+    inc = len(nodes) - 1 if nodes else None
+    return inc, ts_now
 
 
 def emit_supervision_dead_chip(front, run_id, cause=None, role=None,
-                               state=None):
+                               state=None, event_ts=None, incarnation=None):
     """journal-чип supervision_dead с ДЕДУПОМ писателей (один чип на событие).
 
-    Дедуп-ключ — (name, front, id) + класс события (nonstart|death); чип
-    погашен успешным end 0 того же класса новее — тогда не глушит новую
-    запись. Проверка и запись — под одним flock journal.jsonl (атомарность
-    гонки сторож/скан; деградация без fcntl — как journal_append).
-    Возвращает True, если чип записан.
+    Дедуп-ключ — (name, front, id) + класс события (nonstart|death) +
+    ИНКАРНАЦИЯ рана (K7): пере-эмит того же события (скан поверх сторожа,
+    чип после погашения) не пишется; смерть той же id в новой инкарнации —
+    новое событие. Чип несёт event_ts — ts СОБЫТИЯ (end-запись инкарнации
+    для exit-причин; момент смерти для runtime) и incarnation; якорь
+    берётся из параметров (скан знает событие точно) либо выводится из
+    журнала. Проверка и запись — под одним flock journal.jsonl
+    (атомарность гонки сторож/скан; деградация без fcntl — как
+    journal_append). Возвращает True, если чип записан.
     """
     if not run_id:
         return False
     if state is None:
         state = find_state_dir()
     path = os.path.join(state, "journal.jsonl")
+    now = time.time()
     entry = {
-        "ts": time.time(),
+        "ts": now,
         "kind": "chip",
         "name": SUPERVISION_DEAD_CHIP,
         "id": run_id,
@@ -6547,7 +6671,10 @@ def emit_supervision_dead_chip(front, run_id, cause=None, role=None,
         entry["cause"] = cause
     if role:
         entry["role"] = normalize_journal_role(role)
-    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    if event_ts is None or incarnation is None:
+        d_inc, d_ts = None, None
+    else:
+        d_inc, d_ts = incarnation, event_ts
     f = None
     locked = False
     try:
@@ -6571,8 +6698,16 @@ def emit_supervision_dead_chip(front, run_id, cause=None, role=None,
                 continue
             if isinstance(obj, dict):
                 entries.append(obj)
-        if _supervision_chip_outstanding(entries, front, run_id, cause):
+        if d_ts is None:
+            d_inc, d_ts = _supervision_emit_anchor(
+                entries, run_id, cause, now=now)
+        if _supervision_event_covered(
+                entries, front, run_id, cause, incarnation=d_inc):
             return False
+        if d_inc is not None:
+            entry["incarnation"] = d_inc
+        entry["event_ts"] = float(d_ts)
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
         f.seek(0, os.SEEK_END)
         f.write(line)
         f.flush()
@@ -6608,68 +6743,67 @@ def supervision_dead_scan(state=None):
         for ev in events:
             emit_supervision_dead_chip(
                 ev.get("front"), ev.get("id"), cause=ev.get("cause"),
-                role=ev.get("role"), state=state)
+                role=ev.get("role"), state=state,
+                event_ts=ev.get("ts"), incarnation=ev.get("incarnation"))
         return events
     except Exception:
         return []
 
 
 def supervision_dead_ids(state=None):
-    """id для health-чипа supervision_dead: journal-чипы ∪ предикт − снятые.
+    """id для health-чипа supervision_dead: события (чипы ∪ предикт) − погашенные.
 
-    Снятие — ТОЛЬКО health-семантика (close-гейт K3 чип не гасит):
-    успешный end 0 надзора ТОГО ЖЕ класса (prosecutor↔prosecutor,
-    observer↔observer) со start новее смерти.
+    Событие = (класс роли, front, event_ts): чип-якоря (event_ts
+    чипа/журнала, K7) ∪ предикт по журналу. Погашение — успешный end
+    надзора ТОГО ЖЕ класса роли И ТОГО ЖЕ фронта (биндинг по start.front:
+    чужой OK не гасит чужую смерть) со start новее ts СОБЫТИЯ (не ts
+    чип-записи). id жив, пока живо хоть одно его непогашенное событие
+    (инкарнации независимы).
     """
     try:
         if state is None:
             state = find_state_dir()
         entries = _journal_entries_at(state)
-        dead_ts = {}
-        dead_cls = {}
-        order = []
-        for e in entries:
-            if (e.get("kind") != "chip"
-                    or e.get("name") != SUPERVISION_DEAD_CHIP):
-                continue
-            rid = e.get("id") or e.get("front")
-            if not rid:
-                continue
-            try:
-                cts = float(e.get("ts") or 0)
-            except (TypeError, ValueError):
-                cts = 0.0
-            if rid not in dead_ts:
-                order.append(rid)
-                dead_ts[rid] = cts
-                dead_cls[rid] = _supervision_role_class(e.get("role"))
-            elif cts > dead_ts[rid]:
-                # несколько чипов id (нестарт + смерть / переписан после
-                # погашения) — снятие сверяем с НОВЕЙШИМ
-                dead_ts[rid] = cts
-                dead_cls[rid] = _supervision_role_class(e.get("role"))
-        for ev in supervision_dead_events(state=state, entries=entries):
-            rid = ev.get("id")
-            if not rid or rid in dead_ts:
-                continue
-            try:
-                dead_ts[rid] = float(ev.get("ts") or 0)
-            except (TypeError, ValueError):
-                dead_ts[rid] = 0.0
-            dead_cls[rid] = _supervision_role_class(ev.get("role"))
-            order.append(rid)
         ok_ends = _supervision_ok_ends(entries)
+        chip_anchors = _supervision_chip_anchors(entries)
+        anchors = {}  # rid → {(класс роли, front, event_ts)}
+        order = []
+
+        def _add_anchor(rid, rcls, front, ev_ts):
+            if not rid or rcls is None:
+                return
+            key = (rcls, front or None, float(ev_ts or 0))
+            bucket = anchors.setdefault(rid, set())
+            if not bucket:
+                order.append(rid)
+            bucket.add(key)
+
+        for (front, rid, _cls), evs in chip_anchors.items():
+            for _inc, ev_ts, rcls in evs:
+                _add_anchor(rid, rcls, front, ev_ts)
+        for ev in supervision_dead_events(state=state, entries=entries):
+            key = (ev.get("front") or None, ev.get("id"),
+                   _supervision_event_class(ev.get("cause")))
+            covered_incs = set(
+                inc for inc, _ts, _rcls in chip_anchors.get(key) or ())
+            # чип уже якорит событие (та же инкарнация): предикт не
+            # перевзвешивает его свежим «теперь» (K7)
+            if ev.get("incarnation") in covered_incs:
+                continue
+            _add_anchor(ev.get("id"),
+                        _supervision_role_class(ev.get("role")),
+                        ev.get("front"), ev.get("ts"))
         out = []
         for rid in order:
-            cls = dead_cls.get(rid)
-            dts = dead_ts.get(rid) or 0.0
-            cleared = False
-            if cls is not None:
-                for sts, ocls in ok_ends:
-                    if ocls == cls and sts > dts:
-                        cleared = True
-                        break
-            if not cleared:
+            alive = False
+            for rcls, front, ev_ts in anchors.get(rid) or ():
+                cleared = any(
+                    ocls == rcls and ofront == front and sts > ev_ts
+                    for sts, ocls, ofront in ok_ends)
+                if not cleared:
+                    alive = True
+                    break
+            if alive:
                 out.append(rid)
         return out
     except Exception:
@@ -6901,8 +7035,10 @@ CLOSE_GATE_ALLOWLIST = (
     "code_waves_no_gitwarden",
 )
 # Источник (i): journal kind=chip с front==fid (элементы этих классов
-# живут в самом журнале; supervision_dead НЕ гасится позднейшим
-# возрождением — асимметрия с health, решение круга 1).
+# живут в самом журнале); supervision_dead гасится в close только
+# пост-мортем-надзором фронта (K7 п.2 A — fresh same-class OK со start
+# новее всех непогашенных смертей и последней волны; зеркально, но
+# строже health-правила гашения).
 _CLOSE_GATE_JOURNAL_CHIP_CLASSES = frozenset((
     "supervision_dead", "multi_write_front"))
 # Кэш close_blockers: (state, cutoff, fids[, kit_dir]) → (mtime-ключ,
@@ -7121,13 +7257,80 @@ def _front_activity_ts(entries, fid):
     return out
 
 
+def _front_last_wave_work_end_ts(entries, fid, starts_by_id=None):
+    """ts последнего end wave-work рана фронта (якорь пост-мортем-надзора).
+
+    Только kind=end записей ранов с ролью _role_is_wave_work (код/fix/
+    критика/warden/docs) и start.front==fid — notes/чипы/heartbeats/надзор
+    НЕ активность (K7 п.2: OK-надзор гасит смерти, только если пережил
+    последнюю работу волн фронта).
+    """
+    if starts_by_id is None:
+        starts_by_id = _journal_start_index(entries)
+    out = 0.0
+    for e in entries or []:
+        if e.get("kind") != "end":
+            continue
+        st = starts_by_id.get(e.get("id"))
+        if not st:
+            continue
+        if (st.get("front") or None) != (fid or None):
+            continue
+        if not _role_is_wave_work(st.get("role")):
+            continue
+        try:
+            ts = float(e.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ts > out:
+            out = ts
+    return out
+
+
+def _supervision_close_blockers(entries, fid, cutoff, starts_by_id=None):
+    """Элементы (id ранов) непогашенных supervision_dead-блокеров фронта.
+
+    K7: блокер — событие с event_ts > cutoff (докатовая смерть не
+    становится пост-катовным блокером, каким бы свежим ни был чип),
+    НЕ погашенное пост-мортем-надзором (п.2 A): успешный same-class
+    надзор ЭТОГО фронта (биндинг по start.front) со start новее event_ts
+    события И новее последнего end wave-work рана фронта. Серединный
+    (до последней волны) и чужой OK не гасят.
+    """
+    ok_ends = [oe for oe in _supervision_ok_ends(entries)
+               if oe[2] == (fid or None)]
+    if not ok_ends:
+        last_wave = 0.0
+    else:
+        last_wave = _front_last_wave_work_end_ts(
+            entries, fid, starts_by_id=starts_by_id)
+    out = []
+    for (front, rid, _cls), anchors in _supervision_chip_anchors(
+            entries).items():
+        if front != (fid or None):
+            continue
+        for _inc, ev_ts, rcls in anchors:
+            if not ev_ts > cutoff:
+                continue
+            covered = any(
+                ocls == rcls and sts > ev_ts and sts > last_wave
+                for sts, ocls, _ofront in ok_ends)
+            if covered:
+                continue
+            if rid not in out:
+                out.append(rid)
+    return out
+
+
 def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
     """Блокеры закрытия для списка fids одним проходом (общие чтения).
 
     Два источника (решение командующего, план v5 (в)):
     (i) journal kind=chip с front==fid: supervision_dead, multi_write_front
-        (полный журнал _journal_entries_at, не окно 5000; supervision_dead
-        НЕ гасится позднейшим возрождением — асимметрия с health);
+        (полный журнал _journal_entries_at, не окно 5000; supervision_dead —
+        по событиям-якорям event_ts с cutoff-фильтром и пост-мортем-гашением
+        свежим same-class надзором фронта (K7 п.1.4+п.2 A): докатовая смерть
+        не пост-катовный блокер, серединный/чужой OK не гасит);
     (ii) computed-детекторы со скоупом fids (независимо от статуса фронта):
         (ii-1) run_id-классы (probes_missing/chip_silenced/invariants_not_run)
         — элемент резолвится на start.front==fid по ПОЛНОМУ журналу
@@ -7186,17 +7389,23 @@ def _close_blockers_core(fids, state, kit_dir, cutoff_ts):
             fid = e.get("front")
             if fid not in fid_set:
                 continue
+            if name == "supervision_dead":
+                continue  # отдельный проход по событиям-якорям (K7)
             try:
                 cts = float(e.get("ts") or 0)
             except (TypeError, ValueError):
                 cts = 0.0
             if not cts > cutoff:
                 continue
-            if name == "multi_write_front":
-                el = e.get("front") or e.get("id") or e.get("run_id") or name
-            else:
-                el = e.get("id") or fid
+            el = e.get("front") or e.get("id") or e.get("run_id") or name
             _add(fid, name, el)
+
+        # supervision_dead (K7): события-якоря — event_ts (не ts чипа) и
+        # пост-мортем-покрытие свежим same-class надзором фронта (п.2 A)
+        for fid in fids:
+            for el in _supervision_close_blockers(
+                    entries, fid, cutoff, starts_by_id=starts_by_id):
+                _add(fid, "supervision_dead", el)
 
         # (ii-1) run_id-классы: скоуп-параметр детекторов + резолв rid→front.
         # ПОЛНЫЙ журнал (scan_limit=False, не окно HEALTH_JOURNAL_SCAN_LIMIT):
@@ -7973,8 +8182,9 @@ def health_red_chips(state=None, scan_limit=None, kit_dir=None):
                 if token not in commit_no_verify:
                     commit_no_verify.append(token)
 
-        # F-C5 K1: скан-писатель supervision_dead (полный журнал, дедуп в
-        # emit) + предикт health со снятием end 0 того же класса новее смерти
+        # F-C5 K1: скан-писатель supervision_dead (полный журнал, дедуп на
+        # инкарнацию в emit, K7) + предикт health с гашением успешным
+        # same-class надзором СВОЕГО фронта новее event_ts события (K7)
         try:
             supervision_dead_scan(state=state)
         except Exception:

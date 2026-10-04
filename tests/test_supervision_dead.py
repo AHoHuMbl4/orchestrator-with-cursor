@@ -1610,12 +1610,146 @@ class TestSpawnEndOkClearing(SupTemp):
             {"ts": now - 5, "kind": "end", "id": "K6W2", "exit": 4},
         ]
         self.assertEqual(
-            [cls for _ts, cls in orchlib._supervision_ok_ends(wrapper)],
+            [cls for _ts, cls, _of in orchlib._supervision_ok_ends(wrapper)],
             ["prosecutor"],
             "обёрточный end 0 — успех (как раньше), прочие exit — нет")
         _measure("MEASURE (K6-е,д) строгий префикс «Вердикт: OK»: голый и с "
                  "суффиксом гасят; OKAY-подобное / PROBLEMS: OK — нет; "
                  "обёрточный exit 0 — успех как раньше")
+
+
+# ---------------------------------------------------------------------------
+# K7 (пере-эмит/инкарнации): event_ts в чипах, дедуп на инкарнацию,
+# гашение против event_ts, биндинг OK по фронту
+# ---------------------------------------------------------------------------
+
+
+class TestK7EventTsAndDedup(SupTemp):
+    """(K7 а–г) чип несёт ts события; дедуп на инкарнацию; гашение по
+    event_ts; повторный скан поверх погашенных чипов не добавляет чипов
+    (живой кейс 16→32)."""
+
+    def _seed_death(self, rid, ev_ts, front=FRONT, role=ROLE_PROS):
+        _seed_journal(self.state, [
+            {"ts": ev_ts - 100, "kind": "start", "id": rid,
+             "engine": "local", "front": front, "role": role},
+            {"ts": ev_ts, "kind": "end", "id": rid, "exit": 4},
+        ])
+
+    def test_chip_carries_event_ts_not_scan_ts(self):
+        # (б) чип несёт event_ts СОБЫТИЯ (end-записи), не момент скана
+        ev_ts = time.time() - 3600
+        self._seed_death("K7B", ev_ts)
+        time.sleep(0.01)
+        orchlib.supervision_dead_scan(state=self.state)
+        chips = [c for c in _sup_chips(self.state) if c.get("id") == "K7B"]
+        self.assertEqual(len(chips), 1)
+        self.assertAlmostEqual(chips[0].get("event_ts", 0), ev_ts,
+                               delta=0.001, msg="event_ts = ts end-записи")
+        self.assertGreater(chips[0]["ts"], chips[0]["event_ts"],
+                           "ts чип-записи (скан) строго позже события")
+        self.assertEqual(chips[0].get("incarnation"), 0)
+        _measure("MEASURE (K7-б) чип несёт event_ts события (end-запись "
+                 "инкарнации), ts записи — только момент писателя")
+
+    def test_rescan_after_ok_clearing_adds_no_chips(self):
+        # (а) живая рана 16→32: скан поверх ПОГАШЕННОГО чипа не пере-эмитит
+        base = time.time() - 400
+        for i in range(16):
+            self._seed_death("K7A-%d" % i, base + i)
+        orchlib.supervision_dead_scan(state=self.state)
+        n1 = len(_sup_chips(self.state))
+        self.assertEqual(n1, 16)
+        # успешный надзор новее ВСЕХ 16 событий — health погасил
+        t_ok = base + 100
+        _seed_journal(self.state, [
+            {"ts": t_ok, "kind": "start", "id": "K7A-OK",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": t_ok + 1, "kind": "end", "id": "K7A-OK", "exit": 0},
+        ])
+        self.assertEqual(orchlib.supervision_dead_ids(state=self.state), [])
+        # повторные сканы (2×) — чипов по-прежнему 16, не 32
+        orchlib.supervision_dead_scan(state=self.state)
+        orchlib.supervision_dead_scan(state=self.state)
+        self.assertEqual(len(_sup_chips(self.state)), 16,
+                         "пере-эмит погашенного события = НЕ новое событие")
+        _measure("MEASURE (K7-а) повторный скан (вкл. после погашения OK) "
+                 "НЕ добавляет чипов: 16→16, не 32 (живой кейс закрыт)")
+
+    def test_new_incarnation_same_id_is_new_event(self):
+        # (в) смерть той же id в НОВОЙ инкарнации — новое событие (новый
+        # event_ts); та же инкарнация — дедуп
+        base = time.time() - 500
+        self._seed_death("K7V", base)          # инкарнация 0, смерть 1
+        orchlib.supervision_dead_scan(state=self.state)
+        # retry: новая инкарнация той же id — снова умерла
+        _seed_journal(self.state, [
+            {"ts": base + 200, "kind": "start", "id": "K7V",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": base + 300, "kind": "end", "id": "K7V", "exit": 4},
+        ])
+        orchlib.supervision_dead_scan(state=self.state)
+        chips = [c for c in _sup_chips(self.state) if c.get("id") == "K7V"]
+        self.assertEqual(len(chips), 2, "новая инкарнация — новый чип")
+        self.assertEqual(sorted(c.get("incarnation") for c in chips),
+                         [0, 1])
+        self.assertAlmostEqual(chips[-1].get("event_ts", 0), base + 300,
+                               delta=0.001)
+        orchlib.supervision_dead_scan(state=self.state)
+        self.assertEqual(
+            len([c for c in _sup_chips(self.state)
+                 if c.get("id") == "K7V"]), 2, "та же инкарнация — дедуп")
+        self.assertIn("K7V", orchlib.supervision_dead_ids(state=self.state))
+        _measure("MEASURE (K7-в) новая инкарнация той же id → новое "
+                 "чип-событие (новый event_ts); повтор — дедуп")
+
+    def test_clearing_compares_event_ts_not_chip_ts(self):
+        # (г) OK-end между событием и записью чипа гасит: сверка против
+        # event_ts, не ts чипа (живая эра: чип пере-эмитом «новее» OK)
+        ev_ts = time.time() - 600
+        self._seed_death("K7G", ev_ts)
+        ok_ts = ev_ts + 100            # OK стартовал после СОБЫТИЯ…
+        _seed_journal(self.state, [
+            {"ts": ok_ts, "kind": "start", "id": "K7G-OK",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": ok_ts + 1, "kind": "end", "id": "K7G-OK", "exit": 0},
+        ])
+        chip = orchlib.emit_supervision_dead_chip(
+            FRONT, "K7G", cause="death_exit_4", role=ROLE_PROS,
+            state=self.state)
+        self.assertTrue(chip)
+        written = [c for c in _sup_chips(self.state)
+                   if c.get("id") == "K7G"][0]
+        self.assertGreater(written["ts"], ok_ts,
+                           "чип записан ПОЗЖЕ OK (форма живого пере-эмита)")
+        self.assertLess(written["event_ts"], ok_ts)
+        self.assertNotIn("K7G", orchlib.supervision_dead_ids(
+            state=self.state),
+            "гашение сверяется с event_ts: OK новее события — погашен")
+        _measure("MEASURE (K7-г) гашение OK-end против event_ts события "
+                 "(не ts чип-записи): «отмывание cutoff» пере-эмитом мертво")
+
+    def test_foreign_front_ok_does_not_clear(self):
+        # (п.2 биндинг, health-ветка) чужой OK не гасит чужую смерть
+        ev_ts = time.time() - 700
+        self._seed_death("K7F", ev_ts, front="F-K7OT")
+        _seed_journal(self.state, [
+            {"ts": ev_ts + 50, "kind": "start", "id": "K7F-OK",
+             "engine": "local", "front": FRONT, "role": ROLE_PROS},
+            {"ts": ev_ts + 51, "kind": "end", "id": "K7F-OK", "exit": 0},
+        ])
+        self.assertIn("K7F", orchlib.supervision_dead_ids(state=self.state),
+                      "OK ДРУГОГО фронта не гасит смерть (биндинг фронта)")
+        # свой OK — гасит
+        _seed_journal(self.state, [
+            {"ts": ev_ts + 100, "kind": "start", "id": "K7F-OK2",
+             "engine": "local", "front": "F-K7OT", "role": ROLE_PROS},
+            {"ts": ev_ts + 101, "kind": "end", "id": "K7F-OK2", "exit": 0},
+        ])
+        self.assertNotIn(
+            "K7F", orchlib.supervision_dead_ids(state=self.state))
+        _measure("MEASURE (K7-binding) health-гашение привязано к фронту: "
+                 "чужой OK не гасит, свой — гасит")
 
 
 if __name__ == "__main__":
